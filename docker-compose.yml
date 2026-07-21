@@ -1,0 +1,12 @@
+services:
+  ao3-viewer:
+    build: .
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    environment:
+      - DOWNLOAD_DIR=/downloads
+      - LOG_PATH=/logs/log.jsonl
+    volumes:
+      - ${DOWNLOAD_DIR}:/downloads:ro
+      - ${LOG_DIR}:/logs:ro
+    restart: unless-stopped
