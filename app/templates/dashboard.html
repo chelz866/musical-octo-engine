@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AO3 Downloads</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>AO3 Downloads</h1>
+    <p class="paths">
+      downloads: <code>{{ download_dir }}</code>
+      &middot;
+      log: <code>{{ log_path }}</code>
+      {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}
+    </p>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-value">{{ stats.total_on_disk }}</div>
+      <div class="stat-label">works on disk</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.total_size_bytes | human_size }}</div>
+      <div class="stat-label">total size</div>
+    </div>
+    <div class="stat {% if stats.missing_but_logged_success %}stat-alert{% endif %}">
+      <div class="stat-value">{{ stats.missing_but_logged_success }}</div>
+      <div class="stat-label">logged success, file missing</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.on_disk_no_log_entry }}</div>
+      <div class="stat-label">on disk, no log entry</div>
+    </div>
+    <div class="stat {% if stats.logged_failure_count %}stat-alert{% endif %}">
+      <div class="stat-value">{{ stats.logged_failure_count }}</div>
+      <div class="stat-label">logged failures</div>
+    </div>
+  </section>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Rating</th>
+        <th>Category</th>
+        <th>Relationship(s)</th>
+        <th>Size</th>
+        <th>Last activity</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>
+          <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener">
+            {{ e.title or "(unknown title)" }}
+          </a>
+        </td>
+        <td>{{ e.author or "—" }}</td>
+        <td>{{ e.rating or "—" }}</td>
+        <td>{{ e.categories | join(", ") if e.categories else "—" }}</td>
+        <td>{{ e.relationships | join(", ") if e.relationships else "—" }}</td>
+        <td>{{ e.size_bytes | human_size }}</td>
+        <td>
+          {% if e.mtime %}{{ e.mtime.strftime("%Y-%m-%d %H:%M") }}
+          {% elif e.log_timestamp %}{{ e.log_timestamp }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if e.parse_error %}
+            <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
+          {% elif e.on_disk %}
+            <span class="badge badge-ok">✓ on disk</span>
+          {% elif e.log_success %}
+            <span class="badge badge-missing">✗ missing</span>
+          {% else %}
+            <span class="badge badge-warn">✗ failed</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="empty">No works found. Check the mounted downloads/log paths.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
