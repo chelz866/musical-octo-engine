@@ -94,21 +94,22 @@ def dismiss_issue(work_id: str, dismissed: bool = Form(...)):
 
 
 @app.post("/issues/{work_id}/edit")
-def edit_issue(
-    work_id: str,
-    title: str = Form(""),
-    author: str = Form(""),
-    fandoms: str = Form(""),
-):
-    fandom_list = [f.strip() for f in fandoms.split(",") if f.strip()]
-    db.set_fields(
-        DB_PATH,
-        work_id,
-        title=title.strip() or None,
-        author=author.strip() or None,
-        fandoms=fandom_list or None,
-    )
+def edit_issue(work_id: str, title: str = Form(""), author: str = Form("")):
+    db.set_title_author(DB_PATH, work_id, title.strip() or None, author.strip() or None)
     return RedirectResponse(url="/issues", status_code=303)
+
+
+@app.post("/works/{work_id}/fandom")
+def set_work_fandom(
+    work_id: str,
+    fandoms: list[str] = Form([]),
+    other_fandoms: str = Form(""),
+    next: str = Form("/"),
+):
+    extra = [f.strip() for f in other_fandoms.split(",") if f.strip()]
+    combined = list(dict.fromkeys([*fandoms, *extra]))  # dedupe, keep order
+    db.set_fandoms(DB_PATH, work_id, combined or None)
+    return RedirectResponse(url=next or "/", status_code=303)
 
 
 @app.get("/fandoms", response_class=HTMLResponse)

@@ -1,9 +1,32 @@
 import json
 import os
 import tempfile
+import zipfile
 
 from app import db
 from app.scanner import load_cached, refresh_cache, scan
+
+_CONTAINER_XML = """<?xml version="1.0"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"""
+
+_OPF_TEMPLATE = """<?xml version='1.0' encoding='utf-8'?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Title</dc:title>
+    <dc:creator>Author</dc:creator>
+    {subjects}
+  </metadata>
+</package>"""
+
+
+def _build_epub(path, subjects):
+    subject_xml = "\n".join(f"<dc:subject>{s}</dc:subject>" for s in subjects)
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("content.opf", _OPF_TEMPLATE.format(subjects=subject_xml))
 
 # Real content doesn't matter here -- these exercise the filename matching,
 # not epub parsing (a bad zip still produces a WorkEntry with parse_error set,
@@ -146,3 +169,35 @@ def test_load_cached_applies_overrides_same_as_live_scan():
         result = load_cached(db_path)
     assert result.entries[0].work_id == "42"
     assert result.entries[0].title == "Manual Only"
+
+
+def test_fandom_candidates_survive_refresh_cache_round_trip():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(
+            os.path.join(downloads, "1_Title_Author.epub"),
+            ["Fanworks", "Torchwood", "Ianto Jones"],
+        )
+
+        refresh_cache(downloads, None, db_path)
+        entry = load_cached(db_path).entries[0]
+
+    assert entry.fandoms == ["Torchwood"]
+    assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]
+
+
+def test_fandom_override_does_not_affect_fandom_candidates():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(
+            os.path.join(downloads, "1_Title_Author.epub"),
+            ["Fanworks", "Torchwood", "Ianto Jones"],
+        )
+        refresh_cache(downloads, None, db_path)
+        db.set_fandoms(db_path, "1", ["Ianto Jones"])  # user corrects the guess
+
+        entry = load_cached(db_path).entries[0]
+    assert entry.fandoms == ["Ianto Jones"]
+    assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]  # picker options unchanged

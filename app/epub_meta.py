@@ -80,6 +80,7 @@ class EpubMetadata:
     categories: list[str] = field(default_factory=list)
     relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
+    fandom_candidates: list[str] = field(default_factory=list)  # every untyped tag, for manual correction
 
 
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
@@ -150,5 +151,6 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
             leftover_subjects.append(subject)
 
     meta.fandoms = _guess_fandoms(leftover_subjects)
+    meta.fandom_candidates = leftover_subjects
 
     return meta

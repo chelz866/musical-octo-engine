@@ -190,6 +190,68 @@ def test_delete_tracked_feed_also_clears_its_cached_entries():
         assert db.load_feed_entries(path, feed_id) == []
 
 
+def test_set_fandoms_preserves_title_author_and_dismissed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_fields(path, "1", title="Fixed Title", author="Fixed Author", fandoms=None)
+        db.set_dismissed(path, "1", True)
+
+        db.set_fandoms(path, "1", ["Torchwood", "Doctor Who"])
+
+        override = db.get_override(path, "1")
+        assert override.title == "Fixed Title"
+        assert override.author == "Fixed Author"
+        assert override.dismissed is True
+        assert override.fandoms == ["Torchwood", "Doctor Who"]
+
+
+def test_set_title_author_preserves_fandoms_and_dismissed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_fandoms(path, "1", ["Torchwood"])
+        db.set_dismissed(path, "1", True)
+
+        db.set_title_author(path, "1", "New Title", "New Author")
+
+        override = db.get_override(path, "1")
+        assert override.fandoms == ["Torchwood"]
+        assert override.dismissed is True
+        assert override.title == "New Title"
+        assert override.author == "New Author"
+
+
+def test_init_db_adds_missing_column_to_existing_table_without_losing_data():
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+
+        # Simulate a database created by an older version of the app, before
+        # fandom_candidates existed on works_cache.
+        old_columns = [c for c in db.WORKS_CACHE_COLUMNS if c != "fandom_candidates"]
+        conn = sqlite3.connect(path)
+        conn.execute(f"CREATE TABLE works_cache ({', '.join(f'{c} TEXT' for c in old_columns)}, PRIMARY KEY (work_id))")
+        conn.execute(
+            f"INSERT INTO works_cache ({', '.join(old_columns)}) VALUES ({', '.join('?' for _ in old_columns)})",
+            tuple("1" if c == "work_id" else None for c in old_columns),
+        )
+        conn.commit()
+        conn.close()
+
+        db.init_db(path)  # should migrate in place, not wipe existing rows
+
+        rows = db.load_works_cache(path)
+        assert len(rows) == 1
+        assert rows[0]["work_id"] == "1"
+        assert rows[0]["fandom_candidates"] is None
+
+        # and the newly-added column is now usable
+        db.save_works_cache(path, [{**{c: None for c in db.WORKS_CACHE_COLUMNS}, "work_id": "2", "fandom_candidates": "Torchwood"}])
+        assert db.load_works_cache(path)[0]["fandom_candidates"] == "Torchwood"
+
+
 def test_meta_get_and_set():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

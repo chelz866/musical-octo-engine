@@ -178,6 +178,32 @@ def test_fandom_guess_keeps_first_item_even_if_name_shaped():
     assert meta.relationships == []
 
 
+def test_fandom_candidates_include_every_leftover_tag_not_just_the_guess():
+    # Bluebird's guess stops at the first character-shaped tag, but the full
+    # candidate list (for manual correction) should still include everything
+    # left over, characters and freeform tags included.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _build_epub(
+            tmp,
+            title="Bluebird",
+            author="Basingstoke",
+            subjects=[
+                "Fanworks",
+                "Explicit",
+                "Torchwood",
+                "Addams Family (1991)",
+                "Jack Harkness/Ianto Jones",
+                "Ianto Jones",
+                "Crossover",
+                "Multi",
+            ],
+        )
+        meta = parse_epub_metadata(path)
+
+    assert meta.fandoms == ["Torchwood", "Addams Family (1991)"]
+    assert meta.fandom_candidates == ["Torchwood", "Addams Family (1991)", "Ianto Jones", "Crossover"]
+
+
 def test_bad_zip_raises_parse_error():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "not_an_epub.epub")

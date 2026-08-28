@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_fandom_picker.html" as picker %}
 {% block title %}Issues - AO3 Downloads{% endblock %}
 {% block content %}
   <header>
@@ -44,9 +45,10 @@
           <form method="post" action="/issues/{{ e.work_id }}/edit" class="edit-form">
             <input type="text" name="title" placeholder="Title" value="{{ e.title or '' }}">
             <input type="text" name="author" placeholder="Author" value="{{ e.author or '' }}">
-            <input type="text" name="fandoms" placeholder="Fandom(s), comma-separated" value="{{ e.fandoms | join(', ') }}">
             <button type="submit">Save</button>
           </form>
+          Fandom(s): {{ e.fandoms | join(", ") if e.fandoms else "—" }}
+          {{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, "/issues") }}
         </td>
         <td>
           <form method="post" action="/issues/{{ e.work_id }}/dismiss">

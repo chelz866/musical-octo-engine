@@ -30,9 +30,9 @@ class TrackedFeed:
 
 WORKS_CACHE_COLUMNS = [
     "work_id", "title", "author", "rating", "warnings", "categories",
-    "relationships", "fandoms", "series", "series_index", "published_date",
-    "file_path", "size_bytes", "mtime", "on_disk", "log_success",
-    "log_timestamp", "parse_error", "issue_type",
+    "relationships", "fandoms", "fandom_candidates", "series", "series_index",
+    "published_date", "file_path", "size_bytes", "mtime", "on_disk",
+    "log_success", "log_timestamp", "parse_error", "issue_type",
 ]
 
 FEED_ENTRY_COLUMNS = [
@@ -94,6 +94,18 @@ def init_db(path: str) -> None:
             )
             """
         )
+        _ensure_column(conn, "works_cache", "fandom_candidates")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str = "TEXT") -> None:
+    """Adds a column to an existing table if it's missing, for upgrading a
+    database created by an older version of the app (CREATE TABLE IF NOT
+    EXISTS is a no-op once the table already exists, so new columns added
+    to WORKS_CACHE_COLUMNS etc. need this to reach existing installs).
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
 @contextmanager
@@ -145,6 +157,39 @@ def set_fields(path: str, work_id: str, title: str | None, author: str | None, f
                 author = excluded.author, fandoms = excluded.fandoms
             """,
             (work_id, title, author, fandoms_str),
+        )
+
+
+def set_title_author(path: str, work_id: str, title: str | None, author: str | None) -> None:
+    """Updates only title/author, leaving any existing fandoms override and
+    dismissed flag untouched -- the Issues page's title/author form no
+    longer touches fandoms at all, that's the fandom picker's job now.
+    """
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO overrides (work_id, title, author)
+            VALUES (?, ?, ?)
+            ON CONFLICT(work_id) DO UPDATE SET title = excluded.title, author = excluded.author
+            """,
+            (work_id, title, author),
+        )
+
+
+def set_fandoms(path: str, work_id: str, fandoms: list[str] | None) -> None:
+    """Updates only the fandoms override, leaving any existing title/author
+    override and dismissed flag untouched (unlike set_fields, which sets
+    all three together and is meant for the Issues page's full edit form).
+    """
+    fandoms_str = "\x1f".join(fandoms) if fandoms else None
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO overrides (work_id, fandoms)
+            VALUES (?, ?)
+            ON CONFLICT(work_id) DO UPDATE SET fandoms = excluded.fandoms
+            """,
+            (work_id, fandoms_str),
         )
 
 

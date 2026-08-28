@@ -1,0 +1,19 @@
+{% macro fandom_picker(work_id, candidates, selected, next_path) %}
+<details class="fandom-editor">
+  <summary>edit</summary>
+  <form method="post" action="/works/{{ work_id }}/fandom">
+    <input type="hidden" name="next" value="{{ next_path }}">
+    {% for cand in candidates %}
+    <label class="fandom-option">
+      <input type="checkbox" name="fandoms" value="{{ cand }}" {% if cand in selected %}checked{% endif %}>
+      {{ cand }}
+    </label>
+    {% endfor %}
+    {% if not candidates %}
+    <p class="hint">No candidate tags found in this file's metadata.</p>
+    {% endif %}
+    <input type="text" name="other_fandoms" placeholder="Other (comma-separated)" class="fandom-other">
+    <button type="submit">Save</button>
+  </form>
+</details>
+{% endmacro %}

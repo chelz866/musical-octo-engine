@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_fandom_picker.html" as picker %}
 {% block title %}AO3 Downloads{% endblock %}
 {% block content %}
   <header>
@@ -70,6 +71,7 @@
           {% if e.fandoms %}
             {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
           {% else %}—{% endif %}
+          {{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}
         </td>
         <td>{{ e.size_bytes | human_size }}</td>
         <td>

@@ -29,56 +29,59 @@
     </div>
     <p class="hint"><a href="{{ f.feed.url }}" target="_blank" rel="noopener">{{ f.feed.url }}</a></p>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Author</th>
-          <th>Chapters</th>
-          <th>Complete?</th>
-          <th>Have it?</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in f.rows %}
-        <tr>
-          <td>
-            <a href="https://archiveofourown.org/works/{{ row.entry.work_id }}" target="_blank" rel="noopener">
-              {{ row.entry.title or "(unknown title)" }}
-            </a>
-          </td>
-          <td>{{ row.entry.author or "—" }}</td>
-          <td>
-            {% if row.entry.chapters_have is not none %}
-              {{ row.entry.chapters_have }}/{{ row.entry.chapters_total if row.entry.chapters_total is not none else "?" }}
-            {% else %}—{% endif %}
-          </td>
-          <td>
-            {% if row.entry.chapters_total is none %}unknown
-            {% elif row.entry.is_complete %}<span class="badge badge-ok">yes</span>
-            {% else %}no{% endif %}
-          </td>
-          <td>
-            {% if row.on_disk %}<span class="badge badge-ok">✓</span>
-            {% else %}<span class="badge badge-missing">✗</span>{% endif %}
-          </td>
-          <td>
-            {% if row.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
-            {% elif row.status == "up_to_date" %}<span class="badge badge-ok">up to date</span>
-            {% elif row.status == "may_need_update" %}<span class="badge badge-warn">may need update</span>
-            {% else %}<span class="hint">unknown</span>{% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="6" class="empty">
-            {% if f.feed.title %}No entries in this feed.{% else %}Not fetched yet &mdash; click Refresh above.{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <details open>
+      <summary class="feed-table-toggle">{{ f.rows | length }} work(s)</summary>
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Author</th>
+            <th>Chapters</th>
+            <th>Complete?</th>
+            <th>Have it?</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in f.rows %}
+          <tr>
+            <td>
+              <a href="https://archiveofourown.org/works/{{ row.entry.work_id }}" target="_blank" rel="noopener">
+                {{ row.entry.title or "(unknown title)" }}
+              </a>
+            </td>
+            <td>{{ row.entry.author or "—" }}</td>
+            <td>
+              {% if row.entry.chapters_have is not none %}
+                {{ row.entry.chapters_have }}/{{ row.entry.chapters_total if row.entry.chapters_total is not none else "?" }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if row.entry.chapters_total is none %}unknown
+              {% elif row.entry.is_complete %}<span class="badge badge-ok">yes</span>
+              {% else %}no{% endif %}
+            </td>
+            <td>
+              {% if row.on_disk %}<span class="badge badge-ok">✓</span>
+              {% else %}<span class="badge badge-missing">✗</span>{% endif %}
+            </td>
+            <td>
+              {% if row.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
+              {% elif row.status == "up_to_date" %}<span class="badge badge-ok">up to date</span>
+              {% elif row.status == "may_need_update" %}<span class="badge badge-warn">may need update</span>
+              {% else %}<span class="hint">unknown</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="empty">
+              {% if f.feed.title %}No entries in this feed.{% else %}Not fetched yet &mdash; click Refresh above.{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
   </section>
   {% else %}
   <p class="empty">No feeds tracked yet &mdash; add one above.</p>

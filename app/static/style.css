@@ -86,8 +86,48 @@ main {
   min-width: 90px;
 }
 
-.edit-form input[name="fandoms"] {
-  min-width: 160px;
+.fandom-editor {
+  margin-top: 0.25rem;
+}
+
+.fandom-editor summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.fandom-editor form {
+  margin-top: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 320px;
+}
+
+.fandom-option {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: normal;
+  padding: 0.1rem 0;
+}
+
+.fandom-other {
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.feed-table-toggle {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
 }
 
 .feed-block {

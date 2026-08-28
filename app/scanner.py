@@ -35,6 +35,7 @@ class WorkEntry:
     categories: list[str] = field(default_factory=list)
     relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
+    fandom_candidates: list[str] = field(default_factory=list)
     series: str | None = None
     series_index: str | None = None
     published_date: str | None = None
@@ -93,6 +94,7 @@ def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
                 entry.categories = meta.categories
                 entry.relationships = meta.relationships
                 entry.fandoms = meta.fandoms
+                entry.fandom_candidates = meta.fandom_candidates
                 entry.series = meta.series
                 entry.series_index = meta.series_index
                 entry.published_date = meta.published_date
@@ -214,6 +216,7 @@ def _entry_to_row(entry: WorkEntry) -> dict:
         "categories": _join(entry.categories),
         "relationships": _join(entry.relationships),
         "fandoms": _join(entry.fandoms),
+        "fandom_candidates": _join(entry.fandom_candidates),
         "series": entry.series,
         "series_index": entry.series_index,
         "published_date": entry.published_date,
@@ -238,6 +241,7 @@ def _row_to_entry(row: dict) -> WorkEntry:
         categories=_split(row["categories"]),
         relationships=_split(row["relationships"]),
         fandoms=_split(row["fandoms"]),
+        fandom_candidates=_split(row["fandom_candidates"]),
         series=row["series"],
         series_index=row["series_index"],
         published_date=row["published_date"],

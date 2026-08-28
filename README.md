@@ -21,13 +21,17 @@ instantly instead of re-walking the filesystem and hitting AO3 on every request.
   from the Fandom column or the Fandoms page).
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
-  toggle "show dismissed" to see them again) and has an inline form to manually fix the title,
-  author, or fandom(s) when the parsed/logged values are wrong or missing.
+  toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
-  you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`).
+  you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`). Each
+  feed's table is collapsible once it gets long.
+
+Fandom can be corrected on both Downloads and Issues via a checkbox picker ("edit" under the
+Fandom column) listing every untyped tag the epub actually has -- pick the real fandom(s) instead
+of retyping a name from scratch, with a free-text field for anything not in the list.
 
 ## Running
 
