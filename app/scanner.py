@@ -2,7 +2,9 @@
 
 No database: this scans the filesystem on every call so the view is always
 accurate. Reconciliation is keyed by AO3 work id, extracted both from the
-`<id>_...epub` filename convention and from log.jsonl's work URLs.
+`<id>_...epub` / `<id> ...epub` filename convention and from log.jsonl's
+work URLs. ao3downloader's settings.ini can customize the filename pattern,
+so the separator after the leading id may be an underscore or a space.
 """
 
 import os
@@ -13,7 +15,7 @@ from datetime import datetime
 from .epub_meta import EpubParseError, parse_epub_metadata
 from .log_reader import LogRecord, parse_log
 
-FILENAME_RE = re.compile(r"^(\d+)_.*\.epub$", re.IGNORECASE)
+FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
 
 
 @dataclass
