@@ -103,3 +103,101 @@ def test_delete_tracked_feed():
 
         db.delete_tracked_feed(path, feed_id)
         assert db.list_tracked_feeds(path) == []
+
+
+def _sample_work_row(work_id="1", **overrides):
+    row = {c: None for c in db.WORKS_CACHE_COLUMNS}
+    row.update({
+        "work_id": work_id, "title": "A Title", "author": "An Author",
+        "size_bytes": 123, "on_disk": 1, "log_success": 1,
+    })
+    row.update(overrides)
+    return row
+
+
+def test_save_and_load_works_cache_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_works_cache(path, [_sample_work_row("1"), _sample_work_row("2", title="Other")])
+
+        rows = db.load_works_cache(path)
+        assert {r["work_id"] for r in rows} == {"1", "2"}
+        assert next(r for r in rows if r["work_id"] == "1")["title"] == "A Title"
+
+
+def test_save_works_cache_replaces_previous_snapshot():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_works_cache(path, [_sample_work_row("1")])
+        db.save_works_cache(path, [_sample_work_row("2")])
+
+        rows = db.load_works_cache(path)
+        assert {r["work_id"] for r in rows} == {"2"}
+
+
+def _sample_feed_row(work_id="1", **overrides):
+    row = {"feed_id": 1, "work_id": work_id, "title": "T", "author": "A",
+           "chapters_have": 1, "chapters_total": 1, "feed_updated": "2026-01-01T00:00:00Z"}
+    row.update(overrides)
+    return row
+
+
+def test_save_and_load_feed_entries_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_feed_entries(path, 1, [_sample_feed_row("1"), _sample_feed_row("2")])
+
+        rows = db.load_feed_entries(path, 1)
+        assert {r["work_id"] for r in rows} == {"1", "2"}
+
+
+def test_save_feed_entries_only_replaces_that_feed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1)])
+        db.save_feed_entries(path, 2, [_sample_feed_row("2", feed_id=2)])
+
+        db.save_feed_entries(path, 1, [_sample_feed_row("3", feed_id=1)])
+
+        assert {r["work_id"] for r in db.load_feed_entries(path, 1)} == {"3"}
+        assert {r["work_id"] for r in db.load_feed_entries(path, 2)} == {"2"}
+
+
+def test_set_tracked_feed_title():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
+        feed_id = db.list_tracked_feeds(path)[0].id
+
+        db.set_tracked_feed_title(path, feed_id, "Fetched Feed Title")
+        assert db.list_tracked_feeds(path)[0].title == "Fetched Feed Title"
+
+
+def test_delete_tracked_feed_also_clears_its_cached_entries():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
+        feed_id = db.list_tracked_feeds(path)[0].id
+        db.save_feed_entries(path, feed_id, [_sample_feed_row("1", feed_id=feed_id)])
+
+        db.delete_tracked_feed(path, feed_id)
+        assert db.load_feed_entries(path, feed_id) == []
+
+
+def test_meta_get_and_set():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.get_meta(path, "last_refreshed_at") is None
+
+        db.set_meta(path, "last_refreshed_at", "2026-01-01T00:00:00")
+        assert db.get_meta(path, "last_refreshed_at") == "2026-01-01T00:00:00"
+
+        db.set_meta(path, "last_refreshed_at", "2026-01-02T00:00:00")
+        assert db.get_meta(path, "last_refreshed_at") == "2026-01-02T00:00:00"

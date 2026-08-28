@@ -1,7 +1,13 @@
-"""Combine a live scan of the downloads folder with ao3downloader's log.jsonl.
+"""Combine a scan of the downloads folder with ao3downloader's log.jsonl.
 
-No database: this scans the filesystem on every call so the view is always
-accurate. Reconciliation is keyed by AO3 work id, extracted both from the
+Two ways to get a result: `scan()` does it live (always accurate, but walks
+the filesystem and re-parses every epub on every call), and `load_cached()`
+reads the snapshot `refresh_cache()` last saved to SQLite (fast, but only as
+fresh as the last manual refresh). Manual overrides are applied at read time
+in both paths, never baked into the cache, so editing a work on the Issues
+page shows up immediately without needing a refresh.
+
+Reconciliation is keyed by AO3 work id, extracted both from the
 `<id>_...epub` / `<id> ...epub` filename convention and from log.jsonl's
 work URLs. ao3downloader's settings.ini can customize the filename pattern,
 so the separator after the leading id may be an underscore or a space.
@@ -97,24 +103,20 @@ def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
     return entries
 
 
-def scan(download_dir: str, log_path: str | None, db_path: str | None = None) -> ScanResult:
+def scan_raw(download_dir: str, log_path: str | None) -> list[WorkEntry]:
+    """Live disk+log merge with no overrides applied -- the expensive part
+    (filesystem walk + epub parsing) that `refresh_cache` snapshots to SQLite.
+    """
     disk_entries = _scan_disk(download_dir)
 
     log_records: dict[str, LogRecord] = {}
     if log_path and os.path.isfile(log_path):
         log_records = parse_log(log_path)
 
-    overrides: dict[str, db.Override] = {}
-    if db_path:
-        overrides = db.get_all_overrides(db_path)
-
-    stats = ScanStats()
-    result_entries: list[WorkEntry] = []
-
-    for work_id in set(disk_entries) | set(log_records) | set(overrides):
+    entries: list[WorkEntry] = []
+    for work_id in set(disk_entries) | set(log_records):
         entry = disk_entries.get(work_id)
         record = log_records.get(work_id)
-        override = overrides.get(work_id)
 
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
@@ -126,6 +128,31 @@ def scan(download_dir: str, log_path: str | None, db_path: str | None = None) ->
             entry.log_success = record.success
             entry.log_timestamp = record.timestamp
 
+        if entry.parse_error:
+            entry.issue_type = "parse_error"
+        elif not entry.on_disk and record and record.success:
+            entry.issue_type = "missing"
+        elif record and not record.success:
+            entry.issue_type = "failed"
+
+        entries.append(entry)
+
+    return entries
+
+
+def _finalize(entries: list[WorkEntry], overrides: dict[str, db.Override]) -> ScanResult:
+    stats = ScanStats()
+    result_entries: list[WorkEntry] = []
+
+    all_ids = {e.work_id for e in entries} | set(overrides)
+    by_id = {e.work_id: e for e in entries}
+
+    for work_id in all_ids:
+        entry = by_id.get(work_id)
+        if entry is None:
+            entry = WorkEntry(work_id=work_id, on_disk=False)
+
+        override = overrides.get(work_id)
         if override:
             if override.title:
                 entry.title = override.title
@@ -138,25 +165,91 @@ def scan(download_dir: str, log_path: str | None, db_path: str | None = None) ->
         if entry.on_disk:
             stats.total_on_disk += 1
             stats.total_size_bytes += entry.size_bytes or 0
-            if record is None:
+            if entry.log_success is None:
                 stats.on_disk_no_log_entry += 1
-        elif record and record.success:
+        elif entry.log_success:
             stats.missing_but_logged_success += 1
 
-        if record and not record.success:
+        if entry.log_success is False:
             stats.logged_failure_count += 1
-
-        if entry.parse_error:
-            entry.issue_type = "parse_error"
-        elif not entry.on_disk and record and record.success:
-            entry.issue_type = "missing"
-        elif record and not record.success:
-            entry.issue_type = "failed"
 
         result_entries.append(entry)
 
     result_entries.sort(key=lambda e: (e.title or "").lower())
     return ScanResult(entries=result_entries, stats=stats)
+
+
+def scan(download_dir: str, log_path: str | None, db_path: str | None = None) -> ScanResult:
+    overrides = db.get_all_overrides(db_path) if db_path else {}
+    return _finalize(scan_raw(download_dir, log_path), overrides)
+
+
+def refresh_cache(download_dir: str, log_path: str | None, db_path: str) -> ScanResult:
+    entries = scan_raw(download_dir, log_path)
+    db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
+    return _finalize(entries, db.get_all_overrides(db_path))
+
+
+def load_cached(db_path: str) -> ScanResult:
+    rows = db.load_works_cache(db_path)
+    entries = [_row_to_entry(row) for row in rows]
+    return _finalize(entries, db.get_all_overrides(db_path))
+
+
+def _join(values: list[str]) -> str | None:
+    return "\x1f".join(values) if values else None
+
+
+def _split(value: str | None) -> list[str]:
+    return [v for v in value.split("\x1f") if v] if value else []
+
+
+def _entry_to_row(entry: WorkEntry) -> dict:
+    return {
+        "work_id": entry.work_id,
+        "title": entry.title,
+        "author": entry.author,
+        "rating": entry.rating,
+        "warnings": _join(entry.warnings),
+        "categories": _join(entry.categories),
+        "relationships": _join(entry.relationships),
+        "fandoms": _join(entry.fandoms),
+        "series": entry.series,
+        "series_index": entry.series_index,
+        "published_date": entry.published_date,
+        "file_path": entry.file_path,
+        "size_bytes": entry.size_bytes,
+        "mtime": entry.mtime.isoformat() if entry.mtime else None,
+        "on_disk": int(entry.on_disk),
+        "log_success": None if entry.log_success is None else int(entry.log_success),
+        "log_timestamp": entry.log_timestamp,
+        "parse_error": entry.parse_error,
+        "issue_type": entry.issue_type,
+    }
+
+
+def _row_to_entry(row: dict) -> WorkEntry:
+    return WorkEntry(
+        work_id=row["work_id"],
+        title=row["title"],
+        author=row["author"],
+        rating=row["rating"],
+        warnings=_split(row["warnings"]),
+        categories=_split(row["categories"]),
+        relationships=_split(row["relationships"]),
+        fandoms=_split(row["fandoms"]),
+        series=row["series"],
+        series_index=row["series_index"],
+        published_date=row["published_date"],
+        file_path=row["file_path"],
+        size_bytes=row["size_bytes"],
+        mtime=datetime.fromisoformat(row["mtime"]) if row["mtime"] else None,
+        on_disk=bool(row["on_disk"]),
+        log_success=None if row["log_success"] is None else bool(row["log_success"]),
+        log_timestamp=row["log_timestamp"],
+        parse_error=row["parse_error"],
+        issue_type=row["issue_type"],
+    )
 
 
 def effective_timestamp(entry: WorkEntry) -> datetime | None:

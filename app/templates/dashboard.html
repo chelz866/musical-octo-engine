@@ -91,7 +91,10 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="9" class="empty">No works found. Check the mounted downloads/log paths.</td>
+        <td colspan="9" class="empty">
+          {% if last_refreshed %}No works found. Check the mounted downloads/log paths.
+          {% else %}No data yet &mdash; click Refresh above to scan your downloads folder.{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

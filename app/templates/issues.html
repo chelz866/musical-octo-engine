@@ -57,7 +57,9 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="4" class="empty">No issues 🎉</td>
+        <td colspan="4" class="empty">
+          {% if last_refreshed %}No issues 🎉{% else %}No data yet &mdash; click Refresh above.{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

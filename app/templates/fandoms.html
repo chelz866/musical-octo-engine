@@ -24,7 +24,9 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="2" class="empty">No fandoms found yet.</td>
+        <td colspan="2" class="empty">
+          {% if last_refreshed %}No fandoms found yet.{% else %}No data yet &mdash; click Refresh above.{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

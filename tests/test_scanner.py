@@ -3,7 +3,7 @@ import os
 import tempfile
 
 from app import db
-from app.scanner import scan
+from app.scanner import load_cached, refresh_cache, scan
 
 # Real content doesn't matter here -- these exercise the filename matching,
 # not epub parsing (a bad zip still produces a WorkEntry with parse_error set,
@@ -94,3 +94,55 @@ def test_override_applies_title_author_fandoms_and_dismissed():
     assert entry.author == "Real Author"
     assert entry.fandoms == ["Torchwood"]
     assert entry.dismissed is True
+
+
+def test_load_cached_matches_empty_before_any_refresh():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+
+        result = load_cached(db_path)
+    assert result.entries == []
+    assert result.stats.total_on_disk == 0
+
+
+def test_refresh_cache_populates_cache_and_load_cached_reads_it_back():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        open(os.path.join(downloads, "7773_The_Business__Basingstoke.epub"), "w").close()
+
+        live_result = refresh_cache(downloads, None, db_path)
+        assert live_result.stats.total_on_disk == 1
+
+        cached_result = load_cached(db_path)
+    assert {e.work_id for e in cached_result.entries} == {"7773"}
+    assert cached_result.stats.total_on_disk == 1
+    assert cached_result.entries[0].issue_type == "parse_error"  # empty file isn't a valid epub
+
+
+def test_load_cached_does_not_reflect_filesystem_changes_until_refreshed_again():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        path = os.path.join(downloads, "7773_The_Business__Basingstoke.epub")
+        open(path, "w").close()
+        refresh_cache(downloads, None, db_path)
+
+        os.remove(path)
+
+        # the cache still shows the file as present -- this is the whole
+        # point of caching, it's only as fresh as the last refresh
+        assert load_cached(db_path).stats.total_on_disk == 1
+
+
+def test_load_cached_applies_overrides_same_as_live_scan():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        refresh_cache(downloads, None, db_path)
+        db.set_fields(db_path, "42", title="Manual Only", author=None, fandoms=None)
+
+        result = load_cached(db_path)
+    assert result.entries[0].work_id == "42"
+    assert result.entries[0].title == "Manual Only"

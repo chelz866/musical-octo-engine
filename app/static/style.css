@@ -29,6 +29,23 @@ body {
   color: inherit;
 }
 
+.topnav {
+  align-items: center;
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.refresh-form button {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+
 main {
   margin: 2rem;
   max-width: 1100px;

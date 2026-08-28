@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from . import db
+
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
 WORK_ID_RE = re.compile(r"Work/(\d+)")
@@ -136,3 +138,41 @@ def fetch_feed(url: str, timeout: int = 15) -> FeedResult:
         return parse_feed_xml(xml_text)
     except ET.ParseError as exc:
         raise FeedFetchError(f"could not parse feed from {url}: {exc}") from exc
+
+
+def _entry_to_row(feed_id: int, entry: FeedEntry) -> dict:
+    return {
+        "feed_id": feed_id,
+        "work_id": entry.work_id,
+        "title": entry.title,
+        "author": entry.author,
+        "chapters_have": entry.chapters_have,
+        "chapters_total": entry.chapters_total,
+        "feed_updated": entry.feed_updated,
+    }
+
+
+def _row_to_entry(row: dict) -> FeedEntry:
+    return FeedEntry(
+        work_id=row["work_id"],
+        title=row["title"],
+        author=row["author"],
+        chapters_have=row["chapters_have"],
+        chapters_total=row["chapters_total"],
+        feed_updated=row["feed_updated"],
+    )
+
+
+def refresh_feed_cache(db_path: str, feed: db.TrackedFeed) -> FeedResult:
+    """Fetches live and overwrites the cache for this feed. Raises
+    FeedFetchError (and leaves the existing cache untouched) on failure.
+    """
+    result = fetch_feed(feed.url)
+    db.save_feed_entries(db_path, feed.id, [_entry_to_row(feed.id, e) for e in result.entries])
+    db.set_tracked_feed_title(db_path, feed.id, result.title)
+    return result
+
+
+def load_cached_feed(db_path: str, feed: db.TrackedFeed) -> FeedResult:
+    rows = db.load_feed_entries(db_path, feed.id)
+    return FeedResult(title=feed.title, entries=[_row_to_entry(row) for row in rows])

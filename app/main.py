@@ -1,5 +1,7 @@
 import os
 from collections import Counter
+from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,6 +13,8 @@ from . import db, rss, scanner
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
 DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
+
+LAST_REFRESHED_KEY = "last_refreshed_at"
 
 BASE_DIR = os.path.dirname(__file__)
 
@@ -39,16 +43,24 @@ def human_size(num_bytes: int | None) -> str:
 templates.env.filters["human_size"] = human_size
 
 
+def _base_context(request: Request) -> dict:
+    return {
+        "request": request,
+        "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
+        "refresh_error": request.query_params.get("refresh_error"),
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, fandom: str | None = None):
-    result = scanner.scan(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    result = scanner.load_cached(DB_PATH)
     entries = result.entries
     if fandom:
         entries = [e for e in entries if fandom in e.fandoms]
     return templates.TemplateResponse(
         "dashboard.html",
         {
-            "request": request,
+            **_base_context(request),
             "entries": entries,
             "stats": result.stats,
             "download_dir": DOWNLOAD_DIR,
@@ -61,14 +73,14 @@ def dashboard(request: Request, fandom: str | None = None):
 
 @app.get("/issues", response_class=HTMLResponse)
 def issues(request: Request, show_dismissed: bool = False):
-    result = scanner.scan(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    result = scanner.load_cached(DB_PATH)
     issue_entries = [e for e in result.entries if e.issue_type]
     if not show_dismissed:
         issue_entries = [e for e in issue_entries if not e.dismissed]
     return templates.TemplateResponse(
         "issues.html",
         {
-            "request": request,
+            **_base_context(request),
             "entries": issue_entries,
             "show_dismissed": show_dismissed,
         },
@@ -101,7 +113,7 @@ def edit_issue(
 
 @app.get("/fandoms", response_class=HTMLResponse)
 def fandoms(request: Request):
-    result = scanner.scan(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    result = scanner.load_cached(DB_PATH)
     counts = Counter()
     for entry in result.entries:
         for name in entry.fandoms:
@@ -110,7 +122,7 @@ def fandoms(request: Request):
     return templates.TemplateResponse(
         "fandoms.html",
         {
-            "request": request,
+            **_base_context(request),
             "fandoms": sorted_fandoms,
         },
     )
@@ -118,16 +130,12 @@ def fandoms(request: Request):
 
 @app.get("/tracked", response_class=HTMLResponse)
 def tracked(request: Request):
-    result = scanner.scan(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    result = scanner.load_cached(DB_PATH)
     local_by_id = {e.work_id: e for e in result.entries}
 
     feeds = []
     for feed in db.list_tracked_feeds(DB_PATH):
-        try:
-            feed_result = rss.fetch_feed(feed.url)
-        except rss.FeedFetchError as exc:
-            feeds.append({"feed": feed, "title": None, "rows": [], "error": str(exc)})
-            continue
+        feed_result = rss.load_cached_feed(DB_PATH, feed)
 
         rows = []
         for entry in feed_result.entries:
@@ -139,12 +147,12 @@ def tracked(request: Request):
                 "on_disk": on_disk,
                 "status": rss.assess_status(entry, on_disk, local_timestamp),
             })
-        feeds.append({"feed": feed, "title": feed_result.title, "rows": rows, "error": None})
+        feeds.append({"feed": feed, "title": feed_result.title, "rows": rows})
 
     return templates.TemplateResponse(
         "tracked.html",
         {
-            "request": request,
+            **_base_context(request),
             "feeds": feeds,
         },
     )
@@ -160,3 +168,23 @@ def add_tracked_feed(url: str = Form(...), label: str = Form("")):
 def delete_tracked_feed(feed_id: int):
     db.delete_tracked_feed(DB_PATH, feed_id)
     return RedirectResponse(url="/tracked", status_code=303)
+
+
+@app.post("/refresh")
+def refresh(next: str = Form("/")):
+    scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+
+    errors = []
+    for feed in db.list_tracked_feeds(DB_PATH):
+        try:
+            rss.refresh_feed_cache(DB_PATH, feed)
+        except rss.FeedFetchError as exc:
+            errors.append(f"{feed.label or feed.url}: {exc}")
+
+    db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
+
+    redirect_url = next or "/"
+    if errors:
+        sep = "&" if "?" in redirect_url else "?"
+        redirect_url += f"{sep}refresh_error={quote('; '.join(errors))}"
+    return RedirectResponse(url=redirect_url, status_code=303)

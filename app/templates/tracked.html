@@ -6,9 +6,10 @@
     <p class="paths">
       Add any AO3 Atom feed URL (a tag, series, or user feed &mdash; e.g.
       <code>https://archiveofourown.org/tags/&lt;id&gt;/feed.atom</code>).
-      Fetched live on each page load. "Status" compares the feed's last-updated
-      time against when we downloaded/logged the work &mdash; a hint, not a
-      guarantee, since it isn't comparing exact chapter counts.
+      Entries are cached &mdash; click Refresh above to re-fetch. "Status"
+      compares the feed's last-updated time against when we downloaded/logged
+      the work &mdash; a hint, not a guarantee, since it isn't comparing exact
+      chapter counts.
     </p>
   </header>
 
@@ -28,9 +29,6 @@
     </div>
     <p class="hint"><a href="{{ f.feed.url }}" target="_blank" rel="noopener">{{ f.feed.url }}</a></p>
 
-    {% if f.error %}
-      <p class="badge badge-warn">Could not fetch feed: {{ f.error }}</p>
-    {% else %}
     <table>
       <thead>
         <tr>
@@ -74,12 +72,13 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="empty">No entries in this feed.</td>
+          <td colspan="6" class="empty">
+            {% if f.feed.title %}No entries in this feed.{% else %}Not fetched yet &mdash; click Refresh above.{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% endif %}
   </section>
   {% else %}
   <p class="empty">No feeds tracked yet &mdash; add one above.</p>

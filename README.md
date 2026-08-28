@@ -9,6 +9,12 @@ It does not trigger downloads -- it only looks at files already on disk, the exi
 small local SQLite file for manual corrections and tracked feeds you add yourself. The one
 exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
 
+Everything is cached in that same SQLite file and only updated when you click **Refresh** (top
+right of every page) -- there's no background polling or scheduled job. A refresh re-scans the
+downloads folder/log and re-fetches every tracked feed. Until you click it, pages read the last
+snapshot even if files on disk have changed since -- that's the tradeoff for pages loading
+instantly instead of re-walking the filesystem and hitting AO3 on every request.
+
 ## Pages
 
 - **Downloads** (`/`) -- the full list with stats, filterable by fandom (`?fandom=...`, linked
@@ -42,7 +48,10 @@ exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you exp
   (see `app/epub_meta.py`) that can occasionally include a character name or miss a fandom --
   use the Issues page's manual edit to correct it for a specific work.
 - The downloads folder and log file are mounted read-only; only the small `/data` SQLite file
-  (manual overrides/dismissals) is writable, and nothing here downloads or modifies your fics.
+  (manual overrides/dismissals/cache/tracked feeds) is writable, and nothing here downloads or
+  modifies your fics.
+- Refresh is entirely manual -- nothing auto-refreshes on a timer, so a stale cache just sits
+  there until you click the button.
 
 ## Development
 

@@ -1,7 +1,20 @@
 import os
+import tempfile
 from datetime import datetime
+from unittest.mock import patch
 
-from app.rss import CHAPTERS_RE, FeedEntry, assess_status, parse_feed_timestamp, parse_feed_xml
+from app import db
+from app.rss import (
+    CHAPTERS_RE,
+    FeedEntry,
+    FeedFetchError,
+    FeedResult,
+    assess_status,
+    load_cached_feed,
+    parse_feed_timestamp,
+    parse_feed_xml,
+    refresh_feed_cache,
+)
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "sample_feed.atom")
 
@@ -76,3 +89,51 @@ def test_assess_status_may_need_update():
 def test_assess_status_unknown_without_timestamps():
     entry = FeedEntry(work_id="1", feed_updated=None)
     assert assess_status(entry, on_disk=True, local_timestamp=None) == "unknown"
+
+
+def _make_feed(tmp) -> "db.TrackedFeed":
+    db_path = os.path.join(tmp, "app.db")
+    db.init_db(db_path)
+    db.add_tracked_feed(db_path, "https://example.com/feed.atom", "Label")
+    feed = db.list_tracked_feeds(db_path)[0]
+    return db_path, feed
+
+
+def test_refresh_feed_cache_saves_entries_and_title():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path, feed = _make_feed(tmp)
+        fake_result = FeedResult(title="Fetched Title", entries=[FeedEntry(work_id="1", title="Work One")])
+
+        with patch("app.rss.fetch_feed", return_value=fake_result):
+            result = refresh_feed_cache(db_path, feed)
+
+        assert result is fake_result
+        cached = load_cached_feed(db_path, db.list_tracked_feeds(db_path)[0])
+        assert cached.title == "Fetched Title"
+        assert [e.work_id for e in cached.entries] == ["1"]
+
+
+def test_load_cached_feed_empty_before_any_refresh():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path, feed = _make_feed(tmp)
+        result = load_cached_feed(db_path, feed)
+    assert result.entries == []
+    assert result.title == feed.title  # None -- hasn't been fetched yet
+
+
+def test_failed_refresh_leaves_previous_cache_untouched():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path, feed = _make_feed(tmp)
+        good_result = FeedResult(title="Good Title", entries=[FeedEntry(work_id="1")])
+        with patch("app.rss.fetch_feed", return_value=good_result):
+            refresh_feed_cache(db_path, feed)
+
+        with patch("app.rss.fetch_feed", side_effect=FeedFetchError("network down")):
+            try:
+                refresh_feed_cache(db_path, feed)
+            except FeedFetchError:
+                pass
+
+        cached = load_cached_feed(db_path, db.list_tracked_feeds(db_path)[0])
+        assert cached.title == "Good Title"
+        assert [e.work_id for e in cached.entries] == ["1"]
