@@ -8,9 +8,69 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+}
+
+.topnav {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.topnav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.topnav a.active {
+  color: inherit;
+}
+
+main {
   margin: 2rem;
   max-width: 1100px;
   margin-inline: auto;
+}
+
+.filter-banner {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.filter-banner a {
+  margin-left: 0.5rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: normal;
+  text-transform: none;
+}
+
+.row-dismissed {
+  opacity: 0.5;
+}
+
+.edit-form {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.edit-form input {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 90px;
+}
+
+.edit-form input[name="fandoms"] {
+  min-width: 160px;
 }
 
 header h1 {

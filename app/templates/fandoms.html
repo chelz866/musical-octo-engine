@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Fandoms - AO3 Downloads{% endblock %}
+{% block content %}
+  <header>
+    <h1>Fandoms</h1>
+    <p class="paths">
+      Best-effort guess from tag order in each epub &mdash; may occasionally
+      include a character or freeform tag, or miss a fandom.
+    </p>
+  </header>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Fandom</th>
+        <th>Works</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for name, count in fandoms %}
+      <tr>
+        <td><a href="/?fandom={{ name | urlencode }}">{{ name }}</a></td>
+        <td>{{ count }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="2" class="empty">No fandoms found yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

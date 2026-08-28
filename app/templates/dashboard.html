@@ -1,11 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>AO3 Downloads</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}AO3 Downloads{% endblock %}
+{% block content %}
   <header>
     <h1>AO3 Downloads</h1>
     <p class="paths">
@@ -14,6 +9,12 @@
       log: <code>{{ log_path }}</code>
       {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}
     </p>
+    {% if fandom_filter %}
+    <p class="filter-banner">
+      Filtered to fandom: <strong>{{ fandom_filter }}</strong>
+      <a href="/">clear filter</a>
+    </p>
+    {% endif %}
   </header>
 
   <section class="stats">
@@ -47,6 +48,7 @@
         <th>Rating</th>
         <th>Category</th>
         <th>Relationship(s)</th>
+        <th>Fandom(s) <span class="hint">(guessed)</span></th>
         <th>Size</th>
         <th>Last activity</th>
         <th>Status</th>
@@ -64,6 +66,11 @@
         <td>{{ e.rating or "—" }}</td>
         <td>{{ e.categories | join(", ") if e.categories else "—" }}</td>
         <td>{{ e.relationships | join(", ") if e.relationships else "—" }}</td>
+        <td>
+          {% if e.fandoms %}
+            {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+          {% else %}—{% endif %}
+        </td>
         <td>{{ e.size_bytes | human_size }}</td>
         <td>
           {% if e.mtime %}{{ e.mtime.strftime("%Y-%m-%d %H:%M") }}
@@ -84,10 +91,9 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="8" class="empty">No works found. Check the mounted downloads/log paths.</td>
+        <td colspan="9" class="empty">No works found. Check the mounted downloads/log paths.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</body>
-</html>
+{% endblock %}

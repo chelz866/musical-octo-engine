@@ -3,11 +3,20 @@
 AO3's epub export embeds title/author/tags in content.opf as flat, untyped
 dc:subject entries. Rating, Warnings, and Category come from small fixed AO3
 vocabularies and can be exact-matched reliably. Relationships are guessable
-via the "/" or "&" convention AO3 uses between character names. Fandom,
-Character, and Freeform tags are NOT reliably separable from each other here
-(no consistent ordering across real samples) and are intentionally skipped.
+via the "/" or "&" convention AO3 uses between character names.
+
+Fandom, Character, and Freeform tags have no type label and their relative
+order isn't consistent across works, so there's no fully reliable way to
+split them. `_guess_fandoms` uses a best-effort heuristic instead: take the
+leading run of leftover subjects, stopping at the first one that "looks
+like a character name" (2-4 Title Case words, no digits or parentheses).
+The first leftover subject is always kept even if it looks name-shaped,
+since a short fandom name (e.g. "The Authority") can otherwise be wrongly
+excluded when it's the only leftover subject. This is deliberately a guess,
+not a reliable classification -- callers should present it as such.
 """
 
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
@@ -37,6 +46,23 @@ CATEGORIES = {"Gen", "F/M", "M/M", "F/F", "Multi", "Other"}
 
 IGNORED_SUBJECTS = {"Fanworks"}
 
+_CHARACTER_SHAPED_RE = re.compile(r"^[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*){1,3}$")
+
+
+def _looks_character_shaped(subject: str) -> bool:
+    if any(ch.isdigit() for ch in subject) or "(" in subject:
+        return False
+    return bool(_CHARACTER_SHAPED_RE.match(subject))
+
+
+def _guess_fandoms(leftover_subjects: list[str]) -> list[str]:
+    fandoms = []
+    for i, subject in enumerate(leftover_subjects):
+        if i > 0 and _looks_character_shaped(subject):
+            break
+        fandoms.append(subject)
+    return fandoms
+
 
 class EpubParseError(Exception):
     pass
@@ -53,6 +79,7 @@ class EpubMetadata:
     warnings: list[str] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
     relationships: list[str] = field(default_factory=list)
+    fandoms: list[str] = field(default_factory=list)
 
 
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
@@ -106,6 +133,7 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
         elif name == "calibre:series_index":
             meta.series_index = meta_tag.attrib.get("content")
 
+    leftover_subjects = []
     for subject_el in metadata_el.findall("dc:subject", OPF_NS):
         subject = (subject_el.text or "").strip()
         if not subject or subject in IGNORED_SUBJECTS:
@@ -118,6 +146,9 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
             meta.categories.append(subject)
         elif "/" in subject or "&" in subject:
             meta.relationships.append(subject)
-        # else: ambiguous fandom/character/freeform tag -- skipped in v1
+        else:
+            leftover_subjects.append(subject)
+
+    meta.fandoms = _guess_fandoms(leftover_subjects)
 
     return meta

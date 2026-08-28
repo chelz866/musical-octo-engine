@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from . import db
 from .epub_meta import EpubParseError, parse_epub_metadata
 from .log_reader import LogRecord, parse_log
 
@@ -27,6 +28,7 @@ class WorkEntry:
     warnings: list[str] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
     relationships: list[str] = field(default_factory=list)
+    fandoms: list[str] = field(default_factory=list)
     series: str | None = None
     series_index: str | None = None
     published_date: str | None = None
@@ -37,6 +39,8 @@ class WorkEntry:
     log_success: bool | None = None
     log_timestamp: str | None = None
     parse_error: str | None = None
+    dismissed: bool = False
+    issue_type: str | None = None  # "parse_error" | "missing" | "failed" | None
 
 
 @dataclass
@@ -82,6 +86,7 @@ def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
                 entry.warnings = meta.warnings
                 entry.categories = meta.categories
                 entry.relationships = meta.relationships
+                entry.fandoms = meta.fandoms
                 entry.series = meta.series
                 entry.series_index = meta.series_index
                 entry.published_date = meta.published_date
@@ -92,19 +97,24 @@ def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
     return entries
 
 
-def scan(download_dir: str, log_path: str | None) -> ScanResult:
+def scan(download_dir: str, log_path: str | None, db_path: str | None = None) -> ScanResult:
     disk_entries = _scan_disk(download_dir)
 
     log_records: dict[str, LogRecord] = {}
     if log_path and os.path.isfile(log_path):
         log_records = parse_log(log_path)
 
+    overrides: dict[str, db.Override] = {}
+    if db_path:
+        overrides = db.get_all_overrides(db_path)
+
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
 
-    for work_id in set(disk_entries) | set(log_records):
+    for work_id in set(disk_entries) | set(log_records) | set(overrides):
         entry = disk_entries.get(work_id)
         record = log_records.get(work_id)
+        override = overrides.get(work_id)
 
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
@@ -116,6 +126,15 @@ def scan(download_dir: str, log_path: str | None) -> ScanResult:
             entry.log_success = record.success
             entry.log_timestamp = record.timestamp
 
+        if override:
+            if override.title:
+                entry.title = override.title
+            if override.author:
+                entry.author = override.author
+            if override.fandoms:
+                entry.fandoms = override.fandoms
+            entry.dismissed = override.dismissed
+
         if entry.on_disk:
             stats.total_on_disk += 1
             stats.total_size_bytes += entry.size_bytes or 0
@@ -126,6 +145,13 @@ def scan(download_dir: str, log_path: str | None) -> ScanResult:
 
         if record and not record.success:
             stats.logged_failure_count += 1
+
+        if entry.parse_error:
+            entry.issue_type = "parse_error"
+        elif not entry.on_disk and record and record.success:
+            entry.issue_type = "missing"
+        elif record and not record.success:
+            entry.issue_type = "failed"
 
         result_entries.append(entry)
 

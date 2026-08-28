@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Issues - AO3 Downloads{% endblock %}
+{% block content %}
+  <header>
+    <h1>Issues</h1>
+    <p class="paths">
+      {% if show_dismissed %}
+        <a href="/issues">hide dismissed</a>
+      {% else %}
+        <a href="/issues?show_dismissed=true">show dismissed</a>
+      {% endif %}
+    </p>
+  </header>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Work</th>
+        <th>Issue</th>
+        <th>Edit</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr class="{% if e.dismissed %}row-dismissed{% endif %}">
+        <td>
+          <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener">
+            {{ e.title or "(unknown title)" }}
+          </a>
+          <div class="hint">{{ e.author or "" }}</div>
+        </td>
+        <td>
+          {% if e.issue_type == "parse_error" %}
+            <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
+          {% elif e.issue_type == "missing" %}
+            <span class="badge badge-missing">✗ missing on disk</span>
+          {% elif e.issue_type == "failed" %}
+            <span class="badge badge-warn">✗ logged failure</span>
+          {% endif %}
+          {% if e.dismissed %}<span class="badge">dismissed</span>{% endif %}
+        </td>
+        <td>
+          <form method="post" action="/issues/{{ e.work_id }}/edit" class="edit-form">
+            <input type="text" name="title" placeholder="Title" value="{{ e.title or '' }}">
+            <input type="text" name="author" placeholder="Author" value="{{ e.author or '' }}">
+            <input type="text" name="fandoms" placeholder="Fandom(s), comma-separated" value="{{ e.fandoms | join(', ') }}">
+            <button type="submit">Save</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/issues/{{ e.work_id }}/dismiss">
+            <input type="hidden" name="dismissed" value="{{ 'false' if e.dismissed else 'true' }}">
+            <button type="submit">{{ "Un-dismiss" if e.dismissed else "Dismiss" }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="empty">No issues 🎉</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -1,11 +1,21 @@
+import json
 import os
 import tempfile
 
+from app import db
 from app.scanner import scan
 
 # Real content doesn't matter here -- these exercise the filename matching,
 # not epub parsing (a bad zip still produces a WorkEntry with parse_error set,
 # it's just not skipped).
+
+
+def _write_log(tmp, lines):
+    path = os.path.join(tmp, "log.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        for line in lines:
+            f.write(json.dumps(line) + "\n")
+    return path
 
 
 def test_matches_underscore_separated_filenames():
@@ -31,3 +41,56 @@ def test_ignores_non_epub_and_non_matching_files():
         result = scan(tmp, None)
     assert result.entries == []
     assert result.stats.total_on_disk == 0
+
+
+def test_bad_epub_on_disk_is_flagged_as_parse_error_issue():
+    with tempfile.TemporaryDirectory() as tmp:
+        with open(os.path.join(tmp, "123_Bad_Epub.epub"), "w") as f:
+            f.write("not actually a zip")
+        result = scan(tmp, None)
+
+    entry = result.entries[0]
+    assert entry.on_disk is True
+    assert entry.issue_type == "parse_error"
+
+
+def test_logged_success_with_no_file_is_flagged_missing():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as logs:
+        log_path = _write_log(logs, [
+            {"link": "https://archiveofourown.org/works/999", "title": ["999 Ghost Fic - Nobody"], "success": True, "timestamp": "01/01/2026, 00:00:00"},
+        ])
+        result = scan(downloads, log_path)
+
+    entry = result.entries[0]
+    assert entry.on_disk is False
+    assert entry.issue_type == "missing"
+    assert result.stats.missing_but_logged_success == 1
+
+
+def test_logged_failure_with_no_file_is_flagged_failed():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as logs:
+        log_path = _write_log(logs, [
+            {"link": "https://archiveofourown.org/works/999", "title": ["999 Ghost Fic - Nobody"], "success": False, "timestamp": "01/01/2026, 00:00:00"},
+        ])
+        result = scan(downloads, log_path)
+
+    entry = result.entries[0]
+    assert entry.issue_type == "failed"
+    assert result.stats.logged_failure_count == 1
+
+
+def test_override_applies_title_author_fandoms_and_dismissed():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+        db.set_fields(db_path, "999", title="Manually Fixed", author="Real Author", fandoms=["Torchwood"])
+        db.set_dismissed(db_path, "999", True)
+
+        result = scan(tmp, None, db_path)
+
+    entry = result.entries[0]
+    assert entry.work_id == "999"
+    assert entry.title == "Manually Fixed"
+    assert entry.author == "Real Author"
+    assert entry.fandoms == ["Torchwood"]
+    assert entry.dismissed is True

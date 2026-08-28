@@ -105,16 +105,73 @@ def test_series_metadata_parsed():
     assert meta.series_index == "6"
 
 
-def test_ambiguous_tags_are_skipped():
+def test_fandom_guess_stops_at_character_shaped_tag():
+    # Real sample: "Year of the Scavenger" -- fandom has a parenthetical
+    # disambiguator so it isn't mistaken for a character name, but the two
+    # character tags that follow it should be excluded from the guess.
     with tempfile.TemporaryDirectory() as tmp:
         path = _build_epub(
             tmp,
-            title="Some Fic",
-            author="Some Author",
+            title="Year of the Scavenger",
+            author="Basingstoke",
+            subjects=[
+                "Fanworks",
+                "Choose Not To Use Archive Warnings",
+                "Gattaca (1997)",
+                "Jerome Eugene Morrow",
+                "Vincent Freeman",
+                "Mature",
+                "M/M",
+            ],
+        )
+        meta = parse_epub_metadata(path)
+
+    assert meta.fandoms == ["Gattaca (1997)"]
+
+
+def test_fandom_guess_handles_multiple_fandoms_and_many_characters():
+    # Real sample: "Bluebird" -- two single-word fandoms, then a relationship
+    # (stripped separately) and a long run of character names, then a
+    # trailing freeform tag.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _build_epub(
+            tmp,
+            title="Bluebird",
+            author="Basingstoke",
+            subjects=[
+                "Fanworks",
+                "Explicit",
+                "Choose Not To Use Archive Warnings",
+                "Torchwood",
+                "Addams Family (1991)",
+                "Jack Harkness/Ianto Jones",
+                "Ianto Jones",
+                "Jack Harkness",
+                "Gwen Cooper",
+                "Crossover",
+                "Multi",
+            ],
+        )
+        meta = parse_epub_metadata(path)
+
+    assert meta.fandoms == ["Torchwood", "Addams Family (1991)"]
+
+
+def test_fandom_guess_keeps_first_item_even_if_name_shaped():
+    # Real sample: "The Business" -- the only leftover fandom tag happens to
+    # be two Title Case words with no digits/parens (character-shaped by the
+    # heuristic), so it must still be kept since it's the first item and
+    # there's nothing else it could be.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _build_epub(
+            tmp,
+            title="The Business",
+            author="Basingstoke",
             subjects=["Fanworks", "The Authority", "Established Relationship"],
         )
         meta = parse_epub_metadata(path)
 
+    assert meta.fandoms == ["The Authority"]
     assert meta.rating is None
     assert meta.warnings == []
     assert meta.categories == []

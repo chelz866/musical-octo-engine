@@ -8,7 +8,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 
 ENV DOWNLOAD_DIR=/downloads \
-    LOG_PATH=/logs/log.jsonl
+    LOG_PATH=/logs/log.jsonl \
+    DB_PATH=/data/app.db
 
 EXPOSE 8000
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}AO3 Downloads{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav class="topnav">
+    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
+    <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
+    <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

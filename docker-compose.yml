@@ -6,7 +6,9 @@ services:
     environment:
       - DOWNLOAD_DIR=/downloads
       - LOG_PATH=/logs/log.jsonl
+      - DB_PATH=/data/app.db
     volumes:
       - ${DOWNLOAD_DIR}:/downloads:ro
       - ${LOG_DIR}:/logs:ro
+      - ${DATA_DIR}:/data
     restart: unless-stopped
