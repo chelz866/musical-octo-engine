@@ -10,6 +10,7 @@
     <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
     <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
     <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
+    <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
   </nav>
   <main>
     {% block content %}{% endblock %}

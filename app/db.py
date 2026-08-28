@@ -1,8 +1,9 @@
 """Small local SQLite store for the only persistent state this app has:
-per-work manual overrides (title/author/fandoms) and issue dismissals.
+per-work manual overrides (title/author/fandoms), issue dismissals, and the
+list of AO3 feed URLs the user wants tracked on the Tracked Feeds page.
 
-Everything else is computed live from the filesystem/log on each request --
-this is deliberately the minimum needed to make the Issues page useful.
+Everything else is computed live from the filesystem/log/feed on each
+request -- this is deliberately the minimum needed to make those pages useful.
 """
 
 import sqlite3
@@ -19,6 +20,13 @@ class Override:
     dismissed: bool = False
 
 
+@dataclass
+class TrackedFeed:
+    id: int
+    url: str
+    label: str | None = None
+
+
 def init_db(path: str) -> None:
     with _connect(path) as conn:
         conn.execute(
@@ -29,6 +37,15 @@ def init_db(path: str) -> None:
                 author TEXT,
                 fandoms TEXT,
                 dismissed INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tracked_feeds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL UNIQUE,
+                label TEXT
             )
             """
         )
@@ -96,3 +113,22 @@ def set_dismissed(path: str, work_id: str, dismissed: bool) -> None:
             """,
             (work_id, int(dismissed)),
         )
+
+
+def add_tracked_feed(path: str, url: str, label: str | None) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO tracked_feeds (url, label) VALUES (?, ?)",
+            (url, label or None),
+        )
+
+
+def list_tracked_feeds(path: str) -> list[TrackedFeed]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT id, url, label FROM tracked_feeds ORDER BY id").fetchall()
+    return [TrackedFeed(id=row[0], url=row[1], label=row[2]) for row in rows]
+
+
+def delete_tracked_feed(path: str, feed_id: int) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM tracked_feeds WHERE id = ?", (feed_id,))

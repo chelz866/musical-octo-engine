@@ -157,3 +157,18 @@ def scan(download_dir: str, log_path: str | None, db_path: str | None = None) ->
 
     result_entries.sort(key=lambda e: (e.title or "").lower())
     return ScanResult(entries=result_entries, stats=stats)
+
+
+def effective_timestamp(entry: WorkEntry) -> datetime | None:
+    """Best guess at "when did we last get this work": the file's mtime if
+    we have one, else the log's timestamp (parsed from ao3downloader's
+    MM/DD/YYYY, HH:MM:SS format). Both are naive/local-clock, not UTC.
+    """
+    if entry.mtime:
+        return entry.mtime
+    if entry.log_timestamp:
+        try:
+            return datetime.strptime(entry.log_timestamp, "%m/%d/%Y, %H:%M:%S")
+        except ValueError:
+            return None
+    return None

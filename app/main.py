@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, scanner
+from . import db, rss, scanner
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
@@ -114,3 +114,49 @@ def fandoms(request: Request):
             "fandoms": sorted_fandoms,
         },
     )
+
+
+@app.get("/tracked", response_class=HTMLResponse)
+def tracked(request: Request):
+    result = scanner.scan(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    local_by_id = {e.work_id: e for e in result.entries}
+
+    feeds = []
+    for feed in db.list_tracked_feeds(DB_PATH):
+        try:
+            feed_result = rss.fetch_feed(feed.url)
+        except rss.FeedFetchError as exc:
+            feeds.append({"feed": feed, "title": None, "rows": [], "error": str(exc)})
+            continue
+
+        rows = []
+        for entry in feed_result.entries:
+            local_entry = local_by_id.get(entry.work_id)
+            on_disk = bool(local_entry and local_entry.on_disk)
+            local_timestamp = scanner.effective_timestamp(local_entry) if local_entry else None
+            rows.append({
+                "entry": entry,
+                "on_disk": on_disk,
+                "status": rss.assess_status(entry, on_disk, local_timestamp),
+            })
+        feeds.append({"feed": feed, "title": feed_result.title, "rows": rows, "error": None})
+
+    return templates.TemplateResponse(
+        "tracked.html",
+        {
+            "request": request,
+            "feeds": feeds,
+        },
+    )
+
+
+@app.post("/tracked/add")
+def add_tracked_feed(url: str = Form(...), label: str = Form("")):
+    db.add_tracked_feed(DB_PATH, url.strip(), label.strip() or None)
+    return RedirectResponse(url="/tracked", status_code=303)
+
+
+@app.post("/tracked/{feed_id}/delete")
+def delete_tracked_feed(feed_id: int):
+    db.delete_tracked_feed(DB_PATH, feed_id)
+    return RedirectResponse(url="/tracked", status_code=303)

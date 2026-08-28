@@ -65,3 +65,41 @@ def test_get_all_overrides():
         assert set(all_overrides) == {"1", "2"}
         assert all_overrides["1"].title == "A"
         assert all_overrides["2"].dismissed is True
+
+
+def test_add_and_list_tracked_feeds():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_tracked_feed(path, "https://archiveofourown.org/tags/161642381/feed.atom", "Heated Rivalry")
+        db.add_tracked_feed(path, "https://archiveofourown.org/tags/999/feed.atom", None)
+
+        feeds = db.list_tracked_feeds(path)
+        assert [f.url for f in feeds] == [
+            "https://archiveofourown.org/tags/161642381/feed.atom",
+            "https://archiveofourown.org/tags/999/feed.atom",
+        ]
+        assert feeds[0].label == "Heated Rivalry"
+        assert feeds[1].label is None
+
+
+def test_add_tracked_feed_ignores_duplicate_url():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_tracked_feed(path, "https://example.com/feed.atom", "First")
+        db.add_tracked_feed(path, "https://example.com/feed.atom", "Second")
+
+        feeds = db.list_tracked_feeds(path)
+        assert len(feeds) == 1
+
+
+def test_delete_tracked_feed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
+        feed_id = db.list_tracked_feeds(path)[0].id
+
+        db.delete_tracked_feed(path, feed_id)
+        assert db.list_tracked_feeds(path) == []

@@ -73,6 +73,23 @@ main {
   min-width: 160px;
 }
 
+.feed-block {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.feed-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.feed-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
 header h1 {
   margin-bottom: 0.25rem;
 }

@@ -5,8 +5,9 @@ downloaded. It scans your downloads folder, reads embedded epub metadata (title,
 category, relationships, a best-effort fandom guess), and cross-checks against ao3downloader's
 own `log.jsonl` to flag anything logged as downloaded but missing on disk, or logged as a failure.
 
-It does not trigger downloads or talk to AO3 over the network -- it only looks at files already
-on disk, the existing log, and a small local SQLite file for manual corrections you make yourself.
+It does not trigger downloads -- it only looks at files already on disk, the existing log, and a
+small local SQLite file for manual corrections and tracked feeds you add yourself. The one
+exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
 
 ## Pages
 
@@ -17,6 +18,10 @@ on disk, the existing log, and a small local SQLite file for manual corrections 
   toggle "show dismissed" to see them again) and has an inline form to manually fix the title,
   author, or fandom(s) when the parsed/logged values are wrong or missing.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
+- **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
+  for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
+  have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
+  you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`).
 
 ## Running
 
