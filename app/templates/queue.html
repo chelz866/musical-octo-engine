@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Queue - AO3 Downloads{% endblock %}
+{% block content %}
+  <header>
+    <h1>Queue</h1>
+    <p class="paths">
+      Works from your <a href="/tracked">tracked feeds</a> that aren't downloaded yet, or may have
+      updated since you last downloaded them. Not downloaded is certain; "may need update" is the
+      same best-effort hint as the Tracked Feeds page (last-updated time, not an exact chapter
+      count) &mdash; see <a href="/tracked">Tracked Feeds</a> for the full picture per feed.
+    </p>
+  </header>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Chapters</th>
+        <th>Status</th>
+        <th>From feed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>
+          <a href="https://archiveofourown.org/works/{{ item.entry.work_id }}" target="_blank" rel="noopener">
+            {{ item.entry.title or "(unknown title)" }}
+          </a>
+        </td>
+        <td>{{ item.entry.author or "—" }}</td>
+        <td>
+          {% if item.entry.chapters_have is not none %}
+            {{ item.entry.chapters_have }}/{{ item.entry.chapters_total if item.entry.chapters_total is not none else "?" }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if item.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
+          {% else %}<span class="badge badge-warn">may need update</span>{% endif %}
+        </td>
+        <td>{{ item.feed.user_title or item.feed.title or item.feed.url }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5" class="empty">Nothing in the queue &mdash; everything tracked is downloaded and up to date.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

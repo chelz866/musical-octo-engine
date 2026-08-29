@@ -190,8 +190,7 @@ def fandoms(request: Request):
     )
 
 
-@app.get("/tracked", response_class=HTMLResponse)
-def tracked(request: Request):
+def _feeds_with_rows() -> list[dict]:
     result = scanner.load_cached(DB_PATH)
     local_by_id = {e.work_id: e for e in result.entries}
 
@@ -208,12 +207,40 @@ def tracked(request: Request):
                 "status": rss.assess_status(entry, on_disk, local_timestamp),
             })
         feeds.append({"feed": feed, "rows": rows})
+    return feeds
 
+
+@app.get("/tracked", response_class=HTMLResponse)
+def tracked(request: Request):
     return templates.TemplateResponse(
         "tracked.html",
         {
             **_base_context(request),
-            "feeds": feeds,
+            "feeds": _feeds_with_rows(),
+        },
+    )
+
+
+@app.get("/queue", response_class=HTMLResponse)
+def queue(request: Request):
+    """Tracked-feed entries that still need attention: not downloaded at
+    all, or possibly out of date. A first cut over the same status rss
+    already computes for the Tracked Feeds page -- expected to grow.
+    """
+    status_order = {"not_downloaded": 0, "may_need_update": 1}
+    items = [
+        {**row, "feed": group["feed"]}
+        for group in _feeds_with_rows()
+        for row in group["rows"]
+        if row["status"] in status_order
+    ]
+    items.sort(key=lambda item: (status_order[item["status"]], (item["entry"].title or "").lower()))
+
+    return templates.TemplateResponse(
+        "queue.html",
+        {
+            **_base_context(request),
+            "items": items,
         },
     )
 

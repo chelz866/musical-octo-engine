@@ -44,6 +44,9 @@ its current contents.
   recent works, so tracking accumulates works seen over time rather than mirroring that window --
   a work doesn't disappear from your tracked list just because newer works pushed it off the feed.
   Each feed also has its own "Auto-refresh: on/off" toggle (see above).
+- **Queue** (`/queue`) -- every tracked-feed work that isn't downloaded yet, or may have updated
+  since you downloaded it, across all feeds, sorted with not-downloaded first. A first cut over
+  the same status the Tracked Feeds page shows per feed; expected to grow.
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
 have the same checkbox picker under the Fandom column ("edit") as a shortcut scoped to one work's
