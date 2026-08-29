@@ -2,17 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AO3 Downloads{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <nav class="topnav">
-    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
-    <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
-    <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
-    <a href="/tags" class="{% if request.url.path == '/tags' %}active{% endif %}">Tags</a>
-    <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
-    <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+    <div class="topnav-links">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
+      <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
+      <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
+      <a href="/tags" class="{% if request.url.path == '/tags' %}active{% endif %}">Tags</a>
+      <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
+      <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+    </div>
     <span class="nav-spacer"></span>
     <span class="hint">
       {% if last_refreshed %}last refreshed {{ last_refreshed[:16].replace("T", " ") }}

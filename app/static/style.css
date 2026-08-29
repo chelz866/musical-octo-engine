@@ -1,3 +1,7 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light dark;
   --border: #d8d8dc;
@@ -9,13 +13,23 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   margin: 0;
+  overflow-x: hidden;
 }
 
 .topnav {
   display: flex;
-  gap: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
   padding: 1rem 2rem;
   border-bottom: 1px solid var(--border);
+}
+
+.topnav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  min-width: 0;
 }
 
 .topnav a {
@@ -23,14 +37,11 @@ body {
   text-decoration: none;
   font-weight: 600;
   font-size: 0.9rem;
+  white-space: nowrap;
 }
 
 .topnav a.active {
   color: inherit;
-}
-
-.topnav {
-  align-items: center;
 }
 
 .nav-spacer {
@@ -155,6 +166,7 @@ header h1 {
 .paths {
   color: var(--muted);
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 .stats {
@@ -292,6 +304,7 @@ th {
 .blurb-body {
   min-width: 0;
   flex: 1;
+  overflow-wrap: break-word;
 }
 
 .blurb-heading {
@@ -347,4 +360,47 @@ th {
   margin: 0;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .topnav {
+    padding: 0.75rem 1rem;
+    gap: 0.6rem 1rem;
+  }
+
+  /* A horizontally scrollable strip instead of wrapping -- avoids ever
+     clipping a link, at the cost of needing a swipe to reach the rest. */
+  .topnav-links {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  .topnav-links a {
+    flex-shrink: 0;
+  }
+
+  main {
+    margin: 1rem;
+  }
+
+  .stat {
+    min-width: 0;
+    flex: 1 1 calc(50% - 0.5rem);
+  }
+
+  .blurb {
+    gap: 0.6rem;
+  }
+
+  .blurb-icons {
+    grid-template-columns: repeat(2, 1.5rem);
+  }
+
+  .req-tag {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.75rem;
+  }
 }
