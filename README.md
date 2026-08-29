@@ -18,7 +18,7 @@ filesystem and hitting AO3 on every request.
 
 The one exception is per-feed auto-refresh on the Tracked Feeds page (opt-in, off by default only
 in the sense that it's a per-feed toggle you control) -- a small background task polls feeds with
-it enabled every `AUTO_REFRESH_INTERVAL_SECONDS` (default 4 hours) so new works show up without
+it enabled every `AUTO_REFRESH_INTERVAL_SECONDS` (default 1 hour) so new works show up without
 you needing to click Refresh. Tracked feeds are handled by the
 [`reader`](https://github.com/lemon24/reader) library in a separate SQLite file
 (`FEEDS_DB_PATH`), which is what makes a work stay tracked even after it scrolls out of AO3's
@@ -76,7 +76,7 @@ there marks it a fandom everywhere it appears, not just on that one row.
   modifies your fics.
 - Refresh of the downloads folder/log is entirely manual. Tracked feeds are the one exception:
   each has its own opt-in auto-refresh toggle, polled in the background every
-  `AUTO_REFRESH_INTERVAL_SECONDS` (default 4 hours) regardless of whether anyone clicks Refresh.
+  `AUTO_REFRESH_INTERVAL_SECONDS` (default 1 hour) regardless of whether anyone clicks Refresh.
 - If you're upgrading from a version before the switch to `reader`, tracked feeds previously
   stored in the main SQLite file are migrated automatically into the new `FEEDS_DB_PATH` file the
   first time the app starts -- nothing to do manually.
