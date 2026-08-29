@@ -228,14 +228,33 @@ def queue(request: Request):
     """Tracked-feed entries that still need attention: not downloaded at
     all, or possibly out of date. A first cut over the same status rss
     already computes for the Tracked Feeds page -- expected to grow.
+
+    The same work can be tracked through more than one feed (e.g. it
+    matches two tags you follow) -- dedupe by work_id so it shows up once,
+    keeping whichever feed's copy has the most recent feed_updated info
+    and listing every feed it came from.
     """
     status_order = {"not_downloaded": 0, "may_need_update": 1}
-    items = [
-        {**row, "feed": group["feed"]}
-        for group in _feeds_with_rows()
-        for row in group["rows"]
-        if row["status"] in status_order
-    ]
+    by_work_id: dict[str, dict] = {}
+    for group in _feeds_with_rows():
+        feed_title = group["feed"].user_title or group["feed"].title or group["feed"].url
+        for row in group["rows"]:
+            if row["status"] not in status_order:
+                continue
+            work_id = row["entry"].work_id
+            existing = by_work_id.get(work_id)
+            if existing is None:
+                by_work_id[work_id] = {**row, "feed_titles": [feed_title]}
+                continue
+            if feed_title not in existing["feed_titles"]:
+                existing["feed_titles"].append(feed_title)
+            new_updated = row["entry"].feed_updated
+            if new_updated is not None and (existing["entry"].feed_updated is None or new_updated > existing["entry"].feed_updated):
+                existing["entry"] = row["entry"]
+                existing["status"] = row["status"]
+                existing["on_disk"] = row["on_disk"]
+
+    items = list(by_work_id.values())
     items.sort(key=lambda item: (status_order[item["status"]], (item["entry"].title or "").lower()))
 
     return templates.TemplateResponse(

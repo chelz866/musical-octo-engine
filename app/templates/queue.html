@@ -47,7 +47,7 @@
           {% if item.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
           {% else %}<span class="badge badge-warn">may need update</span>{% endif %}
         </td>
-        <td>{{ item.feed.user_title or item.feed.title or item.feed.url }}</td>
+        <td>{{ item.feed_titles | join(", ") }}</td>
       </tr>
       {% else %}
       <tr>
