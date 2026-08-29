@@ -20,7 +20,7 @@ from datetime import datetime
 
 from . import db
 from .audiobookshelf import AbsBookMatch
-from .epub_meta import EpubParseError, classify_subjects, parse_epub_metadata
+from .epub_meta import EpubParseError, classify_subjects, parse_epub_metadata, parse_epub_stats
 from .log_reader import LogRecord, parse_log
 
 FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
@@ -40,7 +40,11 @@ class WorkEntry:
     series: str | None = None
     series_index: str | None = None
     published_date: str | None = None
+    language: str | None = None
     summary: str | None = None  # AO3 work summary, only populated for Audiobookshelf-matched works
+    word_count: int | None = None
+    chapters_have: int | None = None
+    chapters_total: int | None = None  # None means the preface showed "?" (WIP, total not committed)
     file_path: str | None = None
     size_bytes: int | None = None
     mtime: datetime | None = None
@@ -97,6 +101,7 @@ def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = 
                 entry.title = abs_match.title
                 entry.author = abs_match.author
                 entry.summary = abs_match.description
+                entry.language = abs_match.language
                 classification = classify_subjects(abs_match.genres)
                 entry.rating = classification.rating
                 entry.warnings = classification.warnings
@@ -118,8 +123,19 @@ def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = 
                     entry.series = meta.series
                     entry.series_index = meta.series_index
                     entry.published_date = meta.published_date
+                    entry.language = meta.language
                 except EpubParseError as exc:
                     entry.parse_error = str(exc)
+
+            # Word count/chapter progress live on the epub's own preface page
+            # (AO3's own embedded "Stats:" line), not in Audiobookshelf's
+            # schema or content.opf -- read regardless of whether an ABS
+            # match already supplied the rest of the metadata above.
+            stats = parse_epub_stats(full_path)
+            entry.word_count = stats.word_count
+            entry.chapters_have = stats.chapters_have
+            entry.chapters_total = stats.chapters_total
+
             entries[work_id] = entry
 
     return entries
@@ -266,7 +282,11 @@ def _entry_to_row(entry: WorkEntry) -> dict:
         "series": entry.series,
         "series_index": entry.series_index,
         "published_date": entry.published_date,
+        "language": entry.language,
         "summary": entry.summary,
+        "word_count": entry.word_count,
+        "chapters_have": entry.chapters_have,
+        "chapters_total": entry.chapters_total,
         "file_path": entry.file_path,
         "size_bytes": entry.size_bytes,
         "mtime": entry.mtime.isoformat() if entry.mtime else None,
@@ -292,7 +312,11 @@ def _row_to_entry(row: dict) -> WorkEntry:
         series=row["series"],
         series_index=row["series_index"],
         published_date=row["published_date"],
+        language=row["language"],
         summary=row["summary"],
+        word_count=row["word_count"],
+        chapters_have=row["chapters_have"],
+        chapters_total=row["chapters_total"],
         file_path=row["file_path"],
         size_bytes=row["size_bytes"],
         mtime=datetime.fromisoformat(row["mtime"]) if row["mtime"] else None,

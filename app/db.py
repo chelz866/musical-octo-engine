@@ -32,9 +32,11 @@ class Override:
 WORKS_CACHE_COLUMNS = [
     "work_id", "title", "author", "rating", "warnings", "categories",
     "relationships", "fandoms", "fandom_candidates", "series", "series_index",
-    "published_date", "summary", "file_path", "size_bytes", "mtime", "on_disk",
+    "published_date", "language", "summary", "word_count", "chapters_have",
+    "chapters_total", "file_path", "size_bytes", "mtime", "on_disk",
     "log_success", "log_timestamp", "parse_error", "issue_type",
 ]
+_WORKS_CACHE_INTEGER_COLUMNS = ("size_bytes", "on_disk", "log_success", "word_count", "chapters_have", "chapters_total")
 
 
 def init_db(path: str) -> None:
@@ -53,7 +55,7 @@ def init_db(path: str) -> None:
         conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS works_cache (
-                {", ".join(f"{c} TEXT" if c not in ("size_bytes", "on_disk", "log_success") else f"{c} INTEGER" for c in WORKS_CACHE_COLUMNS)},
+                {", ".join(f"{c} TEXT" if c not in _WORKS_CACHE_INTEGER_COLUMNS else f"{c} INTEGER" for c in WORKS_CACHE_COLUMNS)},
                 PRIMARY KEY (work_id)
             )
             """
@@ -84,6 +86,10 @@ def init_db(path: str) -> None:
         )
         _ensure_column(conn, "works_cache", "fandom_candidates")
         _ensure_column(conn, "works_cache", "summary")
+        _ensure_column(conn, "works_cache", "language")
+        _ensure_column(conn, "works_cache", "word_count", "INTEGER")
+        _ensure_column(conn, "works_cache", "chapters_have", "INTEGER")
+        _ensure_column(conn, "works_cache", "chapters_total", "INTEGER")
 
 
 def pop_legacy_tracked_feeds(path: str) -> list[tuple[str, str | None]]:

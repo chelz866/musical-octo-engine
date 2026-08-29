@@ -17,17 +17,59 @@ _OPF_TEMPLATE = """<?xml version='1.0' encoding='utf-8'?>
   <metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>Title</dc:title>
     <dc:creator>Author</dc:creator>
+    {language_meta}
     {subjects}
   </metadata>
+  {manifest_spine}
 </package>"""
 
+# Shaped after a real ao3downloader epub's preface page.
+_PREFACE_TEMPLATE = """<?xml version='1.0' encoding='utf-8'?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body class="calibre">
+<div id="preface" class="calibre1">
+<dl class="tags">
+<dt class="calibre3">Stats:</dt>
+<dd class="calibre5">
+Published: 2020-01-01
+Words: {words}
+Chapters: {chapters_have}/{chapters_total}
+</dd>
+</dl>
+</div>
+</body></html>
+"""
 
-def _build_epub(path, subjects):
+
+def _build_epub(path, subjects, language=None, words=None, chapters_have=None, chapters_total="?"):
     subject_xml = "\n".join(f"<dc:subject>{s}</dc:subject>" for s in subjects)
+    language_meta = f"<dc:language>{language}</dc:language>" if language else ""
+
+    manifest_spine = ""
+    extra_files = {}
+    if words is not None or chapters_have is not None:
+        manifest_spine = """
+  <manifest>
+    <item id="preface" href="preface.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="preface"/>
+  </spine>
+"""
+        extra_files["preface.xhtml"] = _PREFACE_TEMPLATE.format(
+            words=words if words is not None else "",
+            chapters_have=chapters_have if chapters_have is not None else "",
+            chapters_total=chapters_total,
+        )
+
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("mimetype", "application/epub+zip")
         zf.writestr("META-INF/container.xml", _CONTAINER_XML)
-        zf.writestr("content.opf", _OPF_TEMPLATE.format(subjects=subject_xml))
+        zf.writestr("content.opf", _OPF_TEMPLATE.format(
+            subjects=subject_xml, language_meta=language_meta, manifest_spine=manifest_spine,
+        ))
+        for name, content in extra_files.items():
+            zf.writestr(name, content)
 
 # Real content doesn't matter here -- these exercise the filename matching,
 # not epub parsing (a bad zip still produces a WorkEntry with parse_error set,
@@ -185,6 +227,72 @@ def test_fandom_candidates_survive_refresh_cache_round_trip():
 
     assert entry.fandoms == ["Torchwood"]
     assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]
+
+
+def test_language_word_count_and_chapters_parsed_from_local_epub():
+    # Real sample values (a real ao3downloader epub's own preface page).
+    with tempfile.TemporaryDirectory() as downloads:
+        _build_epub(
+            os.path.join(downloads, "1_Title_Author.epub"),
+            ["Fanworks"],
+            language="en", words=22513, chapters_have=1, chapters_total=1,
+        )
+        result = scan(downloads, None)
+
+    entry = result.entries[0]
+    assert entry.language == "en"
+    assert entry.word_count == 22513
+    assert entry.chapters_have == 1
+    assert entry.chapters_total == 1
+
+
+def test_word_count_and_chapters_blank_without_a_preface_page():
+    with tempfile.TemporaryDirectory() as downloads:
+        _build_epub(os.path.join(downloads, "1_Title_Author.epub"), ["Fanworks"])
+        result = scan(downloads, None)
+
+    entry = result.entries[0]
+    assert entry.word_count is None
+    assert entry.chapters_have is None
+    assert entry.chapters_total is None
+
+
+def test_word_count_and_chapters_survive_refresh_cache_round_trip():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(
+            os.path.join(downloads, "1_Title_Author.epub"),
+            ["Fanworks"],
+            language="en", words=5000, chapters_have=3, chapters_total="?",
+        )
+
+        refresh_cache(downloads, None, db_path)
+        entry = load_cached(db_path).entries[0]
+
+    assert entry.language == "en"
+    assert entry.word_count == 5000
+    assert entry.chapters_have == 3
+    assert entry.chapters_total is None  # "?" in the preface -- WIP, total not committed
+
+
+def test_word_count_and_chapters_come_from_local_epub_even_for_abs_matched_works():
+    # Audiobookshelf doesn't track word count, and its "chapters" JSON field
+    # (audiobook chapter markers) isn't the AO3 X/Y format -- confirmed
+    # against a real export. So these still come from the local epub's own
+    # preface page even when the rest of the metadata comes from ABS.
+    with tempfile.TemporaryDirectory() as downloads:
+        path = os.path.join(downloads, "1_Whatever.epub")
+        _build_epub(path, ["Fanworks"], words=22513, chapters_have=1, chapters_total=1)
+        abs_matches = {"1": AbsBookMatch(item_id="item-1", title="From Audiobookshelf", genres=["Fanworks"])}
+
+        result = scan(downloads, None, None, abs_matches)
+
+    entry = result.entries[0]
+    assert entry.title == "From Audiobookshelf"  # confirms the ABS path was taken
+    assert entry.word_count == 22513
+    assert entry.chapters_have == 1
+    assert entry.chapters_total == 1
 
 
 def test_tag_flag_overrides_heuristic_guess_for_one_work():

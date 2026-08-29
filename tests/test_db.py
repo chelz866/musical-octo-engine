@@ -204,6 +204,37 @@ def test_init_db_adds_missing_column_to_existing_table_without_losing_data():
         assert db.load_works_cache(path)[0]["fandom_candidates"] == "Torchwood"
 
 
+def test_init_db_migrates_word_count_and_chapters_as_integer_columns():
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+
+        # Simulate a database from before word_count/chapters_have/
+        # chapters_total/language existed on works_cache.
+        old_columns = [c for c in db.WORKS_CACHE_COLUMNS if c not in ("word_count", "chapters_have", "chapters_total", "language")]
+        conn = sqlite3.connect(path)
+        conn.execute(f"CREATE TABLE works_cache ({', '.join(f'{c} TEXT' for c in old_columns)}, PRIMARY KEY (work_id))")
+        conn.execute(
+            f"INSERT INTO works_cache ({', '.join(old_columns)}) VALUES ({', '.join('?' for _ in old_columns)})",
+            tuple("1" if c == "work_id" else None for c in old_columns),
+        )
+        conn.commit()
+        conn.close()
+
+        db.init_db(path)
+
+        db.save_works_cache(path, [{
+            **{c: None for c in db.WORKS_CACHE_COLUMNS},
+            "work_id": "2", "language": "en", "word_count": 22513, "chapters_have": 1, "chapters_total": 1,
+        }])
+        row = db.load_works_cache(path)[0]
+        assert row["language"] == "en"
+        assert row["word_count"] == 22513
+        assert row["chapters_have"] == 1
+        assert row["chapters_total"] == 1
+
+
 def test_save_and_get_all_abs_matches():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

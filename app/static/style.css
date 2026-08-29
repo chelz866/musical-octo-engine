@@ -300,6 +300,8 @@ th {
 .warning-yes { background: #a02128; }
 
 .completion-unknown { background: #fff; border: 1px solid var(--border); }
+.completion-complete { background: #4d8c2b; }
+.completion-wip { background: #a02128; }
 
 .blurb-body {
   min-width: 0;
@@ -354,6 +356,12 @@ th {
 .blurb-summary {
   margin: 0 0 0.5rem;
   font-size: 0.9rem;
+}
+
+.blurb-ao3-stats {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .blurb-footer {

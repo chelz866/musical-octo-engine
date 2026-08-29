@@ -16,6 +16,7 @@ excluded when it's the only leftover subject. This is deliberately a guess,
 not a reliable classification -- callers should present it as such.
 """
 
+import posixpath
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -26,6 +27,10 @@ OPF_NS = {
     "opf": "http://www.idpf.org/2007/opf",
     "dc": "http://purl.org/dc/elements/1.1/",
 }
+XHTML_NS = {"xhtml": "http://www.w3.org/1999/xhtml"}
+
+_STATS_WORDS_RE = re.compile(r"Words:\s*([\d,]+)")
+_STATS_CHAPTERS_RE = re.compile(r"Chapters:\s*(\d+)\s*/\s*(\d+|\?)")
 
 RATINGS = {
     "Not Rated",
@@ -73,6 +78,7 @@ class EpubMetadata:
     title: str | None = None
     author: str | None = None
     published_date: str | None = None
+    language: str | None = None
     series: str | None = None
     series_index: str | None = None
     rating: str | None = None
@@ -81,6 +87,13 @@ class EpubMetadata:
     relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
     fandom_candidates: list[str] = field(default_factory=list)  # every untyped tag, for manual correction
+
+
+@dataclass
+class EpubStats:
+    word_count: int | None = None
+    chapters_have: int | None = None
+    chapters_total: int | None = None  # None means the preface showed "?" (WIP, total not yet committed)
 
 
 @dataclass
@@ -169,6 +182,10 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
     if date_el is not None and date_el.text:
         meta.published_date = date_el.text.strip()
 
+    language_el = metadata_el.find("dc:language", OPF_NS)
+    if language_el is not None and language_el.text:
+        meta.language = language_el.text.strip()
+
     for meta_tag in metadata_el.findall("opf:meta", OPF_NS):
         name = meta_tag.attrib.get("name")
         if name == "calibre:series":
@@ -186,3 +203,75 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
     meta.fandom_candidates = classification.fandom_candidates
 
     return meta
+
+
+def _first_spine_item_href(opf_root: ET.Element) -> str | None:
+    manifest_items = {
+        item.attrib["id"]: item.attrib["href"]
+        for item in opf_root.findall("opf:manifest/opf:item", OPF_NS)
+        if "id" in item.attrib and "href" in item.attrib
+    }
+    spine = opf_root.find("opf:spine", OPF_NS)
+    if spine is None:
+        return None
+    first_itemref = spine.find("opf:itemref", OPF_NS)
+    if first_itemref is None:
+        return None
+    return manifest_items.get(first_itemref.attrib.get("idref"))
+
+
+def _extract_stats_from_preface(html_bytes: bytes) -> EpubStats:
+    """AO3's own epub export embeds a "Stats:" line (Words/Chapters) as
+    plain text in a <dl class="tags"> on the preface page it generates --
+    read that directly instead of guessing chapter count from the file's
+    own structure (can't tell "complete" from "still posting") or needing
+    an external source for word count (confirmed Audiobookshelf doesn't
+    track it either).
+    """
+    stats = EpubStats()
+    try:
+        root = ET.fromstring(html_bytes)
+    except ET.ParseError:
+        return stats
+
+    dl = root.find(".//xhtml:dl[@class='tags']", XHTML_NS)
+    if dl is None:
+        return stats
+
+    children = list(dl)
+    for i, child in enumerate(children):
+        if child.tag.endswith("}dt") and (child.text or "").strip() == "Stats:":
+            if i + 1 >= len(children):
+                break
+            stats_text = "".join(children[i + 1].itertext())
+            words_match = _STATS_WORDS_RE.search(stats_text)
+            if words_match:
+                stats.word_count = int(words_match.group(1).replace(",", ""))
+            chapters_match = _STATS_CHAPTERS_RE.search(stats_text)
+            if chapters_match:
+                stats.chapters_have = int(chapters_match.group(1))
+                stats.chapters_total = None if chapters_match.group(2) == "?" else int(chapters_match.group(2))
+            break
+    return stats
+
+
+def parse_epub_stats(path: str) -> EpubStats:
+    """Word count / chapter progress, read from the preface page's own
+    "Stats:" line rather than content.opf -- a separate, optional pass from
+    parse_epub_metadata, since this still applies even to Audiobookshelf-
+    matched works (which skip parse_epub_metadata but the epub file itself
+    still sits on disk with this same preface page in it). Never raises --
+    a missing/malformed page just means no stats, not a parse_error.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            opf_path = _find_opf_path(zf)
+            opf_root = ET.fromstring(zf.read(opf_path))
+            href = _first_spine_item_href(opf_root)
+            if not href:
+                return EpubStats()
+            page_path = posixpath.join(posixpath.dirname(opf_path), href)
+            page_bytes = zf.read(page_path)
+    except (zipfile.BadZipFile, KeyError, OSError, ET.ParseError, EpubParseError):
+        return EpubStats()
+    return _extract_stats_from_preface(page_bytes)

@@ -18,19 +18,22 @@ REAL_GENRES = [
 
 def _make_abs_db(path: str, items: list[tuple[str, str, str, str]], books: dict[str, tuple] | None = None) -> None:
     """items: (item_id, path, libraryId, mediaId).
-    books: mediaId -> (title, description, genres_json).
+    books: mediaId -> (title, description, genres_json[, language]).
     """
     books = books or {}
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE libraryItems (id TEXT PRIMARY KEY, path TEXT, authorNamesFirstLast TEXT, libraryId TEXT, mediaId TEXT)")
-    conn.execute("CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, description TEXT, genres TEXT)")
+    conn.execute("CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, description TEXT, language TEXT, genres TEXT)")
     conn.executemany(
         "INSERT INTO libraryItems (id, path, authorNamesFirstLast, libraryId, mediaId) VALUES (?, ?, 'Some Author', ?, ?)",
         items,
     )
     conn.executemany(
-        "INSERT INTO books (id, title, description, genres) VALUES (?, ?, ?, ?)",
-        [(media_id, title, description, genres_json) for media_id, (title, description, genres_json) in books.items()],
+        "INSERT INTO books (id, title, description, language, genres) VALUES (?, ?, ?, ?, ?)",
+        [
+            (media_id, row[0], row[1], row[3] if len(row) > 3 else None, row[2])
+            for media_id, row in books.items()
+        ],
     )
     conn.commit()
     conn.close()
@@ -41,7 +44,7 @@ def test_load_matches_extracts_work_id_and_book_metadata(tmp_path):
     _make_abs_db(
         db_path,
         [("be740dc5-3a18-491d-8979-8b215ff7514c", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
-        books={"book-1": ("Sanctuary", "A summary.", json.dumps(REAL_GENRES))},
+        books={"book-1": ("Sanctuary", "A summary.", json.dumps(REAL_GENRES), "en")},
     )
 
     matches = load_matches(db_path, FANFIC_LIBRARY)
@@ -52,6 +55,7 @@ def test_load_matches_extracts_work_id_and_book_metadata(tmp_path):
     assert match.title == "Sanctuary"
     assert match.author == "Some Author"
     assert match.description == "A summary."
+    assert match.language == "en"
     assert match.genres == REAL_GENRES
 
 

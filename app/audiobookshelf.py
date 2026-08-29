@@ -42,6 +42,7 @@ class AbsBookMatch:
     title: str | None = None
     author: str | None = None
     description: str | None = None
+    language: str | None = None
     genres: list[str] = field(default_factory=list)  # same flat AO3 tag list an epub's dc:subject would have
 
 
@@ -58,7 +59,7 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
         try:
             rows = conn.execute(
                 """
-                SELECT li.id, li.path, li.authorNamesFirstLast, b.title, b.description, b.genres
+                SELECT li.id, li.path, li.authorNamesFirstLast, b.title, b.description, b.language, b.genres
                 FROM libraryItems li
                 JOIN books b ON b.id = li.mediaId
                 WHERE li.libraryId = ?
@@ -71,7 +72,7 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
         return {}
 
     matches: dict[str, AbsBookMatch] = {}
-    for item_id, path, author, title, description, genres_json in rows:
+    for item_id, path, author, title, description, language, genres_json in rows:
         if not path:
             continue
         filename_match = FILENAME_RE.match(os.path.basename(path))
@@ -82,7 +83,7 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
         except (TypeError, ValueError):
             genres = []
         matches[filename_match.group(1)] = AbsBookMatch(
-            item_id=item_id, title=title, author=author, description=description, genres=genres,
+            item_id=item_id, title=title, author=author, description=description, language=language, genres=genres,
         )
     return matches
 

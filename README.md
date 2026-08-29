@@ -35,12 +35,14 @@ library, matched works get two things:
 
 - A second link (🎧) next to the AO3 link on the Downloads and Issues pages, going straight to
   that item, plus the AO3 summary as a hover tooltip on the title.
-- Title, author, rating, warnings, category, relationships, and fandom for that work come from
-  Audiobookshelf's own already-scanned metadata (`books.title`/`description`/`genres`) instead of
-  this app unzipping and parsing the epub file itself -- Audiobookshelf read the same embedded
-  metadata during its own library scan, so for a matched work this is the same data, just not
-  re-parsed. A work whose local epub is missing or corrupted (otherwise a parse-error Issue) still
-  shows correct info as long as it matches in Audiobookshelf.
+- Title, author, rating, warnings, category, relationships, fandom, and language for that work
+  come from Audiobookshelf's own already-scanned metadata (`books.title`/`description`/`genres`/
+  `language`) instead of this app unzipping and parsing the epub file itself -- Audiobookshelf read
+  the same embedded metadata during its own library scan, so for a matched work this is the same
+  data, just not re-parsed. A work whose local epub is missing or corrupted (otherwise a
+  parse-error Issue) still shows correct info as long as it matches in Audiobookshelf. Word count
+  and chapter progress are the exception -- those always come from the epub file itself (see the
+  Downloads page entry above), matched or not, since Audiobookshelf doesn't track either.
 
 Matching is by AO3 work id, extracted from Audiobookshelf's own `libraryItems.path` column the same
 way this app reads its own downloads folder, joined to the `books` table via `libraryItems.mediaId`
@@ -55,8 +57,13 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
 
 ## Pages
 
-- **Downloads** (`/`) -- the full list with stats, filterable by fandom (`?fandom=...`, linked
-  from the Fandom column or the Fandoms page).
+- **Downloads** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
+  completion icons, tags, summary, language/words/chapters), with stats up top, filterable by
+  fandom (`?fandom=...`, linked from the Fandom column or the Fandoms page). Chapter progress and
+  completion status are real here, not guessed -- read straight from the epub's own preface page
+  (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:" line into on every
+  export. Word count comes from the same place; Audiobookshelf doesn't track it (confirmed against
+  a real schema export), so this only ever comes from the file itself, matched or not.
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.

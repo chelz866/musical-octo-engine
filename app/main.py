@@ -69,6 +69,7 @@ def human_size(num_bytes: int | None) -> str:
 
 
 templates.env.filters["human_size"] = human_size
+templates.env.filters["format_number"] = lambda n: f"{n:,}" if n is not None else ""
 
 # AO3-style blurb icons/tags for the Downloads page (see dashboard.html),
 # colors/symbols matched against AO3's own "Symbols we use on the Archive"
@@ -122,10 +123,22 @@ def blurb_icons(entry) -> dict:
     else:
         warning_class, warning_label, warning_symbol = "no", "Unknown", ""
 
+    # Chapters come from the epub's own preface page (see epub_meta.parse_epub_stats),
+    # so completion status is real here, not a placeholder: chapters_total is only
+    # ever set once the author commits to a total, so have < total is still a WIP
+    # even with a definite total (e.g. "5/12").
+    if entry.chapters_have is None:
+        completion_class, completion_label, completion_symbol = "unknown", "Completion status unknown", ""
+    elif entry.chapters_total is not None and entry.chapters_have >= entry.chapters_total:
+        completion_class, completion_label, completion_symbol = "complete", "Complete", "✓"
+    else:
+        completion_class, completion_label, completion_symbol = "wip", "Work in Progress", "⊘"
+
     return {
         "rating_class": rating_class, "rating_label": rating_label, "rating_symbol": rating_symbol,
         "category_class": category_class, "category_label": category_label, "category_symbol": category_symbol,
         "warning_class": warning_class, "warning_label": warning_label, "warning_symbol": warning_symbol,
+        "completion_class": completion_class, "completion_label": completion_label, "completion_symbol": completion_symbol,
     }
 
 
