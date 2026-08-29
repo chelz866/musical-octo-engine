@@ -137,3 +137,21 @@ def test_failed_refresh_leaves_previous_cache_untouched():
         cached = load_cached_feed(db_path, db.list_tracked_feeds(db_path)[0])
         assert cached.title == "Good Title"
         assert [e.work_id for e in cached.entries] == ["1"]
+
+
+def test_refresh_feed_cache_keeps_works_that_scrolled_out_of_the_feed_window():
+    # A real AO3 tag feed only shows recent works; a work posted earlier
+    # naturally drops off it once enough newer works are added. It should
+    # stay in the tracked list rather than vanish on the next refresh.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path, feed = _make_feed(tmp)
+        first_fetch = FeedResult(title="T", entries=[FeedEntry(work_id="1"), FeedEntry(work_id="2")])
+        with patch("app.rss.fetch_feed", return_value=first_fetch):
+            refresh_feed_cache(db_path, feed)
+
+        second_fetch = FeedResult(title="T", entries=[FeedEntry(work_id="3")])  # "1" and "2" aged out
+        with patch("app.rss.fetch_feed", return_value=second_fetch):
+            refresh_feed_cache(db_path, feed)
+
+        cached = load_cached_feed(db_path, db.list_tracked_feeds(db_path)[0])
+    assert {e.work_id for e in cached.entries} == {"1", "2", "3"}

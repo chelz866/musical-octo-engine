@@ -180,7 +180,9 @@ def test_save_and_load_feed_entries_round_trip():
         assert {r["work_id"] for r in rows} == {"1", "2"}
 
 
-def test_save_feed_entries_only_replaces_that_feed():
+def test_save_feed_entries_keeps_entries_that_scrolled_out_of_the_feed_window():
+    # AO3 tag/series feeds only show recent works -- a work that ages out
+    # of that window on a later refresh must stay tracked, not disappear.
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
@@ -189,8 +191,20 @@ def test_save_feed_entries_only_replaces_that_feed():
 
         db.save_feed_entries(path, 1, [_sample_feed_row("3", feed_id=1)])
 
-        assert {r["work_id"] for r in db.load_feed_entries(path, 1)} == {"3"}
+        assert {r["work_id"] for r in db.load_feed_entries(path, 1)} == {"1", "3"}
         assert {r["work_id"] for r in db.load_feed_entries(path, 2)} == {"2"}
+
+
+def test_save_feed_entries_updates_existing_entry_in_place():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1, chapters_have=1)])
+        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1, chapters_have=5)])
+
+        rows = db.load_feed_entries(path, 1)
+        assert len(rows) == 1
+        assert rows[0]["chapters_have"] == 5
 
 
 def test_set_tracked_feed_title():

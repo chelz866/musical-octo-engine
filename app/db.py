@@ -241,12 +241,23 @@ def load_works_cache(path: str) -> list[dict]:
 
 
 def save_feed_entries(path: str, feed_id: int, rows: list[dict]) -> None:
+    """Upserts this refresh's entries; does NOT delete anything. AO3 tag/
+    series feeds only show a recent-works window, so a work that scrolls
+    out of that window (because newer works got posted) must stay tracked
+    rather than disappear -- otherwise "tracking" a tag would only ever
+    show whatever happens to currently be recent, not what you're actually
+    tracking. Removing an entry only happens by removing the whole feed.
+    """
     cols = FEED_ENTRY_COLUMNS
     placeholders = ", ".join("?" for _ in cols)
+    update_cols = [c for c in cols if c not in ("feed_id", "work_id")]
+    update_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
     with _connect(path) as conn:
-        conn.execute("DELETE FROM feed_entries WHERE feed_id = ?", (feed_id,))
         conn.executemany(
-            f"INSERT INTO feed_entries ({', '.join(cols)}) VALUES ({placeholders})",
+            f"""
+            INSERT INTO feed_entries ({', '.join(cols)}) VALUES ({placeholders})
+            ON CONFLICT(feed_id, work_id) DO UPDATE SET {update_clause}
+            """,
             [tuple(row[c] for c in cols) for row in rows],
         )
 

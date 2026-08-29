@@ -30,7 +30,9 @@ instantly instead of re-walking the filesystem and hitting AO3 on every request.
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
   you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`). Each
-  feed's table is collapsible once it gets long.
+  feed's table is collapsible once it gets long. A real AO3 tag/series feed only shows a window of
+  recent works, so refreshing accumulates works seen over time rather than mirroring that window --
+  a work doesn't disappear from your tracked list just because newer works pushed it off the feed.
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
 have the same checkbox picker under the Fandom column ("edit") as a shortcut scoped to one work's
