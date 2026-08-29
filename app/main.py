@@ -70,6 +70,72 @@ def human_size(num_bytes: int | None) -> str:
 
 templates.env.filters["human_size"] = human_size
 
+# AO3-style blurb icons/tags for the Downloads page (see dashboard.html) --
+# an approximation of AO3's own rating/category/warning icon colors, not a
+# guaranteed pixel match. There's no "complete/WIP" 4th icon like AO3 shows,
+# since chapter counts aren't tracked for plain downloads (only for tracked
+# feed entries, a separate data path -- see rss.py/queue).
+_RATING_CLASSES = {
+    "Not Rated": "notrated",
+    "General Audiences": "general",
+    "Teen And Up Audiences": "teen",
+    "Mature": "mature",
+    "Explicit": "explicit",
+}
+_RATING_SYMBOLS = {
+    "General Audiences": "G", "Teen And Up Audiences": "T", "Mature": "M", "Explicit": "E",
+}
+_CATEGORY_CLASSES = {
+    "Gen": "gen", "F/M": "fm", "M/M": "mm", "F/F": "ff", "Multi": "multi", "Other": "other",
+}
+_CATEGORY_SYMBOLS = {"Gen": "Gen", "F/M": "F/M", "M/M": "M/M", "F/F": "F/F"}
+
+
+def blurb_icons(entry) -> dict:
+    rating_label = entry.rating or "Not Rated"
+    rating_class = _RATING_CLASSES.get(entry.rating, "notrated")
+    rating_symbol = _RATING_SYMBOLS.get(entry.rating, "?")
+
+    if len(entry.categories) > 1:
+        category_class, category_label, category_symbol = "multi", "Multi", "Mul"
+    elif entry.categories:
+        category_class = _CATEGORY_CLASSES.get(entry.categories[0], "other")
+        category_label = entry.categories[0]
+        category_symbol = _CATEGORY_SYMBOLS.get(entry.categories[0], "?")
+    else:
+        category_class, category_label, category_symbol = "unknown", "No category", "?"
+
+    if "Choose Not To Use Archive Warnings" in entry.warnings:
+        warning_class, warning_label, warning_symbol = "unstated", "Creator Chose Not To Use Archive Warnings", "!"
+    elif entry.warnings and entry.warnings != ["No Archive Warnings Apply"]:
+        warning_class, warning_label, warning_symbol = "yes", ", ".join(entry.warnings), "!"
+    elif "No Archive Warnings Apply" in entry.warnings:
+        warning_class, warning_label, warning_symbol = "no", "No Archive Warnings Apply", "–"
+    else:
+        warning_class, warning_label, warning_symbol = "unknown", "Unknown", "?"
+
+    return {
+        "rating_class": rating_class, "rating_label": rating_label, "rating_symbol": rating_symbol,
+        "category_class": category_class, "category_label": category_label, "category_symbol": category_symbol,
+        "warning_class": warning_class, "warning_label": warning_label, "warning_symbol": warning_symbol,
+    }
+
+
+def blurb_tag_line(entry) -> list[dict]:
+    """Warnings, relationships, then leftover tags not classified as fandom
+    -- the closest approximation of AO3's own Warning/Relationship/
+    Character/Freeform tag line available, since this app only distinguishes
+    fandom vs. not within fandom_candidates (see epub_meta.classify_subjects).
+    """
+    tags = [{"text": w, "class": "tag-warning"} for w in entry.warnings]
+    tags += [{"text": r, "class": "tag"} for r in entry.relationships]
+    tags += [{"text": t, "class": "tag"} for t in entry.fandom_candidates if t not in entry.fandoms]
+    return tags
+
+
+templates.env.filters["blurb_icons"] = blurb_icons
+templates.env.filters["blurb_tag_line"] = blurb_tag_line
+
 
 def _base_context(request: Request) -> dict:
     return {

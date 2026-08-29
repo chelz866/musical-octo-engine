@@ -226,3 +226,114 @@ th {
   color: var(--muted);
   padding: 2rem;
 }
+
+/* AO3-style work "blurb" cards on the Downloads page. An approximation of
+   AO3's own rating/category/warning icon colors, not a guaranteed pixel
+   match -- there's also no 4th "complete/WIP" icon like AO3 shows, since
+   chapter counts aren't tracked for plain downloads. */
+.blurb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.blurb {
+  display: flex;
+  gap: 1rem;
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.blurb-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.req-tag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 1.4rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 2px;
+  letter-spacing: 0.02em;
+}
+
+.rating-general { background: #2b7fb8; }
+.rating-teen { background: #b8960a; }
+.rating-mature { background: #d9711f; }
+.rating-explicit { background: #a51e22; }
+.rating-notrated { background: #7a7a7a; }
+
+.category-gen { background: #5a6b7a; }
+.category-fm { background: #2e8b57; }
+.category-mm { background: #3b6fd6; }
+.category-ff { background: #c15a91; }
+.category-multi { background: #7c4dbd; }
+.category-other, .category-unknown { background: #7a7a7a; }
+
+.warning-no { background: #4a8a5c; }
+.warning-unstated { background: #d9711f; }
+.warning-yes { background: #a51e22; }
+.warning-unknown { background: #7a7a7a; }
+
+.blurb-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.blurb-heading {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.blurb-title {
+  font-weight: 700;
+}
+
+.blurb-author {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.blurb-fandoms {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+}
+
+.blurb-fandoms a {
+  color: inherit;
+}
+
+.blurb-tags {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.blurb-tags .tag {
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+}
+
+.blurb-tags .tag-warning {
+  font-weight: 700;
+}
+
+.blurb-summary {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.blurb-footer {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}

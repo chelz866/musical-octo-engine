@@ -41,48 +41,45 @@
     </div>
   </section>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Title</th>
-        <th>Author</th>
-        <th>Rating</th>
-        <th>Category</th>
-        <th>Relationship(s)</th>
-        <th>Fandom(s) <span class="hint">(guessed)</span></th>
-        <th>Size</th>
-        <th>Last activity</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for e in entries %}
-      <tr>
-        <td>
-          <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
+  <ul class="blurb-list">
+    {% for e in entries %}
+    {% set icons = e | blurb_icons %}
+    {% set tags = e | blurb_tag_line %}
+    <li class="blurb">
+      <div class="blurb-icons">
+        <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
+        <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
+        <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
+      </div>
+      <div class="blurb-body">
+        <h4 class="blurb-heading">
+          <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
             {{ e.title or "(unknown title)" }}
           </a>
           {% if e.work_id in abs_links %}
           <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
           {% endif %}
-        </td>
-        <td>{{ e.author or "—" }}</td>
-        <td>{{ e.rating or "—" }}</td>
-        <td>{{ e.categories | join(", ") if e.categories else "—" }}</td>
-        <td>{{ e.relationships | join(", ") if e.relationships else "—" }}</td>
-        <td>
+          by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
+        </h4>
+        <div class="blurb-fandoms">
           {% if e.fandoms %}
             {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
-          {% else %}—{% endif %}
+          {% else %}<span class="hint">no fandom guessed</span>{% endif %}
           {{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}
-        </td>
-        <td>{{ e.size_bytes | human_size }}</td>
-        <td>
+        </div>
+        {% if tags %}
+        <p class="blurb-tags">
+          {% for tag in tags %}<span class="{{ tag.class }}">{{ tag.text }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+        </p>
+        {% endif %}
+        {% if e.summary %}<p class="blurb-summary">{{ e.summary }}</p>{% endif %}
+        <p class="blurb-footer">
+          {{ e.size_bytes | human_size }}
+          &middot;
           {% if e.mtime %}{{ e.mtime.strftime("%Y-%m-%d %H:%M") }}
           {% elif e.log_timestamp %}{{ e.log_timestamp }}
           {% else %}—{% endif %}
-        </td>
-        <td>
+          &middot;
           {% if e.parse_error %}
             <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
           {% elif e.on_disk %}
@@ -92,16 +89,14 @@
           {% else %}
             <span class="badge badge-warn">✗ failed</span>
           {% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="9" class="empty">
-          {% if last_refreshed %}No works found. Check the mounted downloads/log paths.
-          {% else %}No data yet &mdash; click Refresh above to scan your downloads folder.{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+        </p>
+      </div>
+    </li>
+    {% else %}
+    <li class="empty">
+      {% if last_refreshed %}No works found. Check the mounted downloads/log paths.
+      {% else %}No data yet &mdash; click Refresh above to scan your downloads folder.{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
 {% endblock %}
