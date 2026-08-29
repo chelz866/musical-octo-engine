@@ -50,6 +50,7 @@
         <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
         <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
         <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
+        <span class="req-tag completion-unknown" title="Completion status: unknown (not tracked for plain downloads)"></span>
       </div>
       <div class="blurb-body">
         <h4 class="blurb-heading">
@@ -62,9 +63,12 @@
           by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
         </h4>
         <div class="blurb-fandoms">
-          {% if e.fandoms %}
-            {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
-          {% else %}<span class="hint">no fandom guessed</span>{% endif %}
+          {%- if e.fandoms -%}
+            {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
+          {%- else -%}
+            <span class="hint">no fandom guessed</span>
+          {%- endif -%}
+          {%- if e.series -%}, <span class="blurb-series">{{ e.series }}{% if e.series_index %} (#{{ e.series_index }}){% endif %} Series</span>{%- endif %}
           {{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}
         </div>
         {% if tags %}

@@ -245,42 +245,49 @@ th {
 }
 
 .blurb-icons {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1.8rem);
   gap: 2px;
   flex-shrink: 0;
+  height: fit-content;
 }
 
 .req-tag {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 1.4rem;
-  font-size: 0.65rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: #fff;
   border-radius: 2px;
-  letter-spacing: 0.02em;
 }
 
-.rating-general { background: #2b7fb8; }
-.rating-teen { background: #b8960a; }
-.rating-mature { background: #d9711f; }
-.rating-explicit { background: #a51e22; }
-.rating-notrated { background: #7a7a7a; }
+/* Colors/symbols matched against AO3's own "Symbols we use on the Archive"
+   reference, not guessed -- a blank/white square is a real AO3 state
+   (Not Rated / no category / no warnings / status unknown), not a filler. */
+.rating-general { background: #4d8c2b; }
+.rating-teen { background: #d8c526; }
+.rating-mature { background: #e0721e; }
+.rating-explicit { background: #a02128; }
+.rating-notrated { background: #fff; border: 1px solid var(--border); }
 
-.category-gen { background: #5a6b7a; }
-.category-fm { background: #2e8b57; }
-.category-mm { background: #3b6fd6; }
-.category-ff { background: #c15a91; }
-.category-multi { background: #7c4dbd; }
-.category-other, .category-unknown { background: #7a7a7a; }
+.category-gen { background: #4d8c2b; }
+.category-fm { background: #b0218f; }
+.category-mm { background: #2e5fac; }
+.category-ff { background: #c11f2e; }
+.category-other { background: #1a1a1a; }
+.category-unknown { background: #fff; border: 1px solid var(--border); }
+.category-multi {
+  background: conic-gradient(#4d8c2b 0deg 90deg, #c11f2e 90deg 180deg, #2e5fac 180deg 270deg, #b0218f 270deg 360deg);
+}
 
-.warning-no { background: #4a8a5c; }
-.warning-unstated { background: #d9711f; }
-.warning-yes { background: #a51e22; }
-.warning-unknown { background: #7a7a7a; }
+.warning-no { background: #fff; border: 1px solid var(--border); }
+.warning-unstated { background: #e0721e; font-size: 0.6rem; }
+.warning-yes { background: #a02128; }
+
+.completion-unknown { background: #fff; border: 1px solid var(--border); }
 
 .blurb-body {
   min-width: 0;
@@ -309,6 +316,10 @@ th {
 
 .blurb-fandoms a {
   color: inherit;
+}
+
+.blurb-series {
+  font-style: italic;
 }
 
 .blurb-tags {

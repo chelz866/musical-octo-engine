@@ -70,11 +70,13 @@ def human_size(num_bytes: int | None) -> str:
 
 templates.env.filters["human_size"] = human_size
 
-# AO3-style blurb icons/tags for the Downloads page (see dashboard.html) --
-# an approximation of AO3's own rating/category/warning icon colors, not a
-# guaranteed pixel match. There's no "complete/WIP" 4th icon like AO3 shows,
-# since chapter counts aren't tracked for plain downloads (only for tracked
-# feed entries, a separate data path -- see rss.py/queue).
+# AO3-style blurb icons/tags for the Downloads page (see dashboard.html),
+# colors/symbols matched against AO3's own "Symbols we use on the Archive"
+# reference guide rather than guessed. The 4th (completion/WIP) icon AO3
+# shows always renders as its "status unknown" blank state here, since
+# chapter counts aren't tracked for plain downloads (only for tracked feed
+# entries, a separate data path -- see rss.py/queue) -- that's a real AO3
+# state, not a placeholder.
 _RATING_CLASSES = {
     "Not Rated": "notrated",
     "General Audiences": "general",
@@ -86,33 +88,39 @@ _RATING_SYMBOLS = {
     "General Audiences": "G", "Teen And Up Audiences": "T", "Mature": "M", "Explicit": "E",
 }
 _CATEGORY_CLASSES = {
-    "Gen": "gen", "F/M": "fm", "M/M": "mm", "F/F": "ff", "Multi": "multi", "Other": "other",
+    "Gen": "gen", "F/M": "fm", "M/M": "mm", "F/F": "ff", "Other": "other",
 }
-_CATEGORY_SYMBOLS = {"Gen": "Gen", "F/M": "F/M", "M/M": "M/M", "F/F": "F/F"}
+_CATEGORY_SYMBOLS = {
+    "Gen": "⊙",  # circled dot -- AO3's "no romantic/sexual relationships" icon
+    "F/M": "⚥",  # male and female sign
+    "M/M": "♂",  # male sign
+    "F/F": "♀",  # female sign
+    "Other": "⚭",  # two rings, standing in for AO3's "other relationships" icon
+}
 
 
 def blurb_icons(entry) -> dict:
     rating_label = entry.rating or "Not Rated"
     rating_class = _RATING_CLASSES.get(entry.rating, "notrated")
-    rating_symbol = _RATING_SYMBOLS.get(entry.rating, "?")
+    rating_symbol = _RATING_SYMBOLS.get(entry.rating, "")  # blank square, no letter -- matches AO3's Not Rated icon
 
     if len(entry.categories) > 1:
-        category_class, category_label, category_symbol = "multi", "Multi", "Mul"
+        category_class, category_label, category_symbol = "multi", "Multi", ""
     elif entry.categories:
         category_class = _CATEGORY_CLASSES.get(entry.categories[0], "other")
         category_label = entry.categories[0]
-        category_symbol = _CATEGORY_SYMBOLS.get(entry.categories[0], "?")
+        category_symbol = _CATEGORY_SYMBOLS.get(entry.categories[0], "⚭")
     else:
-        category_class, category_label, category_symbol = "unknown", "No category", "?"
+        category_class, category_label, category_symbol = "unknown", "No category", ""
 
     if "Choose Not To Use Archive Warnings" in entry.warnings:
-        warning_class, warning_label, warning_symbol = "unstated", "Creator Chose Not To Use Archive Warnings", "!"
+        warning_class, warning_label, warning_symbol = "unstated", "Creator Chose Not To Use Archive Warnings", "!?"
     elif entry.warnings and entry.warnings != ["No Archive Warnings Apply"]:
         warning_class, warning_label, warning_symbol = "yes", ", ".join(entry.warnings), "!"
     elif "No Archive Warnings Apply" in entry.warnings:
-        warning_class, warning_label, warning_symbol = "no", "No Archive Warnings Apply", "–"
+        warning_class, warning_label, warning_symbol = "no", "No Archive Warnings Apply", ""
     else:
-        warning_class, warning_label, warning_symbol = "unknown", "Unknown", "?"
+        warning_class, warning_label, warning_symbol = "no", "Unknown", ""
 
     return {
         "rating_class": rating_class, "rating_label": rating_label, "rating_symbol": rating_symbol,
