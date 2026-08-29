@@ -93,44 +93,6 @@ def test_get_all_tag_flags_empty_by_default():
         assert db.get_all_tag_flags(path) == {}
 
 
-def test_add_and_list_tracked_feeds():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.add_tracked_feed(path, "https://archiveofourown.org/tags/161642381/feed.atom", "Heated Rivalry")
-        db.add_tracked_feed(path, "https://archiveofourown.org/tags/999/feed.atom", None)
-
-        feeds = db.list_tracked_feeds(path)
-        assert [f.url for f in feeds] == [
-            "https://archiveofourown.org/tags/161642381/feed.atom",
-            "https://archiveofourown.org/tags/999/feed.atom",
-        ]
-        assert feeds[0].label == "Heated Rivalry"
-        assert feeds[1].label is None
-
-
-def test_add_tracked_feed_ignores_duplicate_url():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.add_tracked_feed(path, "https://example.com/feed.atom", "First")
-        db.add_tracked_feed(path, "https://example.com/feed.atom", "Second")
-
-        feeds = db.list_tracked_feeds(path)
-        assert len(feeds) == 1
-
-
-def test_delete_tracked_feed():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
-        feed_id = db.list_tracked_feeds(path)[0].id
-
-        db.delete_tracked_feed(path, feed_id)
-        assert db.list_tracked_feeds(path) == []
-
-
 def _sample_work_row(work_id="1", **overrides):
     row = {c: None for c in db.WORKS_CACHE_COLUMNS}
     row.update({
@@ -163,71 +125,39 @@ def test_save_works_cache_replaces_previous_snapshot():
         assert {r["work_id"] for r in rows} == {"2"}
 
 
-def _sample_feed_row(work_id="1", **overrides):
-    row = {"feed_id": 1, "work_id": work_id, "title": "T", "author": "A",
-           "chapters_have": 1, "chapters_total": 1, "feed_updated": "2026-01-01T00:00:00Z"}
-    row.update(overrides)
-    return row
+def test_pop_legacy_tracked_feeds_returns_empty_when_no_legacy_table(tmp_path):
+    path = str(tmp_path / "app.db")
+    db.init_db(path)
+    assert db.pop_legacy_tracked_feeds(path) == []
 
 
-def test_save_and_load_feed_entries_round_trip():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.save_feed_entries(path, 1, [_sample_feed_row("1"), _sample_feed_row("2")])
+def test_pop_legacy_tracked_feeds_migrates_and_drops_old_tables(tmp_path):
+    import sqlite3
 
-        rows = db.load_feed_entries(path, 1)
-        assert {r["work_id"] for r in rows} == {"1", "2"}
+    path = str(tmp_path / "app.db")
+    db.init_db(path)
 
+    # simulate a database from before the switch to the `reader` library,
+    # which stored tracked feeds in this same app.db
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE tracked_feeds (id INTEGER PRIMARY KEY, url TEXT, label TEXT, title TEXT)")
+    conn.execute("CREATE TABLE feed_entries (feed_id INTEGER, work_id TEXT)")
+    conn.execute("INSERT INTO tracked_feeds (url, label) VALUES (?, ?)", ("https://example.com/a.atom", "A"))
+    conn.execute("INSERT INTO tracked_feeds (url, label) VALUES (?, ?)", ("https://example.com/b.atom", None))
+    conn.commit()
+    conn.close()
 
-def test_save_feed_entries_keeps_entries_that_scrolled_out_of_the_feed_window():
-    # AO3 tag/series feeds only show recent works -- a work that ages out
-    # of that window on a later refresh must stay tracked, not disappear.
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1)])
-        db.save_feed_entries(path, 2, [_sample_feed_row("2", feed_id=2)])
+    migrated = db.pop_legacy_tracked_feeds(path)
+    assert set(migrated) == {("https://example.com/a.atom", "A"), ("https://example.com/b.atom", None)}
 
-        db.save_feed_entries(path, 1, [_sample_feed_row("3", feed_id=1)])
+    # idempotent: tables are gone, so a second call finds nothing to migrate
+    assert db.pop_legacy_tracked_feeds(path) == []
 
-        assert {r["work_id"] for r in db.load_feed_entries(path, 1)} == {"1", "3"}
-        assert {r["work_id"] for r in db.load_feed_entries(path, 2)} == {"2"}
-
-
-def test_save_feed_entries_updates_existing_entry_in_place():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1, chapters_have=1)])
-        db.save_feed_entries(path, 1, [_sample_feed_row("1", feed_id=1, chapters_have=5)])
-
-        rows = db.load_feed_entries(path, 1)
-        assert len(rows) == 1
-        assert rows[0]["chapters_have"] == 5
-
-
-def test_set_tracked_feed_title():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
-        feed_id = db.list_tracked_feeds(path)[0].id
-
-        db.set_tracked_feed_title(path, feed_id, "Fetched Feed Title")
-        assert db.list_tracked_feeds(path)[0].title == "Fetched Feed Title"
-
-
-def test_delete_tracked_feed_also_clears_its_cached_entries():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.add_tracked_feed(path, "https://example.com/feed.atom", None)
-        feed_id = db.list_tracked_feeds(path)[0].id
-        db.save_feed_entries(path, feed_id, [_sample_feed_row("1", feed_id=feed_id)])
-
-        db.delete_tracked_feed(path, feed_id)
-        assert db.load_feed_entries(path, feed_id) == []
+    conn = sqlite3.connect(path)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "tracked_feeds" not in tables
+    assert "feed_entries" not in tables
 
 
 def test_set_title_author_preserves_dismissed():

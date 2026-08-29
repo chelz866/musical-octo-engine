@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections import Counter
 from datetime import datetime
@@ -13,6 +14,8 @@ from . import db, rss, scanner
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
 DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
+FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
+AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", 4 * 60 * 60))
 
 LAST_REFRESHED_KEY = "last_refreshed_at"
 
@@ -23,10 +26,28 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 
+async def _auto_refresh_loop():
+    """Periodically refreshes only feeds with auto-refresh enabled. Waits
+    a full interval before the first run, so restarting/redeploying the
+    container doesn't itself trigger a fetch against every tracked feed.
+    """
+    while True:
+        await asyncio.sleep(AUTO_REFRESH_INTERVAL_SECONDS)
+        await asyncio.to_thread(rss.refresh_auto_feeds, FEEDS_DB_PATH)
+
+
 @app.on_event("startup")
-def _startup():
+async def _startup():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     db.init_db(DB_PATH)
+
+    for url, label in db.pop_legacy_tracked_feeds(DB_PATH):
+        try:
+            rss.add_tracked_feed(FEEDS_DB_PATH, url, label)
+        except rss.FeedRefreshError:
+            pass  # best-effort; the user can re-add manually if a URL is stale
+
+    asyncio.create_task(_auto_refresh_loop())
 
 
 def human_size(num_bytes: int | None) -> str:
@@ -175,11 +196,9 @@ def tracked(request: Request):
     local_by_id = {e.work_id: e for e in result.entries}
 
     feeds = []
-    for feed in db.list_tracked_feeds(DB_PATH):
-        feed_result = rss.load_cached_feed(DB_PATH, feed)
-
+    for feed in rss.list_tracked_feeds(FEEDS_DB_PATH):
         rows = []
-        for entry in feed_result.entries:
+        for entry in rss.get_feed_entries(FEEDS_DB_PATH, feed.url):
             local_entry = local_by_id.get(entry.work_id)
             on_disk = bool(local_entry and local_entry.on_disk)
             local_timestamp = scanner.effective_timestamp(local_entry) if local_entry else None
@@ -188,7 +207,7 @@ def tracked(request: Request):
                 "on_disk": on_disk,
                 "status": rss.assess_status(entry, on_disk, local_timestamp),
             })
-        feeds.append({"feed": feed, "title": feed_result.title, "rows": rows})
+        feeds.append({"feed": feed, "rows": rows})
 
     return templates.TemplateResponse(
         "tracked.html",
@@ -200,28 +219,31 @@ def tracked(request: Request):
 
 
 @app.post("/tracked/add")
-def add_tracked_feed(url: str = Form(...), label: str = Form("")):
-    db.add_tracked_feed(DB_PATH, url.strip(), label.strip() or None)
+def add_tracked_feed_route(url: str = Form(...), label: str = Form("")):
+    redirect_url = "/tracked"
+    try:
+        rss.add_tracked_feed(FEEDS_DB_PATH, url.strip(), label.strip() or None)
+    except rss.FeedRefreshError as exc:
+        redirect_url += f"?refresh_error={quote(str(exc))}"
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@app.post("/tracked/delete")
+def delete_tracked_feed_route(url: str = Form(...)):
+    rss.delete_tracked_feed(FEEDS_DB_PATH, url)
     return RedirectResponse(url="/tracked", status_code=303)
 
 
-@app.post("/tracked/{feed_id}/delete")
-def delete_tracked_feed(feed_id: int):
-    db.delete_tracked_feed(DB_PATH, feed_id)
+@app.post("/tracked/toggle_auto")
+def toggle_auto_refresh(url: str = Form(...), enabled: bool = Form(...)):
+    rss.set_feed_auto_refresh(FEEDS_DB_PATH, url, enabled)
     return RedirectResponse(url="/tracked", status_code=303)
 
 
 @app.post("/refresh")
 def refresh(next: str = Form("/")):
     scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
-
-    errors = []
-    for feed in db.list_tracked_feeds(DB_PATH):
-        try:
-            rss.refresh_feed_cache(DB_PATH, feed)
-        except rss.FeedFetchError as exc:
-            errors.append(f"{feed.label or feed.url}: {exc}")
-
+    errors = rss.refresh_all_tracked_feeds(FEEDS_DB_PATH)
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
 
     redirect_url = next or "/"

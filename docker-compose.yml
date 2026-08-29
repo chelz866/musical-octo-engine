@@ -7,6 +7,7 @@ services:
       - DOWNLOAD_DIR=/downloads
       - LOG_PATH=/logs/log.jsonl
       - DB_PATH=/data/app.db
+      - AUTO_REFRESH_INTERVAL_SECONDS=${AUTO_REFRESH_INTERVAL_SECONDS:-14400}
     volumes:
       - ${DOWNLOAD_DIR}:/downloads:ro
       - ${LOG_DIR}:/logs:ro

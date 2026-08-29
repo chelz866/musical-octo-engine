@@ -1,32 +1,32 @@
-"""Fetch and parse an AO3 Atom feed (tag/series/user feed) to cross-reference
-tracked works against what's already downloaded.
+"""Track AO3 Atom feeds using the `reader` library instead of hand-rolled
+fetch/parse/storage.
 
-AO3's Atom feeds are standard Atom 1.0. Each <entry>'s work id is embedded in
-both <id> (tag:archiveofourown.org,2005:Work/12345) and the alternate <link>.
-Chapter progress ("Chapters: 3/7", or "3/?" for an author who hasn't
-committed to a final count) is embedded as plain text inside the escaped
-HTML <summary>, not as a separate structured field -- there's no chapter
-count anywhere else in the feed, so this regex is the only source for it.
+reader owns its own SQLite file (separate from app.db, see FEEDS_DB_PATH in
+main.py) and gives us, for free, exactly the things worth not re-inventing:
+entries persist across updates even after they scroll out of AO3's
+recent-works window (that's the whole point of "tracking" a feed over
+time -- a plain snapshot-per-refresh model, which is what this app used to
+do, actively fights that), efficient conditional re-fetching, and a native
+per-feed enabled/disabled flag (`updates_enabled`) that IS the auto-refresh
+toggle -- `reader.update_feeds()` already only touches enabled feeds by
+default, no extra column of our own needed.
+
+AO3-specific parsing (work id, chapter progress) isn't something reader
+knows about -- that's still our own regex over each Entry's id/summary,
+same as before.
 """
 
 import re
-import urllib.error
-import urllib.request
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
-from . import db
-
-ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+from reader import Entry, Feed, ParseError, make_reader
 
 WORK_ID_RE = re.compile(r"Work/(\d+)")
 CHAPTERS_RE = re.compile(r"Chapters:\s*(\d+)\s*/\s*(\d+|\?)")
 
-USER_AGENT = "Mozilla/5.0 (compatible; ao3-downloads-viewer)"
 
-
-class FeedFetchError(Exception):
+class FeedRefreshError(Exception):
     pass
 
 
@@ -37,142 +37,115 @@ class FeedEntry:
     author: str | None = None
     chapters_have: int | None = None
     chapters_total: int | None = None  # None means the feed showed "?" (author hasn't committed to a total)
-    feed_updated: str | None = None
+    feed_updated: datetime | None = None  # tz-aware, from reader
 
     @property
     def is_complete(self) -> bool:
         return self.chapters_total is not None and self.chapters_have == self.chapters_total
 
 
-@dataclass
-class FeedResult:
-    title: str | None = None
-    entries: list[FeedEntry] = field(default_factory=list)
-
-
-def _entry_work_id(entry_el) -> str | None:
-    id_el = entry_el.find("atom:id", ATOM_NS)
-    if id_el is not None and id_el.text:
-        match = WORK_ID_RE.search(id_el.text)
-        if match:
-            return match.group(1)
-
-    link_el = entry_el.find("atom:link", ATOM_NS)
-    if link_el is not None:
-        match = WORK_ID_RE.search(link_el.attrib.get("href", ""))
-        if match:
-            return match.group(1)
-
-    return None
-
-
-def parse_feed_xml(xml_text: str) -> FeedResult:
-    root = ET.fromstring(xml_text)
-
-    title_el = root.find("atom:title", ATOM_NS)
-    result = FeedResult(title=title_el.text.strip() if title_el is not None and title_el.text else None)
-
-    for entry_el in root.findall("atom:entry", ATOM_NS):
-        work_id = _entry_work_id(entry_el)
-        if not work_id:
-            continue
-
-        entry = FeedEntry(work_id=work_id)
-
-        title_el = entry_el.find("atom:title", ATOM_NS)
-        if title_el is not None and title_el.text:
-            entry.title = title_el.text.strip()
-
-        author_el = entry_el.find("atom:author/atom:name", ATOM_NS)
-        if author_el is not None and author_el.text:
-            entry.author = author_el.text.strip()
-
-        updated_el = entry_el.find("atom:updated", ATOM_NS)
-        if updated_el is not None and updated_el.text:
-            entry.feed_updated = updated_el.text.strip()
-
-        summary_el = entry_el.find("atom:summary", ATOM_NS)
-        if summary_el is not None and summary_el.text:
-            match = CHAPTERS_RE.search(summary_el.text)
-            if match:
-                entry.chapters_have = int(match.group(1))
-                entry.chapters_total = None if match.group(2) == "?" else int(match.group(2))
-
-        result.entries.append(entry)
-
-    return result
-
-
-def parse_feed_timestamp(value: str) -> datetime | None:
+def add_tracked_feed(feeds_db_path: str, url: str, label: str | None) -> None:
+    r = make_reader(feeds_db_path)
     try:
-        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-    except (ValueError, TypeError):
+        r.add_feed(url, exist_ok=True)
+    except ParseError as exc:
+        raise FeedRefreshError(str(exc)) from exc
+    if label:
+        r.set_feed_user_title(url, label)
+
+
+def delete_tracked_feed(feeds_db_path: str, url: str) -> None:
+    make_reader(feeds_db_path).delete_feed(url, missing_ok=True)
+
+
+def set_feed_auto_refresh(feeds_db_path: str, url: str, enabled: bool) -> None:
+    r = make_reader(feeds_db_path)
+    if enabled:
+        r.enable_feed_updates(url)
+    else:
+        r.disable_feed_updates(url)
+
+
+def list_tracked_feeds(feeds_db_path: str) -> list[Feed]:
+    return list(make_reader(feeds_db_path).get_feeds())
+
+
+def _to_feed_entry(entry: Entry) -> FeedEntry | None:
+    match = WORK_ID_RE.search(entry.id)
+    if not match:
         return None
 
+    chapters_have = chapters_total = None
+    if entry.summary:
+        chapter_match = CHAPTERS_RE.search(entry.summary)
+        if chapter_match:
+            chapters_have = int(chapter_match.group(1))
+            chapters_total = None if chapter_match.group(2) == "?" else int(chapter_match.group(2))
 
-def assess_status(entry: FeedEntry, on_disk: bool, local_timestamp: datetime | None) -> str:
-    """Best-effort only: compares the feed's <updated> (UTC) against a local
-    filesystem mtime or log timestamp (assumed to be roughly the same clock,
-    since ao3downloader doesn't record a timezone). Can be off near the
-    boundary if the server's clock isn't UTC -- treat as a hint, not proof.
-    """
-    if not on_disk:
-        return "not_downloaded"
-    feed_updated = parse_feed_timestamp(entry.feed_updated) if entry.feed_updated else None
-    if feed_updated is None or local_timestamp is None:
-        return "unknown"
-    if local_timestamp >= feed_updated:
-        return "up_to_date"
-    return "may_need_update"
-
-
-def fetch_feed(url: str, timeout: int = 15) -> FeedResult:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            xml_text = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise FeedFetchError(f"could not fetch {url}: {exc}") from exc
-
-    try:
-        return parse_feed_xml(xml_text)
-    except ET.ParseError as exc:
-        raise FeedFetchError(f"could not parse feed from {url}: {exc}") from exc
-
-
-def _entry_to_row(feed_id: int, entry: FeedEntry) -> dict:
-    return {
-        "feed_id": feed_id,
-        "work_id": entry.work_id,
-        "title": entry.title,
-        "author": entry.author,
-        "chapters_have": entry.chapters_have,
-        "chapters_total": entry.chapters_total,
-        "feed_updated": entry.feed_updated,
-    }
-
-
-def _row_to_entry(row: dict) -> FeedEntry:
     return FeedEntry(
-        work_id=row["work_id"],
-        title=row["title"],
-        author=row["author"],
-        chapters_have=row["chapters_have"],
-        chapters_total=row["chapters_total"],
-        feed_updated=row["feed_updated"],
+        work_id=match.group(1),
+        title=entry.title,
+        author=entry.authors[0].name if entry.authors else None,
+        chapters_have=chapters_have,
+        chapters_total=chapters_total,
+        feed_updated=entry.updated,
     )
 
 
-def refresh_feed_cache(db_path: str, feed: db.TrackedFeed) -> FeedResult:
-    """Fetches live and overwrites the cache for this feed. Raises
-    FeedFetchError (and leaves the existing cache untouched) on failure.
+def get_feed_entries(feeds_db_path: str, feed_url: str) -> list[FeedEntry]:
+    r = make_reader(feeds_db_path)
+    entries = (_to_feed_entry(e) for e in r.get_entries(feed=feed_url))
+    return [e for e in entries if e is not None]
+
+
+def refresh_feed(feeds_db_path: str, url: str) -> None:
+    """Force-refreshes one feed regardless of its auto-refresh setting."""
+    try:
+        make_reader(feeds_db_path).update_feed(url)
+    except ParseError as exc:
+        raise FeedRefreshError(str(exc)) from exc
+
+
+def refresh_all_tracked_feeds(feeds_db_path: str) -> list[str]:
+    """Force-refreshes every tracked feed regardless of its auto-refresh
+    setting, for the manual Refresh button. Returns an error message per
+    feed that failed; a feed with nothing new is not an error.
     """
-    result = fetch_feed(feed.url)
-    db.save_feed_entries(db_path, feed.id, [_entry_to_row(feed.id, e) for e in result.entries])
-    db.set_tracked_feed_title(db_path, feed.id, result.title)
-    return result
+    r = make_reader(feeds_db_path)
+    errors = []
+    for feed in r.get_feeds():
+        try:
+            r.update_feed(feed.url)
+        except ParseError as exc:
+            errors.append(f"{feed.user_title or feed.title or feed.url}: {exc}")
+    return errors
 
 
-def load_cached_feed(db_path: str, feed: db.TrackedFeed) -> FeedResult:
-    rows = db.load_feed_entries(db_path, feed.id)
-    return FeedResult(title=feed.title, entries=[_row_to_entry(row) for row in rows])
+def refresh_auto_feeds(feeds_db_path: str) -> None:
+    """Refreshes only feeds with auto-refresh enabled -- used by the
+    background poll loop, where there's no user watching to show an
+    error to, so failures are silently skipped (same as reader's own
+    update_feeds() does internally).
+    """
+    r = make_reader(feeds_db_path)
+    for feed in r.get_feeds(updates_enabled=True):
+        try:
+            r.update_feed(feed.url)
+        except ParseError:
+            pass
+
+
+def assess_status(entry: FeedEntry, on_disk: bool, local_timestamp: datetime | None) -> str:
+    """Best-effort only: compares the feed's updated time (tz-aware UTC,
+    from reader) against a local filesystem mtime or log timestamp (naive,
+    assumed to be roughly the same clock, since ao3downloader doesn't
+    record a timezone). Can be off near the boundary if the server's clock
+    isn't UTC -- treat as a hint, not proof.
+    """
+    if not on_disk:
+        return "not_downloaded"
+    if entry.feed_updated is None or local_timestamp is None:
+        return "unknown"
+    if local_timestamp >= entry.feed_updated.replace(tzinfo=None):
+        return "up_to_date"
+    return "may_need_update"

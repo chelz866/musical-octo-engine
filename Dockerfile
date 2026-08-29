@@ -9,7 +9,9 @@ COPY app/ app/
 
 ENV DOWNLOAD_DIR=/downloads \
     LOG_PATH=/logs/log.jsonl \
-    DB_PATH=/data/app.db
+    DB_PATH=/data/app.db \
+    FEEDS_DB_PATH=/data/feeds.sqlite \
+    AUTO_REFRESH_INTERVAL_SECONDS=14400
 
 EXPOSE 8000
 

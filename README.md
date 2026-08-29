@@ -10,10 +10,20 @@ small local SQLite file for manual corrections and tracked feeds you add yoursel
 exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
 
 Everything is cached in that same SQLite file and only updated when you click **Refresh** (top
-right of every page) -- there's no background polling or scheduled job. A refresh re-scans the
-downloads folder/log and re-fetches every tracked feed. Until you click it, pages read the last
-snapshot even if files on disk have changed since -- that's the tradeoff for pages loading
-instantly instead of re-walking the filesystem and hitting AO3 on every request.
+right of every page) -- there's no background polling for the downloads folder/log. A refresh
+re-scans the downloads folder/log and re-fetches every tracked feed regardless of its own
+auto-refresh setting below. Until you click it, pages read the last snapshot even if files on disk
+have changed since -- that's the tradeoff for pages loading instantly instead of re-walking the
+filesystem and hitting AO3 on every request.
+
+The one exception is per-feed auto-refresh on the Tracked Feeds page (opt-in, off by default only
+in the sense that it's a per-feed toggle you control) -- a small background task polls feeds with
+it enabled every `AUTO_REFRESH_INTERVAL_SECONDS` (default 4 hours) so new works show up without
+you needing to click Refresh. Tracked feeds are handled by the
+[`reader`](https://github.com/lemon24/reader) library in a separate SQLite file
+(`FEEDS_DB_PATH`), which is what makes a work stay tracked even after it scrolls out of AO3's
+recent-works window -- `reader` keeps every entry it has ever seen for a feed rather than mirroring
+its current contents.
 
 ## Pages
 
@@ -31,8 +41,9 @@ instantly instead of re-walking the filesystem and hitting AO3 on every request.
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
   you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`). Each
   feed's table is collapsible once it gets long. A real AO3 tag/series feed only shows a window of
-  recent works, so refreshing accumulates works seen over time rather than mirroring that window --
+  recent works, so tracking accumulates works seen over time rather than mirroring that window --
   a work doesn't disappear from your tracked list just because newer works pushed it off the feed.
+  Each feed also has its own "Auto-refresh: on/off" toggle (see above).
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
 have the same checkbox picker under the Fandom column ("edit") as a shortcut scoped to one work's
@@ -60,8 +71,12 @@ there marks it a fandom everywhere it appears, not just on that one row.
 - The downloads folder and log file are mounted read-only; only the small `/data` SQLite file
   (manual overrides/dismissals/cache/tracked feeds) is writable, and nothing here downloads or
   modifies your fics.
-- Refresh is entirely manual -- nothing auto-refreshes on a timer, so a stale cache just sits
-  there until you click the button.
+- Refresh of the downloads folder/log is entirely manual. Tracked feeds are the one exception:
+  each has its own opt-in auto-refresh toggle, polled in the background every
+  `AUTO_REFRESH_INTERVAL_SECONDS` (default 4 hours) regardless of whether anyone clicks Refresh.
+- If you're upgrading from a version before the switch to `reader`, tracked feeds previously
+  stored in the main SQLite file are migrated automatically into the new `FEEDS_DB_PATH` file the
+  first time the app starts -- nothing to do manually.
 
 ## Development
 
