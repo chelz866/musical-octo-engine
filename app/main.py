@@ -18,6 +18,7 @@ FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
 AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", 60 * 60))
 
 LAST_REFRESHED_KEY = "last_refreshed_at"
+FEEDS_LAST_REFRESHED_KEY = "feeds_last_refreshed_at"
 
 BASE_DIR = os.path.dirname(__file__)
 
@@ -68,6 +69,7 @@ def _base_context(request: Request) -> dict:
     return {
         "request": request,
         "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
+        "feeds_last_refreshed": db.get_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY),
         "refresh_error": request.query_params.get("refresh_error"),
     }
 
@@ -269,11 +271,22 @@ def toggle_auto_refresh(url: str = Form(...), enabled: bool = Form(...)):
 
 @app.post("/refresh")
 def refresh(next: str = Form("/")):
+    """Rescans the downloads folder/log only -- kept separate from feed
+    refreshing (see /refresh/feeds) since walking a large downloads folder
+    and hitting every tracked feed on every click was too much to always
+    bundle together.
+    """
     scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
-    errors = rss.refresh_all_tracked_feeds(FEEDS_DB_PATH)
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
+    return RedirectResponse(url=next or "/", status_code=303)
 
-    redirect_url = next or "/"
+
+@app.post("/refresh/feeds")
+def refresh_feeds(next: str = Form("/tracked")):
+    errors = rss.refresh_all_tracked_feeds(FEEDS_DB_PATH)
+    db.set_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY, datetime.now().isoformat())
+
+    redirect_url = next or "/tracked"
     if errors:
         sep = "&" if "?" in redirect_url else "?"
         redirect_url += f"{sep}refresh_error={quote('; '.join(errors))}"

@@ -8,11 +8,21 @@
       <code>https://archiveofourown.org/tags/&lt;id&gt;/feed.atom</code>).
       Works accumulate over time and stay tracked even after they scroll off
       AO3's recent-works window. "Auto-refresh" checks that one feed on its
-      own every few hours; the Refresh button up top always checks every
-      feed regardless of that setting. "Status" compares the feed's
-      last-updated time against when we downloaded/logged the work &mdash;
-      a hint, not a guarantee, since it isn't comparing exact chapter counts.
+      own periodically; the "Refresh feeds" button below always checks every
+      feed regardless of that setting (separate from the Refresh button in
+      the top nav, which only rescans your downloads folder/log). "Status"
+      compares the feed's last-updated time against when we downloaded/logged
+      the work &mdash; a hint, not a guarantee, since it isn't comparing exact
+      chapter counts.
     </p>
+    <form method="post" action="/refresh/feeds" class="refresh-form">
+      <input type="hidden" name="next" value="/tracked">
+      <button type="submit">Refresh feeds</button>
+      <span class="hint">
+        {% if feeds_last_refreshed %}last checked {{ feeds_last_refreshed[:16].replace("T", " ") }}
+        {% else %}never checked{% endif %}
+      </span>
+    </form>
   </header>
 
   <form method="post" action="/tracked/add" class="edit-form">

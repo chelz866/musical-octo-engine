@@ -9,6 +9,14 @@
       same best-effort hint as the Tracked Feeds page (last-updated time, not an exact chapter
       count) &mdash; see <a href="/tracked">Tracked Feeds</a> for the full picture per feed.
     </p>
+    <form method="post" action="/refresh/feeds" class="refresh-form">
+      <input type="hidden" name="next" value="/queue">
+      <button type="submit">Refresh feeds</button>
+      <span class="hint">
+        {% if feeds_last_refreshed %}last checked {{ feeds_last_refreshed[:16].replace("T", " ") }}
+        {% else %}never checked{% endif %}
+      </span>
+    </form>
   </header>
 
   <table>

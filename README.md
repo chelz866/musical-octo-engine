@@ -9,12 +9,15 @@ It does not trigger downloads -- it only looks at files already on disk, the exi
 small local SQLite file for manual corrections and tracked feeds you add yourself. The one
 exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
 
-Everything is cached in that same SQLite file and only updated when you click **Refresh** (top
-right of every page) -- there's no background polling for the downloads folder/log. A refresh
-re-scans the downloads folder/log and re-fetches every tracked feed regardless of its own
-auto-refresh setting below. Until you click it, pages read the last snapshot even if files on disk
-have changed since -- that's the tradeoff for pages loading instantly instead of re-walking the
-filesystem and hitting AO3 on every request.
+Everything is cached and only updated on request -- there's no background polling for the
+downloads folder/log. The **Refresh** button (top right of every page) re-scans the downloads
+folder/log only; it deliberately does not also touch tracked feeds, since walking a large
+downloads folder and hitting every tracked feed on every click was too much to bundle into one
+button. Tracked feeds have their own separate **Refresh feeds** button, on the Tracked Feeds and
+Queue pages, that force-checks every tracked feed regardless of its own auto-refresh setting
+below. Until you click the relevant button, pages read the last snapshot even if files on disk (or
+a feed) have changed since -- that's the tradeoff for pages loading instantly instead of
+re-walking the filesystem or hitting AO3 on every request.
 
 The one exception is per-feed auto-refresh on the Tracked Feeds page (opt-in, off by default only
 in the sense that it's a per-feed toggle you control) -- a small background task polls feeds with
