@@ -235,6 +235,55 @@ def test_abs_match_replaces_epub_parsing_for_that_work():
     assert entry.fandoms == ["Some Fandom"]
 
 
+def test_abs_match_handles_a_real_20_plus_tag_work_without_choking():
+    # AO3 fics routinely carry 20-30+ tags -- oddly common. This is the
+    # exact real genres array (27 entries) pulled from a matched
+    # Audiobookshelf book row earlier, used verbatim to make sure
+    # classification doesn't misbucket or choke at real-world scale.
+    with tempfile.TemporaryDirectory() as downloads:
+        open(os.path.join(downloads, "1_Whatever.epub"), "w").close()
+        genres = [
+            "Fanworks", "General Audiences", "Stranger Things (TV 2016)",
+            "Steve Harrington & The Party", "Steve Harrington & Eddie Munson",
+            "Joyce Byers & Steve Harrington", 'Steve Harrington & Jim "Chief" Hopper',
+            "Steve Harrington", "Eddie Munson", "Dustin Henderson",
+            'Maxine "Max" Mayfield', "Mike Wheeler", "Eleven | Jane Hopper",
+            'Jim "Chief" Hopper', "Joyce Byers", "Will Byers", "Nancy Wheeler",
+            "Lucas Sinclair", "Hurt Steve Harrington", "Steve Harrington Needs a Hug",
+            "Epilepsy", "Seizures", "Steve Harrington Has Self-Esteem Issues",
+            "The Party Loves Steve Harrington", "The Party as Family (Stranger Things)",
+            "Gen", "Choose Not To Use Archive Warnings",
+        ]
+        assert len(genres) >= 20
+
+        abs_matches = {
+            "1": AbsBookMatch(
+                item_id="item-1",
+                title="A Member Of The Party",
+                author="CartoonCrazy789",
+                genres=genres,
+                description="Steve didn't want them to know. He didn't want them to know why he couldn't drive",
+            )
+        }
+        result = scan(downloads, None, None, abs_matches)
+
+    entry = result.entries[0]
+    assert entry.rating == "General Audiences"
+    assert entry.categories == ["Gen"]
+    assert entry.warnings == ["Choose Not To Use Archive Warnings"]
+    assert entry.relationships == [
+        "Steve Harrington & The Party",
+        "Steve Harrington & Eddie Munson",
+        "Joyce Byers & Steve Harrington",
+        'Steve Harrington & Jim "Chief" Hopper',
+    ]
+    # 19 leftover character/freeform tags -- the fandom-guessing heuristic
+    # still correctly picks out just the one real fandom name among them
+    assert entry.fandoms == ["Stranger Things (TV 2016)"]
+    assert len(entry.fandom_candidates) == 19
+    assert entry.summary == "Steve didn't want them to know. He didn't want them to know why he couldn't drive"
+
+
 def test_abs_matches_do_not_affect_unmatched_works():
     with tempfile.TemporaryDirectory() as downloads:
         _build_epub(os.path.join(downloads, "2_Title_Author.epub"), ["Fanworks", "Torchwood"])
