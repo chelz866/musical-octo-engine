@@ -29,6 +29,9 @@
           <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener">
             {{ e.title or "(unknown title)" }}
           </a>
+          {% if e.work_id in abs_links %}
+          <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
+          {% endif %}
           <div class="hint">{{ e.author or "" }}</div>
         </td>
         <td>

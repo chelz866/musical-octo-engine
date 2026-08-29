@@ -9,13 +9,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, rss, scanner
+from . import audiobookshelf, db, rss, scanner
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
 DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
 FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
 AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", 60 * 60))
+
+# Optional: link downloaded works to their Audiobookshelf copy, if any.
+# All three unset (the default) disables the integration entirely.
+ABS_DB_PATH = os.environ.get("ABS_DB_PATH", "")
+ABS_LIBRARY_ID = os.environ.get("ABS_LIBRARY_ID", "")
+ABS_BASE_URL = os.environ.get("ABS_BASE_URL", "")
 
 LAST_REFRESHED_KEY = "last_refreshed_at"
 FEEDS_LAST_REFRESHED_KEY = "feeds_last_refreshed_at"
@@ -74,6 +80,18 @@ def _base_context(request: Request) -> dict:
     }
 
 
+def _abs_links() -> dict[str, str]:
+    """work_id -> Audiobookshelf item URL, empty if the integration isn't
+    configured (ABS_BASE_URL unset) regardless of what's cached in abs_matches.
+    """
+    if not ABS_BASE_URL:
+        return {}
+    return {
+        work_id: audiobookshelf.item_url(ABS_BASE_URL, item_id)
+        for work_id, item_id in db.get_all_abs_matches(DB_PATH).items()
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, fandom: str | None = None):
     result = scanner.load_cached(DB_PATH)
@@ -90,6 +108,7 @@ def dashboard(request: Request, fandom: str | None = None):
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
             "fandom_filter": fandom,
+            "abs_links": _abs_links(),
         },
     )
 
@@ -106,6 +125,7 @@ def issues(request: Request, show_dismissed: bool = False):
             **_base_context(request),
             "entries": issue_entries,
             "show_dismissed": show_dismissed,
+            "abs_links": _abs_links(),
         },
     )
 
@@ -293,9 +313,12 @@ def refresh(next: str = Form("/")):
     """Rescans the downloads folder/log only -- kept separate from feed
     refreshing (see /refresh/feeds) since walking a large downloads folder
     and hitting every tracked feed on every click was too much to always
-    bundle together.
+    bundle together. Also re-matches against Audiobookshelf if configured,
+    since that's cheap by comparison and tied to the same downloads snapshot.
     """
     scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    if ABS_DB_PATH and ABS_LIBRARY_ID:
+        db.save_abs_matches(DB_PATH, audiobookshelf.load_matches(ABS_DB_PATH, ABS_LIBRARY_ID))
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
     return RedirectResponse(url=next or "/", status_code=303)
 

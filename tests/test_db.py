@@ -204,6 +204,32 @@ def test_init_db_adds_missing_column_to_existing_table_without_losing_data():
         assert db.load_works_cache(path)[0]["fandom_candidates"] == "Torchwood"
 
 
+def test_save_and_get_all_abs_matches():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_abs_matches(path, {"1": "item-a", "2": "item-b"})
+
+        assert db.get_all_abs_matches(path) == {"1": "item-a", "2": "item-b"}
+
+
+def test_save_abs_matches_replaces_previous_snapshot():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_abs_matches(path, {"1": "item-a"})
+        db.save_abs_matches(path, {"2": "item-b"})
+
+        assert db.get_all_abs_matches(path) == {"2": "item-b"}
+
+
+def test_get_all_abs_matches_empty_by_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.get_all_abs_matches(path) == {}
+
+
 def test_meta_get_and_set():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

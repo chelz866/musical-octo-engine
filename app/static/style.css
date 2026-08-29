@@ -213,6 +213,11 @@ th {
   font-weight: 600;
 }
 
+.abs-link {
+  margin-left: 0.3rem;
+  text-decoration: none;
+}
+
 .badge-ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .badge-missing, .badge-warn { background: color-mix(in srgb, var(--alert) 15%, transparent); color: var(--alert); }
 

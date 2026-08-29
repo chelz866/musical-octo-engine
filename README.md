@@ -28,6 +28,19 @@ you needing to click Refresh. Tracked feeds are handled by the
 recent-works window -- `reader` keeps every entry it has ever seen for a feed rather than mirroring
 its current contents.
 
+## Optional: Audiobookshelf links
+
+If you also keep your downloaded fics in an [Audiobookshelf](https://www.audiobookshelf.org/)
+library, works that exist there can show a second link (🎧) next to the AO3 link on the Downloads
+and Issues pages, going straight to that item. Matching is by AO3 work id, extracted from
+Audiobookshelf's own `libraryItems.path` column the same way this app reads its own downloads
+folder -- so it only works for items whose filename still has ao3downloader's `<work_id> Title -
+Author.epub` naming; older imports renamed without the id won't match. It's entirely optional and
+off by default; set all of `ABS_DB_HOST_PATH`, `ABS_LIBRARY_ID`, and `ABS_BASE_URL` in `.env` (see
+`.env.example` for the exact meaning of each) and uncomment the matching volume line in
+`docker-compose.yml` to turn it on. The match runs as part of the regular (manual) Refresh, reading
+Audiobookshelf's sqlite file read-only -- this app never writes to it.
+
 ## Pages
 
 - **Downloads** (`/`) -- the full list with stats, filterable by fandom (`?fandom=...`, linked

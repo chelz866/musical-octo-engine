@@ -8,8 +8,14 @@ services:
       - LOG_PATH=/logs/log.jsonl
       - DB_PATH=/data/app.db
       - AUTO_REFRESH_INTERVAL_SECONDS=${AUTO_REFRESH_INTERVAL_SECONDS:-3600}
+      # Optional Audiobookshelf integration -- see README. Blank disables it.
+      - ABS_BASE_URL=${ABS_BASE_URL:-}
+      - ABS_LIBRARY_ID=${ABS_LIBRARY_ID:-}
     volumes:
       - ${DOWNLOAD_DIR}:/downloads:ro
       - ${LOG_DIR}:/logs:ro
       - ${DATA_DIR}:/data
+      # Uncomment and set ABS_DB_HOST_PATH in .env to enable Audiobookshelf
+      # linking (a read-only mount of its absdatabase.sqlite):
+      # - ${ABS_DB_HOST_PATH}:/abs/absdatabase.sqlite:ro
     restart: unless-stopped

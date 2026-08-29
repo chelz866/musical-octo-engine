@@ -74,6 +74,14 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS abs_matches (
+                work_id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(conn, "works_cache", "fandom_candidates")
 
 
@@ -200,6 +208,24 @@ def load_works_cache(path: str) -> list[dict]:
     with _connect(path) as conn:
         rows = conn.execute(f"SELECT {', '.join(cols)} FROM works_cache").fetchall()
     return [dict(zip(cols, row)) for row in rows]
+
+
+def save_abs_matches(path: str, matches: dict[str, str]) -> None:
+    """Replaces the whole work_id -> Audiobookshelf item_id snapshot, same
+    replace-all-on-refresh approach as save_works_cache.
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM abs_matches")
+        conn.executemany(
+            "INSERT INTO abs_matches (work_id, item_id) VALUES (?, ?)",
+            list(matches.items()),
+        )
+
+
+def get_all_abs_matches(path: str) -> dict[str, str]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id, item_id FROM abs_matches").fetchall()
+    return dict(rows)
 
 
 def get_meta(path: str, key: str) -> str | None:
