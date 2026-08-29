@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from app.audiobookshelf import item_url, load_matches
@@ -5,43 +6,72 @@ from app.audiobookshelf import item_url, load_matches
 FANFIC_LIBRARY = "89973a2b-bced-4abc-8c74-d8672154c5d7"
 OTHER_LIBRARY = "1a613b3f-a7aa-4297-ab38-01bf85475cdb"
 
+# A real genres array pulled from a matched book row -- exercises that
+# classify_subjects (via scanner) buckets it the same way it would the
+# equivalent epub dc:subject list.
+REAL_GENRES = [
+    "Fanworks", "General Audiences", "Stranger Things (TV 2016)",
+    "Steve Harrington & The Party", "Steve Harrington", "Gen",
+    "Choose Not To Use Archive Warnings",
+]
 
-def _make_abs_db(path: str, rows: list[tuple[str, str, str]]) -> None:
-    """rows: (item_id, path, library_id) -- matches the real Audiobookshelf
-    libraryItems table closely enough for the columns load_matches reads.
+
+def _make_abs_db(path: str, items: list[tuple[str, str, str, str]], books: dict[str, tuple] | None = None) -> None:
+    """items: (item_id, path, libraryId, mediaId).
+    books: mediaId -> (title, description, genres_json).
     """
+    books = books or {}
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE libraryItems (id TEXT PRIMARY KEY, path TEXT, libraryId TEXT)")
-    conn.executemany("INSERT INTO libraryItems (id, path, libraryId) VALUES (?, ?, ?)", rows)
+    conn.execute("CREATE TABLE libraryItems (id TEXT PRIMARY KEY, path TEXT, authorNamesFirstLast TEXT, libraryId TEXT, mediaId TEXT)")
+    conn.execute("CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, description TEXT, genres TEXT)")
+    conn.executemany(
+        "INSERT INTO libraryItems (id, path, authorNamesFirstLast, libraryId, mediaId) VALUES (?, ?, 'Some Author', ?, ?)",
+        items,
+    )
+    conn.executemany(
+        "INSERT INTO books (id, title, description, genres) VALUES (?, ?, ?, ?)",
+        [(media_id, title, description, genres_json) for media_id, (title, description, genres_json) in books.items()],
+    )
     conn.commit()
     conn.close()
 
 
-def test_load_matches_extracts_work_id_from_real_ao3dl_naming(tmp_path):
+def test_load_matches_extracts_work_id_and_book_metadata(tmp_path):
     db_path = str(tmp_path / "absdatabase.sqlite")
-    _make_abs_db(db_path, [
-        ("be740dc5-3a18-491d-8979-8b215ff7514c", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY),
-        ("770b6e54-0aaa-48d4-8c1f-2d1c45ed9023", "/storage/fics/ao3-dl/downloads/9851081 Winterheart - orphan_account.epub", FANFIC_LIBRARY),
-    ])
+    _make_abs_db(
+        db_path,
+        [("be740dc5-3a18-491d-8979-8b215ff7514c", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", "A summary.", json.dumps(REAL_GENRES))},
+    )
 
     matches = load_matches(db_path, FANFIC_LIBRARY)
 
-    assert matches == {
-        "9778112": "be740dc5-3a18-491d-8979-8b215ff7514c",
-        "9851081": "770b6e54-0aaa-48d4-8c1f-2d1c45ed9023",
-    }
+    assert set(matches) == {"9778112"}
+    match = matches["9778112"]
+    assert match.item_id == "be740dc5-3a18-491d-8979-8b215ff7514c"
+    assert match.title == "Sanctuary"
+    assert match.author == "Some Author"
+    assert match.description == "A summary."
+    assert match.genres == REAL_GENRES
 
 
 def test_load_matches_ignores_other_libraries(tmp_path):
     db_path = str(tmp_path / "absdatabase.sqlite")
-    _make_abs_db(db_path, [
-        ("a1", "/storage/comics/9999999 Not A Fic.epub", OTHER_LIBRARY),
-        ("a2", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY),
-    ])
+    _make_abs_db(
+        db_path,
+        [
+            ("a1", "/storage/comics/9999999 Not A Fic.epub", OTHER_LIBRARY, "book-1"),
+            ("a2", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-2"),
+        ],
+        books={
+            "book-1": ("Not A Fic", None, "[]"),
+            "book-2": ("Sanctuary", None, "[]"),
+        },
+    )
 
     matches = load_matches(db_path, FANFIC_LIBRARY)
 
-    assert matches == {"9778112": "a2"}
+    assert set(matches) == {"9778112"}
 
 
 def test_load_matches_skips_filenames_without_a_leading_work_id(tmp_path):
@@ -49,11 +79,36 @@ def test_load_matches_skips_filenames_without_a_leading_work_id(tmp_path):
     # have the AO3 work id in the filename -- these just don't match, they
     # shouldn't raise or produce a bogus entry.
     db_path = str(tmp_path / "absdatabase.sqlite")
-    _make_abs_db(db_path, [
-        ("a1", "/storage/ogFics/A_Cup_of_Good_Intentions.epub", FANFIC_LIBRARY),
-    ])
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/ogFics/A_Cup_of_Good_Intentions.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("A Cup of Good Intentions", None, "[]")},
+    )
 
     assert load_matches(db_path, FANFIC_LIBRARY) == {}
+
+
+def test_load_matches_skips_library_items_with_no_matching_book(tmp_path):
+    # mediaId pointing nowhere (e.g. a podcast item, or a book row that
+    # somehow doesn't exist) -- the INNER JOIN just excludes it.
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "no-such-book")],
+    )
+
+    assert load_matches(db_path, FANFIC_LIBRARY) == {}
+
+
+def test_load_matches_handles_missing_or_malformed_genres_json(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, None)},
+    )
+
+    assert load_matches(db_path, FANFIC_LIBRARY)["9778112"].genres == []
 
 
 def test_load_matches_missing_db_file_returns_empty(tmp_path):
@@ -66,7 +121,7 @@ def test_load_matches_returns_empty_for_blank_path():
 
 def test_load_matches_invalid_database_returns_empty(tmp_path):
     # a real file that exists but isn't a valid Audiobookshelf database
-    # (e.g. wrong path configured, or missing the libraryItems table)
+    # (e.g. wrong path configured, or missing the expected tables)
     db_path = str(tmp_path / "not-abs.sqlite")
     conn = sqlite3.connect(db_path)
     conn.execute("CREATE TABLE unrelated (id TEXT)")

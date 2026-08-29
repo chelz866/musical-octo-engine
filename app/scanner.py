@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from . import db
-from .epub_meta import EpubParseError, parse_epub_metadata
+from .audiobookshelf import AbsBookMatch
+from .epub_meta import EpubParseError, classify_subjects, parse_epub_metadata
 from .log_reader import LogRecord, parse_log
 
 FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
@@ -39,6 +40,7 @@ class WorkEntry:
     series: str | None = None
     series_index: str | None = None
     published_date: str | None = None
+    summary: str | None = None  # AO3 work summary, only populated for Audiobookshelf-matched works
     file_path: str | None = None
     size_bytes: int | None = None
     mtime: datetime | None = None
@@ -65,7 +67,8 @@ class ScanResult:
     stats: ScanStats
 
 
-def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
+def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = None) -> dict[str, WorkEntry]:
+    abs_matches = abs_matches or {}
     entries: dict[str, WorkEntry] = {}
     if not os.path.isdir(download_dir):
         return entries
@@ -85,31 +88,48 @@ def _scan_disk(download_dir: str) -> dict[str, WorkEntry]:
                 mtime=datetime.fromtimestamp(stat.st_mtime),
                 on_disk=True,
             )
-            try:
-                meta = parse_epub_metadata(full_path)
-                entry.title = meta.title
-                entry.author = meta.author
-                entry.rating = meta.rating
-                entry.warnings = meta.warnings
-                entry.categories = meta.categories
-                entry.relationships = meta.relationships
-                entry.fandoms = meta.fandoms
-                entry.fandom_candidates = meta.fandom_candidates
-                entry.series = meta.series
-                entry.series_index = meta.series_index
-                entry.published_date = meta.published_date
-            except EpubParseError as exc:
-                entry.parse_error = str(exc)
+
+            abs_match = abs_matches.get(work_id)
+            if abs_match is not None:
+                # Audiobookshelf already scanned this file's embedded
+                # metadata -- reuse it instead of unzipping/parsing the epub
+                # ourselves again.
+                entry.title = abs_match.title
+                entry.author = abs_match.author
+                entry.summary = abs_match.description
+                classification = classify_subjects(abs_match.genres)
+                entry.rating = classification.rating
+                entry.warnings = classification.warnings
+                entry.categories = classification.categories
+                entry.relationships = classification.relationships
+                entry.fandoms = classification.fandoms
+                entry.fandom_candidates = classification.fandom_candidates
+            else:
+                try:
+                    meta = parse_epub_metadata(full_path)
+                    entry.title = meta.title
+                    entry.author = meta.author
+                    entry.rating = meta.rating
+                    entry.warnings = meta.warnings
+                    entry.categories = meta.categories
+                    entry.relationships = meta.relationships
+                    entry.fandoms = meta.fandoms
+                    entry.fandom_candidates = meta.fandom_candidates
+                    entry.series = meta.series
+                    entry.series_index = meta.series_index
+                    entry.published_date = meta.published_date
+                except EpubParseError as exc:
+                    entry.parse_error = str(exc)
             entries[work_id] = entry
 
     return entries
 
 
-def scan_raw(download_dir: str, log_path: str | None) -> list[WorkEntry]:
+def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, AbsBookMatch] | None = None) -> list[WorkEntry]:
     """Live disk+log merge with no overrides applied -- the expensive part
     (filesystem walk + epub parsing) that `refresh_cache` snapshots to SQLite.
     """
-    disk_entries = _scan_disk(download_dir)
+    disk_entries = _scan_disk(download_dir, abs_matches)
 
     log_records: dict[str, LogRecord] = {}
     if log_path and os.path.isfile(log_path):
@@ -196,14 +216,24 @@ def _finalize(
     return ScanResult(entries=result_entries, stats=stats)
 
 
-def scan(download_dir: str, log_path: str | None, db_path: str | None = None) -> ScanResult:
+def scan(
+    download_dir: str,
+    log_path: str | None,
+    db_path: str | None = None,
+    abs_matches: dict[str, AbsBookMatch] | None = None,
+) -> ScanResult:
     overrides = db.get_all_overrides(db_path) if db_path else {}
     tag_flags = db.get_all_tag_flags(db_path) if db_path else {}
-    return _finalize(scan_raw(download_dir, log_path), overrides, tag_flags)
+    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_flags)
 
 
-def refresh_cache(download_dir: str, log_path: str | None, db_path: str) -> ScanResult:
-    entries = scan_raw(download_dir, log_path)
+def refresh_cache(
+    download_dir: str,
+    log_path: str | None,
+    db_path: str,
+    abs_matches: dict[str, AbsBookMatch] | None = None,
+) -> ScanResult:
+    entries = scan_raw(download_dir, log_path, abs_matches)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
     return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_flags(db_path))
 
@@ -236,6 +266,7 @@ def _entry_to_row(entry: WorkEntry) -> dict:
         "series": entry.series,
         "series_index": entry.series_index,
         "published_date": entry.published_date,
+        "summary": entry.summary,
         "file_path": entry.file_path,
         "size_bytes": entry.size_bytes,
         "mtime": entry.mtime.isoformat() if entry.mtime else None,
@@ -261,6 +292,7 @@ def _row_to_entry(row: dict) -> WorkEntry:
         series=row["series"],
         series_index=row["series_index"],
         published_date=row["published_date"],
+        summary=row["summary"],
         file_path=row["file_path"],
         size_bytes=row["size_bytes"],
         mtime=datetime.fromisoformat(row["mtime"]) if row["mtime"] else None,

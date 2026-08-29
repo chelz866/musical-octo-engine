@@ -83,6 +83,48 @@ class EpubMetadata:
     fandom_candidates: list[str] = field(default_factory=list)  # every untyped tag, for manual correction
 
 
+@dataclass
+class SubjectClassification:
+    rating: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+    relationships: list[str] = field(default_factory=list)
+    fandoms: list[str] = field(default_factory=list)
+    fandom_candidates: list[str] = field(default_factory=list)
+
+
+def classify_subjects(subjects: list[str]) -> SubjectClassification:
+    """Buckets a flat list of AO3 tag strings into rating/warnings/category/
+    relationships/fandom, purely by content -- independent of where the list
+    came from. Originally written for an epub's own `dc:subject` entries, but
+    Audiobookshelf's own library scan stores the identical tag list (it reads
+    the same embedded epub metadata) in its `books.genres` column, so this
+    also runs directly against that when a work has an Audiobookshelf match
+    (see app/audiobookshelf.py) -- confirmed against a real export to bucket
+    identically either way.
+    """
+    result = SubjectClassification()
+    leftover_subjects = []
+    for raw in subjects:
+        subject = (raw or "").strip()
+        if not subject or subject in IGNORED_SUBJECTS:
+            continue
+        if subject in RATINGS:
+            result.rating = subject
+        elif subject in WARNINGS:
+            result.warnings.append(subject)
+        elif subject in CATEGORIES:
+            result.categories.append(subject)
+        elif "/" in subject or "&" in subject:
+            result.relationships.append(subject)
+        else:
+            leftover_subjects.append(subject)
+
+    result.fandoms = _guess_fandoms(leftover_subjects)
+    result.fandom_candidates = leftover_subjects
+    return result
+
+
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
     try:
         container_xml = zf.read("META-INF/container.xml")
@@ -134,23 +176,13 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
         elif name == "calibre:series_index":
             meta.series_index = meta_tag.attrib.get("content")
 
-    leftover_subjects = []
-    for subject_el in metadata_el.findall("dc:subject", OPF_NS):
-        subject = (subject_el.text or "").strip()
-        if not subject or subject in IGNORED_SUBJECTS:
-            continue
-        if subject in RATINGS:
-            meta.rating = subject
-        elif subject in WARNINGS:
-            meta.warnings.append(subject)
-        elif subject in CATEGORIES:
-            meta.categories.append(subject)
-        elif "/" in subject or "&" in subject:
-            meta.relationships.append(subject)
-        else:
-            leftover_subjects.append(subject)
-
-    meta.fandoms = _guess_fandoms(leftover_subjects)
-    meta.fandom_candidates = leftover_subjects
+    subjects = [subject_el.text for subject_el in metadata_el.findall("dc:subject", OPF_NS)]
+    classification = classify_subjects(subjects)
+    meta.rating = classification.rating
+    meta.warnings = classification.warnings
+    meta.categories = classification.categories
+    meta.relationships = classification.relationships
+    meta.fandoms = classification.fandoms
+    meta.fandom_candidates = classification.fandom_candidates
 
     return meta

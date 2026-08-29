@@ -28,18 +28,30 @@ you needing to click Refresh. Tracked feeds are handled by the
 recent-works window -- `reader` keeps every entry it has ever seen for a feed rather than mirroring
 its current contents.
 
-## Optional: Audiobookshelf links
+## Optional: Audiobookshelf integration
 
 If you also keep your downloaded fics in an [Audiobookshelf](https://www.audiobookshelf.org/)
-library, works that exist there can show a second link (🎧) next to the AO3 link on the Downloads
-and Issues pages, going straight to that item. Matching is by AO3 work id, extracted from
-Audiobookshelf's own `libraryItems.path` column the same way this app reads its own downloads
-folder -- so it only works for items whose filename still has ao3downloader's `<work_id> Title -
-Author.epub` naming; older imports renamed without the id won't match. It's entirely optional and
-off by default; set all of `ABS_DB_HOST_PATH`, `ABS_LIBRARY_ID`, and `ABS_BASE_URL` in `.env` (see
-`.env.example` for the exact meaning of each) and uncomment the matching volume line in
-`docker-compose.yml` to turn it on. The match runs as part of the regular (manual) Refresh, reading
-Audiobookshelf's sqlite file read-only -- this app never writes to it.
+library, matched works get two things:
+
+- A second link (🎧) next to the AO3 link on the Downloads and Issues pages, going straight to
+  that item, plus the AO3 summary as a hover tooltip on the title.
+- Title, author, rating, warnings, category, relationships, and fandom for that work come from
+  Audiobookshelf's own already-scanned metadata (`books.title`/`description`/`genres`) instead of
+  this app unzipping and parsing the epub file itself -- Audiobookshelf read the same embedded
+  metadata during its own library scan, so for a matched work this is the same data, just not
+  re-parsed. A work whose local epub is missing or corrupted (otherwise a parse-error Issue) still
+  shows correct info as long as it matches in Audiobookshelf.
+
+Matching is by AO3 work id, extracted from Audiobookshelf's own `libraryItems.path` column the same
+way this app reads its own downloads folder, joined to the `books` table via `libraryItems.mediaId`
+-- so it only works for items whose filename still has ao3downloader's `<work_id> Title -
+Author.epub` naming; older imports renamed without the id won't match (those keep using the local
+epub, unaffected).
+
+It's entirely optional and off by default; set all of `ABS_DB_HOST_PATH`, `ABS_LIBRARY_ID`, and
+`ABS_BASE_URL` in `.env` (see `.env.example` for the exact meaning of each) and uncomment the
+matching volume line in `docker-compose.yml` to turn it on. Matching runs as part of the regular
+(manual) Refresh, reading Audiobookshelf's sqlite file read-only -- this app never writes to it.
 
 ## Pages
 

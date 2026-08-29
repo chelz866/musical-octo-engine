@@ -32,7 +32,7 @@ class Override:
 WORKS_CACHE_COLUMNS = [
     "work_id", "title", "author", "rating", "warnings", "categories",
     "relationships", "fandoms", "fandom_candidates", "series", "series_index",
-    "published_date", "file_path", "size_bytes", "mtime", "on_disk",
+    "published_date", "summary", "file_path", "size_bytes", "mtime", "on_disk",
     "log_success", "log_timestamp", "parse_error", "issue_type",
 ]
 
@@ -83,6 +83,7 @@ def init_db(path: str) -> None:
             """
         )
         _ensure_column(conn, "works_cache", "fandom_candidates")
+        _ensure_column(conn, "works_cache", "summary")
 
 
 def pop_legacy_tracked_feeds(path: str) -> list[tuple[str, str | None]]:

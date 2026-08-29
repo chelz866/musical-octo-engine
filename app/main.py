@@ -313,12 +313,18 @@ def refresh(next: str = Form("/")):
     """Rescans the downloads folder/log only -- kept separate from feed
     refreshing (see /refresh/feeds) since walking a large downloads folder
     and hitting every tracked feed on every click was too much to always
-    bundle together. Also re-matches against Audiobookshelf if configured,
-    since that's cheap by comparison and tied to the same downloads snapshot.
+    bundle together. Also re-matches against Audiobookshelf if configured --
+    for matched works, Audiobookshelf's own already-scanned title/tags are
+    used in place of parsing the epub file again (see scanner._scan_disk),
+    so matches are loaded first and threaded into the same scan.
     """
-    scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH)
+    abs_matches = {}
     if ABS_DB_PATH and ABS_LIBRARY_ID:
-        db.save_abs_matches(DB_PATH, audiobookshelf.load_matches(ABS_DB_PATH, ABS_LIBRARY_ID))
+        abs_matches = audiobookshelf.load_matches(ABS_DB_PATH, ABS_LIBRARY_ID)
+
+    scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH, abs_matches)
+    if ABS_DB_PATH and ABS_LIBRARY_ID:
+        db.save_abs_matches(DB_PATH, {work_id: m.item_id for work_id, m in abs_matches.items()})
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
     return RedirectResponse(url=next or "/", status_code=303)
 

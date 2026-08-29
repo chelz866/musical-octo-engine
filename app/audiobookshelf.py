@@ -1,13 +1,22 @@
-"""Matches downloaded AO3 works to Audiobookshelf library items, so a work
-that's also in your Audiobookshelf library can link there instead of (or
-alongside) AO3.
+"""Matches downloaded AO3 works to Audiobookshelf library items, and -- for
+matched works -- uses Audiobookshelf's own already-scanned metadata instead
+of re-parsing the local epub file.
 
 Audiobookshelf's `libraryItems.path` for anything ao3downloader put there
 carries the same `<work_id> Title - Author.epub` filename ao3downloader
 itself uses (confirmed against a real export of the table), so matching
-reuses scanner.FILENAME_RE rather than fuzzy title/author matching --
-reliable for those, though older/renamed imports without the id in the
+reuses the same filename convention rather than fuzzy title/author matching
+-- reliable for those, though older/renamed imports without the id in the
 filename won't match.
+
+`libraryItems.mediaId` is the foreign key into `books.id` (confirmed
+against a real row pair, not just inferred from the column name), whose
+`title`/`description`/`genres` carry the exact same title/summary/tag data
+this app would otherwise get by unzipping and parsing the epub itself --
+Audiobookshelf's own scan already read the same embedded metadata. `genres`
+in particular is the same flat AO3 tag list `epub_meta.classify_subjects`
+expects (confirmed content and ordering against a real row), so scanner.py
+uses it in place of an epub parse when a work has a match here.
 
 This is optional and read-only: if the db file isn't mounted, isn't a
 valid Audiobookshelf database, or the query otherwise fails, matching
@@ -15,16 +24,31 @@ degrades to no matches rather than breaking the (unrelated) downloads/log
 refresh it runs alongside.
 """
 
+import json
 import os
+import re
 import sqlite3
+from dataclasses import dataclass, field
 
-from .scanner import FILENAME_RE
+# Mirrors scanner.FILENAME_RE -- duplicated rather than imported to avoid a
+# circular import (scanner needs AbsBookMatch from here to fold ABS metadata
+# into a WorkEntry).
+FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
 
 
-def load_matches(abs_db_path: str, library_id: str) -> dict[str, str]:
-    """AO3 work_id -> Audiobookshelf libraryItems.id, restricted to one
-    library (Audiobookshelf instances commonly hold other libraries too --
-    comics, ebooks, podcasts -- that shouldn't be matched against).
+@dataclass
+class AbsBookMatch:
+    item_id: str  # libraryItems.id -- what the "open in Audiobookshelf" link needs
+    title: str | None = None
+    author: str | None = None
+    description: str | None = None
+    genres: list[str] = field(default_factory=list)  # same flat AO3 tag list an epub's dc:subject would have
+
+
+def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
+    """AO3 work_id -> AbsBookMatch, restricted to one library (Audiobookshelf
+    instances commonly hold other libraries too -- comics, ebooks, podcasts
+    -- that shouldn't be matched against).
     """
     if not abs_db_path or not os.path.isfile(abs_db_path):
         return {}
@@ -33,7 +57,12 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, str]:
         conn = sqlite3.connect(f"file:{abs_db_path}?mode=ro", uri=True)
         try:
             rows = conn.execute(
-                'SELECT id, path FROM libraryItems WHERE libraryId = ?',
+                """
+                SELECT li.id, li.path, li.authorNamesFirstLast, b.title, b.description, b.genres
+                FROM libraryItems li
+                JOIN books b ON b.id = li.mediaId
+                WHERE li.libraryId = ?
+                """,
                 (library_id,),
             ).fetchall()
         finally:
@@ -41,13 +70,20 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, str]:
     except sqlite3.Error:
         return {}
 
-    matches: dict[str, str] = {}
-    for item_id, path in rows:
+    matches: dict[str, AbsBookMatch] = {}
+    for item_id, path, author, title, description, genres_json in rows:
         if not path:
             continue
-        match = FILENAME_RE.match(os.path.basename(path))
-        if match:
-            matches[match.group(1)] = item_id
+        filename_match = FILENAME_RE.match(os.path.basename(path))
+        if not filename_match:
+            continue
+        try:
+            genres = json.loads(genres_json) if genres_json else []
+        except (TypeError, ValueError):
+            genres = []
+        matches[filename_match.group(1)] = AbsBookMatch(
+            item_id=item_id, title=title, author=author, description=description, genres=genres,
+        )
     return matches
 
 

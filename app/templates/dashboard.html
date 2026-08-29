@@ -59,7 +59,7 @@
       {% for e in entries %}
       <tr>
         <td>
-          <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener">
+          <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
             {{ e.title or "(unknown title)" }}
           </a>
           {% if e.work_id in abs_links %}

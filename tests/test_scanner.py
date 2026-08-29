@@ -4,6 +4,7 @@ import tempfile
 import zipfile
 
 from app import db
+from app.audiobookshelf import AbsBookMatch
 from app.scanner import load_cached, refresh_cache, scan
 
 _CONTAINER_XML = """<?xml version="1.0"?>
@@ -200,6 +201,73 @@ def test_tag_flag_overrides_heuristic_guess_for_one_work():
         entry = load_cached(db_path).entries[0]
     assert entry.fandoms == ["Ianto Jones"]
     assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]  # picker options unchanged
+
+
+def test_abs_match_replaces_epub_parsing_for_that_work():
+    # The whole point of the Audiobookshelf integration going further than
+    # just a link: for a matched work, its title/tags/author come from
+    # Audiobookshelf's own already-scanned metadata instead of parsing the
+    # local epub -- proven here by using a *broken* epub (would otherwise
+    # produce a parse_error) whose real metadata still comes through because
+    # of the match.
+    with tempfile.TemporaryDirectory() as downloads:
+        with open(os.path.join(downloads, "1_Whatever.epub"), "w") as f:
+            f.write("not actually a zip")
+
+        abs_matches = {
+            "1": AbsBookMatch(
+                item_id="item-1",
+                title="Real Title From Audiobookshelf",
+                author="Real Author",
+                description="A summary from Audiobookshelf.",
+                genres=["Fanworks", "General Audiences", "Some Fandom", "Gen"],
+            )
+        }
+        result = scan(downloads, None, None, abs_matches)
+
+    entry = result.entries[0]
+    assert entry.parse_error is None
+    assert entry.title == "Real Title From Audiobookshelf"
+    assert entry.author == "Real Author"
+    assert entry.summary == "A summary from Audiobookshelf."
+    assert entry.rating == "General Audiences"
+    assert entry.categories == ["Gen"]
+    assert entry.fandoms == ["Some Fandom"]
+
+
+def test_abs_matches_do_not_affect_unmatched_works():
+    with tempfile.TemporaryDirectory() as downloads:
+        _build_epub(os.path.join(downloads, "2_Title_Author.epub"), ["Fanworks", "Torchwood"])
+        abs_matches = {"999": AbsBookMatch(item_id="item-999", title="Unrelated")}
+
+        result = scan(downloads, None, None, abs_matches)
+
+    entry = result.entries[0]
+    assert entry.work_id == "2"
+    assert entry.title == "Title"  # from the epub, unaffected by an unrelated ABS match
+    assert entry.fandoms == ["Torchwood"]
+
+
+def test_abs_match_metadata_survives_refresh_cache_round_trip():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        open(os.path.join(downloads, "1_Whatever.epub"), "w").close()
+        abs_matches = {
+            "1": AbsBookMatch(
+                item_id="item-1",
+                title="From Audiobookshelf",
+                description="A summary.",
+                genres=["Fanworks", "Some Fandom"],
+            )
+        }
+
+        refresh_cache(downloads, None, db_path, abs_matches)
+        entry = load_cached(db_path).entries[0]
+
+    assert entry.title == "From Audiobookshelf"
+    assert entry.summary == "A summary."
+    assert entry.fandoms == ["Some Fandom"]
 
 
 def test_tag_flag_applies_to_every_work_sharing_that_tag():
