@@ -4,37 +4,35 @@ import tempfile
 from app import db
 
 
-def test_set_and_get_fields():
+def test_set_title_author_and_get():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_fields(path, "123", title="Fixed Title", author="Fixed Author", fandoms=["Torchwood", "Doctor Who"])
+        db.set_title_author(path, "123", "Fixed Title", "Fixed Author")
 
         override = db.get_override(path, "123")
         assert override.title == "Fixed Title"
         assert override.author == "Fixed Author"
-        assert override.fandoms == ["Torchwood", "Doctor Who"]
         assert override.dismissed is False
 
 
-def test_set_fields_overwrites_previous_values():
+def test_set_title_author_overwrites_previous_values():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_fields(path, "123", title="First", author=None, fandoms=None)
-        db.set_fields(path, "123", title="Second", author="Someone", fandoms=["X"])
+        db.set_title_author(path, "123", "First", None)
+        db.set_title_author(path, "123", "Second", "Someone")
 
         override = db.get_override(path, "123")
         assert override.title == "Second"
         assert override.author == "Someone"
-        assert override.fandoms == ["X"]
 
 
 def test_set_dismissed_preserves_other_fields():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_fields(path, "123", title="Fixed Title", author=None, fandoms=None)
+        db.set_title_author(path, "123", "Fixed Title", None)
         db.set_dismissed(path, "123", True)
 
         override = db.get_override(path, "123")
@@ -58,13 +56,41 @@ def test_get_all_overrides():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_fields(path, "1", title="A", author=None, fandoms=None)
+        db.set_title_author(path, "1", "A", None)
         db.set_dismissed(path, "2", True)
 
         all_overrides = db.get_all_overrides(path)
         assert set(all_overrides) == {"1", "2"}
         assert all_overrides["1"].title == "A"
         assert all_overrides["2"].dismissed is True
+
+
+def test_set_and_get_all_tag_flags():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_flags(path, {"Torchwood": True, "Ianto Jones": False})
+
+        flags = db.get_all_tag_flags(path)
+        assert flags == {"Torchwood": True, "Ianto Jones": False}
+
+
+def test_set_tag_flags_overwrites_existing_entries():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_flags(path, {"Torchwood": False})
+        db.set_tag_flags(path, {"Torchwood": True, "Doctor Who": True})
+
+        flags = db.get_all_tag_flags(path)
+        assert flags == {"Torchwood": True, "Doctor Who": True}
+
+
+def test_get_all_tag_flags_empty_by_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.get_all_tag_flags(path) == {}
 
 
 def test_add_and_list_tracked_feeds():
@@ -190,33 +216,15 @@ def test_delete_tracked_feed_also_clears_its_cached_entries():
         assert db.load_feed_entries(path, feed_id) == []
 
 
-def test_set_fandoms_preserves_title_author_and_dismissed():
+def test_set_title_author_preserves_dismissed():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_fields(path, "1", title="Fixed Title", author="Fixed Author", fandoms=None)
-        db.set_dismissed(path, "1", True)
-
-        db.set_fandoms(path, "1", ["Torchwood", "Doctor Who"])
-
-        override = db.get_override(path, "1")
-        assert override.title == "Fixed Title"
-        assert override.author == "Fixed Author"
-        assert override.dismissed is True
-        assert override.fandoms == ["Torchwood", "Doctor Who"]
-
-
-def test_set_title_author_preserves_fandoms_and_dismissed():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "app.db")
-        db.init_db(path)
-        db.set_fandoms(path, "1", ["Torchwood"])
         db.set_dismissed(path, "1", True)
 
         db.set_title_author(path, "1", "New Title", "New Author")
 
         override = db.get_override(path, "1")
-        assert override.fandoms == ["Torchwood"]
         assert override.dismissed is True
         assert override.title == "New Title"
         assert override.author == "New Author"

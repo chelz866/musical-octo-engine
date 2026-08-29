@@ -142,7 +142,22 @@ def scan_raw(download_dir: str, log_path: str | None) -> list[WorkEntry]:
     return entries
 
 
-def _finalize(entries: list[WorkEntry], overrides: dict[str, db.Override]) -> ScanResult:
+def _resolve_fandoms(entry: WorkEntry, tag_flags: dict[str, bool]) -> list[str]:
+    """A tag counts as fandom if it's been explicitly classified that way
+    (globally, via the Tags page -- see db.set_tag_flags), else falls back
+    to this work's own heuristic guess (already sitting in entry.fandoms).
+    """
+    if not entry.fandom_candidates:
+        return entry.fandoms
+    guessed = set(entry.fandoms)
+    return [tag for tag in entry.fandom_candidates if tag_flags.get(tag, tag in guessed)]
+
+
+def _finalize(
+    entries: list[WorkEntry],
+    overrides: dict[str, db.Override],
+    tag_flags: dict[str, bool],
+) -> ScanResult:
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
 
@@ -154,14 +169,14 @@ def _finalize(entries: list[WorkEntry], overrides: dict[str, db.Override]) -> Sc
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
 
+        entry.fandoms = _resolve_fandoms(entry, tag_flags)
+
         override = overrides.get(work_id)
         if override:
             if override.title:
                 entry.title = override.title
             if override.author:
                 entry.author = override.author
-            if override.fandoms:
-                entry.fandoms = override.fandoms
             entry.dismissed = override.dismissed
 
         if entry.on_disk:
@@ -183,19 +198,20 @@ def _finalize(entries: list[WorkEntry], overrides: dict[str, db.Override]) -> Sc
 
 def scan(download_dir: str, log_path: str | None, db_path: str | None = None) -> ScanResult:
     overrides = db.get_all_overrides(db_path) if db_path else {}
-    return _finalize(scan_raw(download_dir, log_path), overrides)
+    tag_flags = db.get_all_tag_flags(db_path) if db_path else {}
+    return _finalize(scan_raw(download_dir, log_path), overrides, tag_flags)
 
 
 def refresh_cache(download_dir: str, log_path: str | None, db_path: str) -> ScanResult:
     entries = scan_raw(download_dir, log_path)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
-    return _finalize(entries, db.get_all_overrides(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_flags(db_path))
 
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
     entries = [_row_to_entry(row) for row in rows]
-    return _finalize(entries, db.get_all_overrides(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_flags(db_path))
 
 
 def _join(values: list[str]) -> str | None:

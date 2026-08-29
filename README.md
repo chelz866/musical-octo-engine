@@ -23,15 +23,19 @@ instantly instead of re-walking the filesystem and hitting AO3 on every request.
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
+- **Tags** (`/tags`) -- every untyped tag across the whole library, sorted by how many works have
+  it, with a checkbox for "is this a fandom." This is the bulk tool: classifying one tag here fixes
+  every work that has it in one action, instead of a per-work correction on each of them.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
   you downloaded/logged the work -- not an exact chapter-count comparison, see `app/rss.py`). Each
   feed's table is collapsible once it gets long.
 
-Fandom can be corrected on both Downloads and Issues via a checkbox picker ("edit" under the
-Fandom column) listing every untyped tag the epub actually has -- pick the real fandom(s) instead
-of retyping a name from scratch, with a free-text field for anything not in the list.
+Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
+have the same checkbox picker under the Fandom column ("edit") as a shortcut scoped to one work's
+own tags, but saving it sets the same global classification the Tags page does -- checking "Torchwood"
+there marks it a fandom everywhere it appears, not just on that one row.
 
 ## Running
 
@@ -49,8 +53,8 @@ of retyping a name from scratch, with a free-text field for anything not in the 
 - Rating, Warnings, and Category come from AO3's fixed vocabularies and are matched reliably.
   Relationships are detected via the `/`/`&` convention in tag names. Fandom has no type label in
   the epub metadata and no consistent tag ordering across works, so it's a best-effort heuristic
-  (see `app/epub_meta.py`) that can occasionally include a character name or miss a fandom --
-  use the Issues page's manual edit to correct it for a specific work.
+  (see `app/epub_meta.py`) that can occasionally include a character name or miss a fandom -- use
+  the Tags page (or the per-work picker) to correct it, which fixes every work sharing that tag.
 - The downloads folder and log file are mounted read-only; only the small `/data` SQLite file
   (manual overrides/dismissals/cache/tracked feeds) is writable, and nothing here downloads or
   modifies your fics.

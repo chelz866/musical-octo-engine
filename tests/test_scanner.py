@@ -102,11 +102,11 @@ def test_logged_failure_with_no_file_is_flagged_failed():
     assert result.stats.logged_failure_count == 1
 
 
-def test_override_applies_title_author_fandoms_and_dismissed():
+def test_override_applies_title_author_and_dismissed():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = os.path.join(tmp, "app.db")
         db.init_db(db_path)
-        db.set_fields(db_path, "999", title="Manually Fixed", author="Real Author", fandoms=["Torchwood"])
+        db.set_title_author(db_path, "999", "Manually Fixed", "Real Author")
         db.set_dismissed(db_path, "999", True)
 
         result = scan(tmp, None, db_path)
@@ -115,7 +115,6 @@ def test_override_applies_title_author_fandoms_and_dismissed():
     assert entry.work_id == "999"
     assert entry.title == "Manually Fixed"
     assert entry.author == "Real Author"
-    assert entry.fandoms == ["Torchwood"]
     assert entry.dismissed is True
 
 
@@ -164,7 +163,7 @@ def test_load_cached_applies_overrides_same_as_live_scan():
         db_path = os.path.join(other, "app.db")
         db.init_db(db_path)
         refresh_cache(downloads, None, db_path)
-        db.set_fields(db_path, "42", title="Manual Only", author=None, fandoms=None)
+        db.set_title_author(db_path, "42", "Manual Only", None)
 
         result = load_cached(db_path)
     assert result.entries[0].work_id == "42"
@@ -187,7 +186,7 @@ def test_fandom_candidates_survive_refresh_cache_round_trip():
     assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]
 
 
-def test_fandom_override_does_not_affect_fandom_candidates():
+def test_tag_flag_overrides_heuristic_guess_for_one_work():
     with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
         db_path = os.path.join(other, "app.db")
         db.init_db(db_path)
@@ -196,8 +195,32 @@ def test_fandom_override_does_not_affect_fandom_candidates():
             ["Fanworks", "Torchwood", "Ianto Jones"],
         )
         refresh_cache(downloads, None, db_path)
-        db.set_fandoms(db_path, "1", ["Ianto Jones"])  # user corrects the guess
+        db.set_tag_flags(db_path, {"Torchwood": False, "Ianto Jones": True})  # user corrects the guess
 
         entry = load_cached(db_path).entries[0]
     assert entry.fandoms == ["Ianto Jones"]
     assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]  # picker options unchanged
+
+
+def test_tag_flag_applies_to_every_work_sharing_that_tag():
+    # The whole point: classifying one tag fixes every work with that tag
+    # in one action, instead of a per-work correction on each of them.
+    # In both works "Ianto Jones" sits second in the candidate list behind
+    # a parenthesized fandom name, so the heuristic guess excludes it from
+    # both (it looks character-shaped and isn't the kept first item).
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "Some Fandom (2020)", "Ianto Jones"])
+        _build_epub(os.path.join(downloads, "2_B.epub"), ["Fanworks", "Other Fandom (2021)", "Ianto Jones"])
+        refresh_cache(downloads, None, db_path)
+
+        before = {e.work_id: e for e in load_cached(db_path).entries}
+        assert "Ianto Jones" not in before["1"].fandoms
+        assert "Ianto Jones" not in before["2"].fandoms
+
+        db.set_tag_flags(db_path, {"Ianto Jones": True})
+
+        entries = {e.work_id: e for e in load_cached(db_path).entries}
+    assert "Ianto Jones" in entries["1"].fandoms
+    assert "Ianto Jones" in entries["2"].fandoms

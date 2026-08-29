@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Tags - AO3 Downloads{% endblock %}
+{% block content %}
+  <header>
+    <h1>Tags</h1>
+    <p class="paths">
+      Every untyped tag found across your library (fandom, character, and
+      freeform tags all mixed together -- there's no way to tell them apart
+      from the file alone). Classifying one here applies to every work that
+      has it, sorted by how many works it affects.
+    </p>
+  </header>
+
+  <input type="search" id="tag-filter" placeholder="Filter tags&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
+
+  <form method="post" action="/tags/set">
+    <table>
+      <thead>
+        <tr>
+          <th>Tag</th>
+          <th>Works</th>
+          <th>Fandom?</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tag, count, is_fandom in tags %}
+        <tr class="tag-row" data-tag="{{ tag | lower }}">
+          <td><input type="hidden" name="all_tags" value="{{ tag }}">{{ tag }}</td>
+          <td>{{ count }}</td>
+          <td><input type="checkbox" name="fandoms" value="{{ tag }}" {% if is_fandom %}checked{% endif %}></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3" class="empty">
+            {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if tags %}<button type="submit" style="margin-top: 1rem;">Save</button>{% endif %}
+  </form>
+
+  <script>
+    function filterTags(query) {
+      query = query.toLowerCase();
+      document.querySelectorAll(".tag-row").forEach(function (row) {
+        row.style.display = row.dataset.tag.includes(query) ? "" : "none";
+      });
+    }
+  </script>
+{% endblock %}

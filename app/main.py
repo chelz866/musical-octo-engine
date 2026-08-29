@@ -106,10 +106,50 @@ def set_work_fandom(
     other_fandoms: str = Form(""),
     next: str = Form("/"),
 ):
-    extra = [f.strip() for f in other_fandoms.split(",") if f.strip()]
-    combined = list(dict.fromkeys([*fandoms, *extra]))  # dedupe, keep order
-    db.set_fandoms(DB_PATH, work_id, combined or None)
+    """Classifies tags globally (see db.set_tag_flags), scoped to this
+    work's own candidate tags plus whatever the user typed in "other" --
+    it looks like a per-work edit, but the effect applies to every work
+    that shares the same tag, since fandom is classified per tag now.
+    """
+    by_id = {e.work_id: e for e in scanner.load_cached(DB_PATH).entries}
+    entry = by_id.get(work_id)
+    candidates = entry.fandom_candidates if entry else []
+
+    checked = set(fandoms)
+    flags = {tag: (tag in checked) for tag in candidates}
+    for extra in (f.strip() for f in other_fandoms.split(",")):
+        if extra:
+            flags[extra] = True
+
+    db.set_tag_flags(DB_PATH, flags)
     return RedirectResponse(url=next or "/", status_code=303)
+
+
+@app.get("/tags", response_class=HTMLResponse)
+def tags_page(request: Request):
+    result = scanner.load_cached(DB_PATH)
+    counts: Counter = Counter()
+    is_fandom_now: dict[str, bool] = {}
+    for entry in result.entries:
+        for tag in entry.fandom_candidates:
+            counts[tag] += 1
+            is_fandom_now[tag] = is_fandom_now.get(tag, False) or tag in entry.fandoms
+
+    sorted_tags = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0].lower()))
+    return templates.TemplateResponse(
+        "tags.html",
+        {
+            **_base_context(request),
+            "tags": [(tag, count, is_fandom_now[tag]) for tag, count in sorted_tags],
+        },
+    )
+
+
+@app.post("/tags/set")
+def set_tags(all_tags: list[str] = Form([]), fandoms: list[str] = Form([])):
+    checked = set(fandoms)
+    db.set_tag_flags(DB_PATH, {tag: (tag in checked) for tag in all_tags})
+    return RedirectResponse(url="/tags", status_code=303)
 
 
 @app.get("/fandoms", response_class=HTMLResponse)

@@ -1,6 +1,12 @@
 """Small local SQLite store for the only persistent state this app has:
-per-work manual overrides (title/author/fandoms), issue dismissals, and the
-list of AO3 feed URLs the user wants tracked on the Tracked Feeds page.
+per-work manual overrides (title/author), issue dismissals, a global tag ->
+is-fandom classification, and the list of AO3 feed URLs the user wants
+tracked on the Tracked Feeds page.
+
+Fandom is classified per *tag*, not per work: correcting one tag (e.g.
+marking "Torchwood" as a fandom) retroactively fixes every work that has
+that tag, instead of requiring a correction on each of what could be
+thousands of individual works. See scanner._resolve_fandoms.
 
 Everything else is computed live from the filesystem/log/feed on each
 request -- this is deliberately the minimum needed to make those pages useful.
@@ -16,7 +22,6 @@ class Override:
     work_id: str
     title: str | None = None
     author: str | None = None
-    fandoms: list[str] | None = None
     dismissed: bool = False
 
 
@@ -94,6 +99,14 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tag_flags (
+                tag TEXT PRIMARY KEY,
+                is_fandom INTEGER NOT NULL
+            )
+            """
+        )
         _ensure_column(conn, "works_cache", "fandom_candidates")
 
 
@@ -119,52 +132,27 @@ def _connect(path: str):
 
 
 def _row_to_override(row) -> Override:
-    work_id, title, author, fandoms, dismissed = row
-    return Override(
-        work_id=work_id,
-        title=title,
-        author=author,
-        fandoms=[f for f in fandoms.split("\x1f") if f] if fandoms else None,
-        dismissed=bool(dismissed),
-    )
+    work_id, title, author, dismissed = row
+    return Override(work_id=work_id, title=title, author=author, dismissed=bool(dismissed))
 
 
 def get_all_overrides(path: str) -> dict[str, Override]:
     with _connect(path) as conn:
-        rows = conn.execute(
-            "SELECT work_id, title, author, fandoms, dismissed FROM overrides"
-        ).fetchall()
+        rows = conn.execute("SELECT work_id, title, author, dismissed FROM overrides").fetchall()
     return {row[0]: _row_to_override(row) for row in rows}
 
 
 def get_override(path: str, work_id: str) -> Override | None:
     with _connect(path) as conn:
         row = conn.execute(
-            "SELECT work_id, title, author, fandoms, dismissed FROM overrides WHERE work_id = ?",
+            "SELECT work_id, title, author, dismissed FROM overrides WHERE work_id = ?",
             (work_id,),
         ).fetchone()
     return _row_to_override(row) if row else None
 
 
-def set_fields(path: str, work_id: str, title: str | None, author: str | None, fandoms: list[str] | None) -> None:
-    fandoms_str = "\x1f".join(fandoms) if fandoms else None
-    with _connect(path) as conn:
-        conn.execute(
-            """
-            INSERT INTO overrides (work_id, title, author, fandoms, dismissed)
-            VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT(work_id) DO UPDATE SET title = excluded.title,
-                author = excluded.author, fandoms = excluded.fandoms
-            """,
-            (work_id, title, author, fandoms_str),
-        )
-
-
 def set_title_author(path: str, work_id: str, title: str | None, author: str | None) -> None:
-    """Updates only title/author, leaving any existing fandoms override and
-    dismissed flag untouched -- the Issues page's title/author form no
-    longer touches fandoms at all, that's the fandom picker's job now.
-    """
+    """Updates only title/author, leaving the dismissed flag untouched."""
     with _connect(path) as conn:
         conn.execute(
             """
@@ -176,20 +164,24 @@ def set_title_author(path: str, work_id: str, title: str | None, author: str | N
         )
 
 
-def set_fandoms(path: str, work_id: str, fandoms: list[str] | None) -> None:
-    """Updates only the fandoms override, leaving any existing title/author
-    override and dismissed flag untouched (unlike set_fields, which sets
-    all three together and is meant for the Issues page's full edit form).
-    """
-    fandoms_str = "\x1f".join(fandoms) if fandoms else None
+def get_all_tag_flags(path: str) -> dict[str, bool]:
     with _connect(path) as conn:
-        conn.execute(
+        rows = conn.execute("SELECT tag, is_fandom FROM tag_flags").fetchall()
+    return {row[0]: bool(row[1]) for row in rows}
+
+
+def set_tag_flags(path: str, flags: dict[str, bool]) -> None:
+    """Bulk-sets tag -> is-fandom classifications. Explicitly classifying a
+    tag applies everywhere that tag appears, across every work -- this is
+    the mechanism for correcting fandom at scale instead of per work.
+    """
+    with _connect(path) as conn:
+        conn.executemany(
             """
-            INSERT INTO overrides (work_id, fandoms)
-            VALUES (?, ?)
-            ON CONFLICT(work_id) DO UPDATE SET fandoms = excluded.fandoms
+            INSERT INTO tag_flags (tag, is_fandom) VALUES (?, ?)
+            ON CONFLICT(tag) DO UPDATE SET is_fandom = excluded.is_fandom
             """,
-            (work_id, fandoms_str),
+            [(tag, int(is_fandom)) for tag, is_fandom in flags.items()],
         )
 
 
