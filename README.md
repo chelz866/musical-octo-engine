@@ -59,12 +59,26 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
 
 - **Downloads** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
   completion icons, tags, summary, language/words/chapters), with stats up top, paginated 25 per
-  page (`?page=...`), filterable by fandom (`?fandom=...`, linked from the Fandom column or the
-  Fandoms page, and combinable with `?page=...`). Chapter progress and
-  completion status are real here, not guessed -- read straight from the epub's own preface page
-  (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:" line into on every
-  export. Word count comes from the same place; Audiobookshelf doesn't track it (confirmed against
-  a real schema export), so this only ever comes from the file itself, matched or not.
+  page. Chapter progress and completion status are real here, not guessed -- read straight from the
+  epub's own preface page (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:"
+  line into on every export. Word count comes from the same place; Audiobookshelf doesn't track it
+  (confirmed against a real schema export), so this only ever comes from the file itself, matched or
+  not.
+
+  A collapsible **Search & Filter** panel above the list approximates AO3's own sidebar: checkboxes
+  for Rating/Warning/Category/Completion (fixed AO3 vocabularies, every option always listed with a
+  live count), a word-count range, a free-text box that searches title/author/summary/tags together,
+  and a sort-by dropdown (title, author, word count, date downloaded). Fandom/Character/
+  Relationship/Additional Tags/Language are different: a real library can have thousands of unique
+  values, so there's no autocomplete picker -- each of those shows only whatever you've already
+  selected (so you can unselect it) plus its top 10 next-most-common values *given every other
+  filter you've already applied*, so the list keeps shifting toward what's actually relevant as you
+  narrow things down. Selecting more than one value within a facet is OR'd ("Explicit or Mature");
+  different facets AND together. If the tag you want never shows up in the top 10, the free-text
+  search box matches tag text too. Every active filter shows as a removable chip, checking a box
+  always jumps back to page 1, and the URL is fully shareable/bookmarkable (`?rating=...&fandom=...`
+  etc. -- the old `?fandom=...` links from the Fandom column and the Fandoms page still work
+  unchanged, they're just one facet among several now).
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.

@@ -20,6 +20,7 @@ AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECOND
 
 DOWNLOADS_PAGE_SIZE = 25
 TAGS_PAGE_SIZE = 100
+FACET_SUGGESTION_COUNT = 10
 
 # Optional: link downloaded works to their Audiobookshelf copy, if any.
 # All three unset (the default) disables the integration entirely.
@@ -104,6 +105,21 @@ _CATEGORY_SYMBOLS = {
 }
 
 
+def _completion_status(entry) -> str:
+    """"complete" | "wip" | "unknown". Chapters come from the epub's own
+    preface page (see epub_meta.parse_epub_stats), so this is real, not a
+    placeholder: chapters_total is only ever set once the author commits to
+    a total, so have < total is still a WIP even with a definite total
+    (e.g. "5/12"). Shared by blurb_icons (display) and the Downloads page
+    Completion filter, so they can never disagree about a work's status.
+    """
+    if entry.chapters_have is None:
+        return "unknown"
+    if entry.chapters_total is not None and entry.chapters_have >= entry.chapters_total:
+        return "complete"
+    return "wip"
+
+
 def blurb_icons(entry) -> dict:
     rating_label = entry.rating or "Not Rated"
     rating_class = _RATING_CLASSES.get(entry.rating, "notrated")
@@ -127,13 +143,10 @@ def blurb_icons(entry) -> dict:
     else:
         warning_class, warning_label, warning_symbol = "no", "Unknown", ""
 
-    # Chapters come from the epub's own preface page (see epub_meta.parse_epub_stats),
-    # so completion status is real here, not a placeholder: chapters_total is only
-    # ever set once the author commits to a total, so have < total is still a WIP
-    # even with a definite total (e.g. "5/12").
-    if entry.chapters_have is None:
+    completion_status = _completion_status(entry)
+    if completion_status == "unknown":
         completion_class, completion_label, completion_symbol = "unknown", "Completion status unknown", ""
-    elif entry.chapters_total is not None and entry.chapters_have >= entry.chapters_total:
+    elif completion_status == "complete":
         completion_class, completion_label, completion_symbol = "complete", "Complete", "✓"
     else:
         completion_class, completion_label, completion_symbol = "wip", "Work in Progress", "⊘"
@@ -195,16 +208,208 @@ def paginate(items: list, page: int, page_size: int) -> tuple[list, int, int]:
     return items[start : start + page_size], page, total_pages
 
 
+# Downloads page search/filter. Nine facets funnel through one dict mapping
+# a facet name to a function pulling the relevant tag-like values off a
+# WorkEntry, so matching/suggestion logic is written once regardless of
+# facet kind. "Static" facets (rating/warning/category/completion) have a
+# small fixed vocabulary, so every option is always shown with a count.
+# "Dynamic" facets (fandom/character/relationship/freeform/language) have
+# an unbounded vocabulary (20,000+ tags in a real library), so only
+# selected values plus the top FACET_SUGGESTION_COUNT unselected ones are
+# shown -- see _facet_suggestions.
+FACETS = {
+    "rating": lambda e: [e.rating or "Not Rated"],
+    "warning": lambda e: list(e.warnings) or ["Unknown"],
+    "category": lambda e: list(e.categories) or ["No category"],
+    "completion": lambda e: [_completion_status(e)],
+    "fandom": lambda e: e.fandoms,
+    "character": lambda e: e.characters,
+    "relationship": lambda e: e.relationships,
+    "freeform": lambda e: e.freeform_tags,
+    "language": lambda e: [e.language] if e.language else [],
+}
+
+STATIC_FACET_DEFS = {
+    "rating": ("Rating", [(v, v) for v in ["Not Rated", "General Audiences", "Teen And Up Audiences", "Mature", "Explicit"]]),
+    "warning": ("Warning", [(v, v) for v in ["No Archive Warnings Apply", "Choose Not To Use Archive Warnings", "Graphic Depictions Of Violence", "Major Character Death", "Rape/Non-Con", "Underage", "Unknown"]]),
+    "category": ("Category", [(v, v) for v in ["Gen", "F/M", "M/M", "F/F", "Multi", "Other", "No category"]]),
+    "completion": ("Completion", [("complete", "Complete"), ("wip", "Work in Progress"), ("unknown", "Unknown")]),
+}
+DYNAMIC_FACET_LABELS = {
+    "fandom": "Fandom",
+    "character": "Character",
+    "relationship": "Relationship",
+    "freeform": "Additional Tags",
+    "language": "Language",
+}
+
+SORT_OPTIONS = {
+    "title": lambda e: (e.title or "").lower(),
+    "author": lambda e: (e.author or "").lower(),
+    "word_count_desc": lambda e: -(e.word_count or 0),
+    "word_count_asc": lambda e: (e.word_count or 0),
+    "newest": lambda e: scanner.effective_timestamp(e) or datetime.min,
+}
+SORT_LABELS = {
+    "title": "Title (A–Z)",
+    "author": "Author (A–Z)",
+    "word_count_desc": "Word Count (High to Low)",
+    "word_count_asc": "Word Count (Low to High)",
+    "newest": "Date Downloaded (Newest)",
+}
+DEFAULT_SORT = "title"
+
+
+def _entry_matches(entry, filters: dict, exclude: str | None = None) -> bool:
+    """AND across facets, OR within one facet's selected values. `exclude`
+    skips one facet's own filter -- used to build that facet's own
+    suggestion/count list from what everything *else* currently matches.
+    """
+    for name, values in filters["facets"].items():
+        if name == exclude or not values:
+            continue
+        if not set(FACETS[name](entry)) & set(values):
+            return False
+    if filters["word_min"] is not None and (entry.word_count or 0) < filters["word_min"]:
+        return False
+    if filters["word_max"] is not None and (entry.word_count or 0) > filters["word_max"]:
+        return False
+    if filters["q"]:
+        q = filters["q"].lower()
+        haystacks = [entry.title, entry.author, entry.summary, *entry.fandoms, *entry.characters, *entry.relationships, *entry.freeform_tags]
+        if not any(q in (h or "").lower() for h in haystacks):
+            return False
+    return True
+
+
+def _parse_filters(request: Request) -> dict:
+    qp = request.query_params
+    return {
+        "facets": {name: qp.getlist(name) for name in FACETS},
+        "word_min": int(qp["word_min"]) if qp.get("word_min", "").isdigit() else None,
+        "word_max": int(qp["word_max"]) if qp.get("word_max", "").isdigit() else None,
+        "q": qp.get("q", "").strip(),
+        "sort": qp.get("sort") or DEFAULT_SORT,
+    }
+
+
+def _facet_suggestions(entries: list, filters: dict, name: str, top_n: int = FACET_SUGGESTION_COUNT) -> list[tuple[str, int]]:
+    """Top `top_n` values for this facet, excluding whatever's already
+    selected, counted against entries matching every *other* active filter
+    (so narrowing a different facet updates the suggestions, but selecting
+    more values within this same facet doesn't shrink its own list).
+    """
+    selected = set(filters["facets"][name])
+    counts: Counter = Counter()
+    for entry in entries:
+        if _entry_matches(entry, filters, exclude=name):
+            counts.update(v for v in FACETS[name](entry) if v not in selected)
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:top_n]
+
+
+def _selected_with_counts(entries: list, filters: dict, name: str) -> list[tuple[str, int]]:
+    selected = filters["facets"][name]
+    counts: Counter = Counter()
+    for entry in entries:
+        if _entry_matches(entry, filters, exclude=name):
+            counts.update(v for v in FACETS[name](entry) if v in selected)
+    return [(v, counts.get(v, 0)) for v in selected]
+
+
+def _static_facet_counts(entries: list, filters: dict, name: str, options: list[tuple[str, str]]) -> list[tuple[str, str, int, bool]]:
+    """Every fixed option for this facet, always shown, each with a live
+    count (against entries matching every other active filter) and whether
+    it's currently selected. Returns (value, label, count, checked).
+    """
+    counts: Counter = Counter()
+    for entry in entries:
+        if _entry_matches(entry, filters, exclude=name):
+            counts.update(FACETS[name](entry))
+    selected = set(filters["facets"][name])
+    return [(value, label, counts.get(value, 0), value in selected) for value, label in options]
+
+
+def _filter_query_string(filters: dict, *, exclude_key: str | None = None, exclude_value: str | None = None) -> str:
+    """Query string (leading '&', empty if no filters active) reflecting
+    every currently active filter except `page` -- used for pagination
+    links and, with exclude_key/exclude_value set, for a single active
+    filter chip's "remove just this one" link.
+    """
+    parts = []
+    for name, values in filters["facets"].items():
+        for v in values:
+            if name == exclude_key and v == exclude_value:
+                continue
+            parts.append(f"{name}={quote(v)}")
+    for key in ("q", "word_min", "word_max"):
+        if filters[key] and exclude_key != key:
+            parts.append(f"{key}={quote(str(filters[key]))}")
+    if filters["sort"] != DEFAULT_SORT and exclude_key != "sort":
+        parts.append(f"sort={quote(filters['sort'])}")
+    return ("&" + "&".join(parts)) if parts else ""
+
+
+def _active_chips(filters: dict) -> list[dict]:
+    """One entry per currently-set filter value, for the "Filtered by: ..."
+    summary line -- each links back to a URL with just that one value removed.
+    """
+    chips = []
+    for name, values in filters["facets"].items():
+        label = STATIC_FACET_DEFS[name][0] if name in STATIC_FACET_DEFS else DYNAMIC_FACET_LABELS[name]
+        for value in values:
+            chips.append({
+                "text": f"{label}: {value}",
+                "remove_href": "/?" + _filter_query_string(filters, exclude_key=name, exclude_value=value).lstrip("&"),
+            })
+    if filters["q"]:
+        chips.append({"text": f'Search: "{filters["q"]}"', "remove_href": "/?" + _filter_query_string(filters, exclude_key="q").lstrip("&")})
+    if filters["word_min"] is not None:
+        chips.append({"text": f"Words ≥ {filters['word_min']:,}", "remove_href": "/?" + _filter_query_string(filters, exclude_key="word_min").lstrip("&")})
+    if filters["word_max"] is not None:
+        chips.append({"text": f"Words ≤ {filters['word_max']:,}", "remove_href": "/?" + _filter_query_string(filters, exclude_key="word_max").lstrip("&")})
+    return chips
+
+
+def _build_filter_panel(entries: list, filters: dict) -> dict:
+    return {
+        "q": filters["q"],
+        "word_min": filters["word_min"],
+        "word_max": filters["word_max"],
+        "sort": filters["sort"],
+        "sort_options": SORT_LABELS,
+        "suggestion_count": FACET_SUGGESTION_COUNT,
+        "static": {
+            name: {"label": label, "options": _static_facet_counts(entries, filters, name, options)}
+            for name, (label, options) in STATIC_FACET_DEFS.items()
+        },
+        "dynamic": {
+            name: {
+                "label": label,
+                "selected": _selected_with_counts(entries, filters, name),
+                "suggestions": _facet_suggestions(entries, filters, name),
+            }
+            for name, label in DYNAMIC_FACET_LABELS.items()
+        },
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, fandom: str | None = None, page: int = 1):
+def dashboard(request: Request, page: int = 1):
     result = scanner.load_cached(DB_PATH)
-    entries = result.entries
-    if fandom:
-        entries = [e for e in entries if fandom in e.fandoms]
+    filters = _parse_filters(request)
+    # Facet suggestion/count computation needs the *whole* library, not the
+    # already-filtered list below -- each facet's own counts are computed
+    # by re-filtering result.entries excluding just that one facet (see
+    # _build_filter_panel), which only works against the unfiltered set.
+    filter_panel = _build_filter_panel(result.entries, filters)
+    active_chips = _active_chips(filters)
+
+    entries = [e for e in result.entries if _entry_matches(e, filters)]
+    entries.sort(key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]))
 
     page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
 
-    pager_qs = f"&fandom={quote(fandom)}" if fandom else ""
+    pager_qs = _filter_query_string(filters)
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -215,7 +420,8 @@ def dashboard(request: Request, fandom: str | None = None, page: int = 1):
             "download_dir": DOWNLOAD_DIR,
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
-            "fandom_filter": fandom,
+            "filter_panel": filter_panel,
+            "active_chips": active_chips,
             "abs_links": _abs_links(),
             "page": page,
             "total_pages": total_pages,

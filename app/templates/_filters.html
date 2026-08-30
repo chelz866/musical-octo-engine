@@ -1,0 +1,56 @@
+{% macro panel(filter_panel, has_active_filters) %}
+<details class="filter-panel" {% if has_active_filters %}open{% endif %}>
+  <summary>Search &amp; Filter</summary>
+  <form method="get" action="/">
+    <input type="search" name="q" value="{{ filter_panel.q }}" placeholder="Search title, author, summary, tags&hellip;" class="fandom-other">
+
+    <div class="filter-grid">
+      {% for name, facet in filter_panel.static.items() %}
+      <fieldset>
+        <legend>{{ facet.label }}</legend>
+        {% for value, label, count, checked in facet.options %}
+        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}> {{ label }} ({{ count }})</label>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+
+      {% for name, facet in filter_panel.dynamic.items() %}
+      <fieldset>
+        <legend>{{ facet.label }}</legend>
+        {% for value, count in facet.selected %}
+        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}" checked> {{ value }} ({{ count }})</label>
+        {% endfor %}
+        {% for value, count in facet.suggestions %}
+        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}"> {{ value }} ({{ count }})</label>
+        {% endfor %}
+        {% if not facet.selected and not facet.suggestions %}
+        <p class="hint">No {{ facet.label.lower() }} tags found.</p>
+        {% endif %}
+      </fieldset>
+      {% endfor %}
+    </div>
+
+    <p class="hint">
+      Only the top {{ filter_panel.suggestion_count }} unselected values are shown per tag facet --
+      narrowing another filter shifts the list, and the search box above also matches tag text, so
+      it's the way to find something that never shows up here.
+    </p>
+
+    <div class="filter-row">
+      <label>Word count: <input type="number" name="word_min" value="{{ filter_panel.word_min if filter_panel.word_min is not none else '' }}" placeholder="min" min="0"></label>
+      &ndash;
+      <label><input type="number" name="word_max" value="{{ filter_panel.word_max if filter_panel.word_max is not none else '' }}" placeholder="max" min="0"></label>
+      <label>Sort by:
+        <select name="sort">
+          {% for value, label in filter_panel.sort_options.items() %}
+          <option value="{{ value }}" {% if value == filter_panel.sort %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <button type="submit">Apply filters</button>
+    {% if has_active_filters %}<a href="/">Clear all</a>{% endif %}
+  </form>
+</details>
+{% endmacro %}

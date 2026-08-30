@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "_fandom_picker.html" as picker %}
 {% import "_pager.html" as pagination %}
+{% import "_filters.html" as filters %}
 {% block title %}AO3 Downloads{% endblock %}
 {% block content %}
   <header>
@@ -11,13 +12,18 @@
       log: <code>{{ log_path }}</code>
       {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}
     </p>
-    {% if fandom_filter %}
-    <p class="filter-banner">
-      Filtered to fandom: <strong>{{ fandom_filter }}</strong>
-      <a href="/">clear filter</a>
-    </p>
-    {% endif %}
   </header>
+
+  {{ filters.panel(filter_panel, active_chips | length > 0) }}
+
+  {% if active_chips %}
+  <p class="filter-banner">
+    Filtered by:
+    {% for chip in active_chips %}<span class="badge">{{ chip.text }} <a href="{{ chip.remove_href }}" title="Remove this filter">&times;</a></span>{% endfor %}
+    <a href="/">clear all</a>
+    &middot; {{ total_filtered | format_number }} match{{ "es" if total_filtered != 1 else "" }}
+  </p>
+  {% endif %}
 
   <section class="stats">
     <div class="stat">
