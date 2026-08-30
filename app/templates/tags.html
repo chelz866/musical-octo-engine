@@ -21,7 +21,54 @@
   </nav>
 
   <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
-  <p class="hint">Only searches the tags currently shown on this page -- change the page or filter above to search elsewhere.</p>
+  <p class="hint">
+    Only searches the tags currently shown on this page -- change the page or filter above to search
+    elsewhere. Narrowing it down also narrows what "Select all" below selects, so you can search for
+    a name, select-all, and double check before setting a category on just that handful.
+  </p>
+
+  <form method="post" action="/tags/set_selected" id="tag-form">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <input type="hidden" name="page" value="{{ page }}">
+
+    <div class="tag-bulk-actions">
+      <span class="hint" id="selected-count">0 selected</span>
+      <button type="submit" name="category" value="fandom" disabled>Set selected: Fandom</button>
+      <button type="submit" name="category" value="character" disabled>Set selected: Character</button>
+      <button type="submit" name="category" value="freeform" disabled>Set selected: Freeform</button>
+    </div>
+
+    {{ pagination.pager(page, total_pages, pager_qs) }}
+
+    <table class="tag-table">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+          <th>Tag</th>
+          <th>Works</th>
+          <th>Category</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tag, count, category in tags %}
+        <tr class="tag-row" data-tag="{{ tag | lower }}">
+          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ tag }}" onchange="updateSelectedCount()"></td>
+          <td>{{ tag }}</td>
+          <td>{{ count }}</td>
+          <td>{{ category | title if category else "&mdash; Unclassified &mdash;" | safe }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" class="empty">
+            {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {{ pagination.pager(page, total_pages, pager_qs) }}
+  </form>
 
   <div class="tag-bulk-actions">
     <form method="post" action="/tags/mark_page_freeform">
@@ -35,52 +82,34 @@
     </form>
   </div>
 
-  {{ pagination.pager(page, total_pages, pager_qs) }}
-
-  <form method="post" action="/tags/set">
-    <input type="hidden" name="filter" value="{{ filter }}">
-    <input type="hidden" name="page" value="{{ page }}">
-    <table>
-      <thead>
-        <tr>
-          <th>Tag</th>
-          <th>Works</th>
-          <th>Category</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for tag, count, category in tags %}
-        <tr class="tag-row" data-tag="{{ tag | lower }}">
-          <td><input type="hidden" name="all_tags" value="{{ tag }}">{{ tag }}</td>
-          <td>{{ count }}</td>
-          <td>
-            <select name="category">
-              <option value="" {% if not category %}selected{% endif %}>&mdash; Unclassified &mdash;</option>
-              <option value="fandom" {% if category == "fandom" %}selected{% endif %}>Fandom</option>
-              <option value="character" {% if category == "character" %}selected{% endif %}>Character</option>
-              <option value="freeform" {% if category == "freeform" %}selected{% endif %}>Freeform</option>
-            </select>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="3" class="empty">
-            {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if tags %}<button type="submit" style="margin-top: 1rem;">Save</button>{% endif %}
-  </form>
-
-  {{ pagination.pager(page, total_pages, pager_qs) }}
-
   <script>
     function filterTags(query) {
       query = query.toLowerCase();
       document.querySelectorAll(".tag-row").forEach(function (row) {
         row.style.display = row.dataset.tag.includes(query) ? "" : "none";
+      });
+    }
+
+    function visibleCheckboxes() {
+      return Array.from(document.querySelectorAll(".tag-row")).filter(function (row) {
+        return row.style.display !== "none";
+      }).map(function (row) {
+        return row.querySelector(".tag-checkbox");
+      });
+    }
+
+    function toggleAll(selectAllBox) {
+      visibleCheckboxes().forEach(function (checkbox) {
+        checkbox.checked = selectAllBox.checked;
+      });
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      var count = document.querySelectorAll(".tag-checkbox:checked").length;
+      document.getElementById("selected-count").textContent = count + " selected";
+      document.querySelectorAll('#tag-form button[type="submit"]').forEach(function (button) {
+        button.disabled = count === 0;
       });
     }
   </script>

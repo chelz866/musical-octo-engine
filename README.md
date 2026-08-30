@@ -70,16 +70,20 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
 - **Tags** (`/tags`) -- every untyped tag across the whole library, sorted by how many works have
-  it, classified as Fandom, Character, or Freeform (a dropdown per tag, paginated 100 per page).
-  This is the bulk tool: classifying one tag here fixes every work that has it in one action,
-  instead of a per-work correction on each of them. Filter tabs at the top (Fandom/Character/
-  Freeform/Unclassified, each with a count) narrow the list to what still needs review; since AO3
-  libraries are typically mostly Freeform tags, two bulk actions ("mark unclassified on this page
-  as Freeform" / "mark ALL unclassified tags as Freeform") let you pick out the handful of real
-  Fandom/Character tags first and sweep the rest in one click rather than clicking through each one.
-  A tag with no explicit classification falls back to the same heuristic guess used elsewhere
-  (see `app/epub_meta.py`) for Fandom, or Freeform otherwise -- "Unclassified" specifically means
-  no one has confirmed it either way yet.
+  it, classified as Fandom, Character, or Freeform, paginated 100 per page. This is the bulk tool:
+  classifying one tag here fixes every work that has it in one action, instead of a per-work
+  correction on each of them. Filter tabs at the top (Fandom/Character/Freeform/Unclassified, each
+  with a count) narrow the list to what still needs review, and the on-page text search narrows
+  further -- a real library can easily have thousands of unique tags, so checking a box per tag and
+  reading through a dropdown per row doesn't scale. Instead, each row has a checkbox ("Select all"
+  in the header selects only the rows currently visible, respecting both the filter tab and the text
+  search), and a bar above the table applies one category to everything checked ("Set selected:
+  Fandom/Character/Freeform") -- search for a name, select all, glance at the list, then set it in
+  one click. Since AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark
+  unclassified on this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest
+  without needing to select anything. A tag with no explicit classification falls back to the same
+  heuristic guess used elsewhere (see `app/epub_meta.py`) for Fandom, or Freeform otherwise --
+  "Unclassified" specifically means no one has confirmed it either way yet.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

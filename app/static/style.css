@@ -423,6 +423,10 @@ th {
   margin: 1rem 0;
 }
 
+.tag-bulk-actions {
+  align-items: center;
+}
+
 .tag-bulk-actions button {
   font-size: 0.85rem;
   padding: 0.4rem 0.8rem;
@@ -430,6 +434,15 @@ th {
   border: 1px solid var(--border);
   background: transparent;
   cursor: pointer;
+}
+
+.tag-bulk-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tag-table th:first-child, .tag-table td:first-child {
+  width: 1.5rem;
 }
 
 @media (max-width: 640px) {

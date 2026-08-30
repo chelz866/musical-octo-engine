@@ -317,15 +317,15 @@ def tags_page(request: Request, filter: str = "all", page: int = 1):
     )
 
 
-@app.post("/tags/set")
-def set_tags(
-    all_tags: list[str] = Form([]),
-    category: list[str] = Form([]),
+@app.post("/tags/set_selected")
+def set_selected_tags(
+    tags: list[str] = Form([]),
+    category: str = Form(...),
     filter: str = Form("all"),
     page: int = Form(1),
 ):
-    updates = {tag: cat for tag, cat in zip(all_tags, category) if cat in ("fandom", "character", "freeform")}
-    db.set_tag_categories(DB_PATH, updates)
+    if category in ("fandom", "character", "freeform") and tags:
+        db.set_tag_categories(DB_PATH, {t: category for t in tags})
     return RedirectResponse(url=f"/tags?filter={quote(filter)}&page={page}", status_code=303)
 
 
