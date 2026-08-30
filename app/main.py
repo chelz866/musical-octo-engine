@@ -1,12 +1,14 @@
 import asyncio
 import math
 import os
-from collections import Counter
+import re
+from collections import Counter, defaultdict
 from datetime import datetime
 from urllib.parse import quote
 
+from fast_autocomplete import AutoComplete
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -259,6 +261,60 @@ SORT_LABELS = {
 }
 DEFAULT_SORT = "title"
 
+# Typeahead search for the four unbounded tag facets (Language isn't
+# included -- its vocabulary is small enough that every value is already
+# shown). Built lazily and cached per facet, keyed by the last refresh
+# time, so a keystroke is a cheap in-memory lookup rather than rebuilding
+# the index from 20,000+ tags on every request -- only the first search
+# after a refresh pays that cost.
+TAG_SEARCH_FACETS = ("fandom", "character", "relationship", "freeform")
+_RELATIONSHIP_SPLIT_RE = re.compile(r"\s*[/&]\s*")
+_autocomplete_cache: dict[str, tuple[str | None, AutoComplete, dict[str, set[str]]]] = {}
+
+
+def _build_autocomplete_index(values: set[str]) -> tuple[AutoComplete, dict[str, set[str]]]:
+    """Indexes each tag by its full text, plus -- for relationship-style
+    tags like "Ianto Jones/Jack Harkness" -- each individual party's name,
+    so searching "Jack" finds it even though the string doesn't start with
+    "Jack" (AutoComplete only matches by prefix of the whole string).
+    `word_to_tags` maps an indexed key back to the real tag(s) to select,
+    since a search result only ever gives back the key that matched.
+    """
+    word_to_tags: dict[str, set[str]] = defaultdict(set)
+    for tag in values:
+        word_to_tags[tag].add(tag)
+        for part in _RELATIONSHIP_SPLIT_RE.split(tag):
+            part = part.strip()
+            if part and part != tag:
+                word_to_tags[part].add(tag)
+    return AutoComplete(words={key: {} for key in word_to_tags}), word_to_tags
+
+
+def _get_autocompleter(facet: str) -> tuple[AutoComplete, dict[str, set[str]]]:
+    cache_key = db.get_meta(DB_PATH, LAST_REFRESHED_KEY)
+    cached_key, cached_ac, cached_index = _autocomplete_cache.get(facet, (None, None, None))
+    if cached_ac is not None and cached_key == cache_key:
+        return cached_ac, cached_index
+
+    entries = scanner.load_cached(DB_PATH).entries
+    values = {v for entry in entries for v in FACETS[facet](entry)}
+    autocompleter, word_to_tags = _build_autocomplete_index(values)
+    _autocomplete_cache[facet] = (cache_key, autocompleter, word_to_tags)
+    return autocompleter, word_to_tags
+
+
+def _search_facet_tags(facet: str, q: str, limit: int = 20) -> list[str]:
+    q = q.strip()
+    if facet not in TAG_SEARCH_FACETS or len(q) < 2:
+        return []
+    autocompleter, word_to_tags = _get_autocompleter(facet)
+    results = autocompleter.search(word=q, max_cost=2, size=limit * 2)
+    matched: set[str] = set()
+    for result in results:
+        key = " ".join(result) if isinstance(result, list) else result
+        matched.update(word_to_tags.get(key, ()))
+    return sorted(matched, key=str.lower)[:limit]
+
 
 def _entry_matches(entry, filters: dict, exclude: str | None = None) -> bool:
     """AND across facets, OR within one facet's selected values. `exclude`
@@ -378,6 +434,7 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
         "sort": filters["sort"],
         "sort_options": SORT_LABELS,
         "suggestion_count": FACET_SUGGESTION_COUNT,
+        "searchable_facets": TAG_SEARCH_FACETS,
         "static": {
             name: {"label": label, "options": _static_facet_counts(entries, filters, name, options)}
             for name, (label, options) in STATIC_FACET_DEFS.items()
@@ -429,6 +486,15 @@ def dashboard(request: Request, page: int = 1):
             "pager_qs": pager_qs,
         },
     )
+
+
+@app.get("/tags/search")
+def tag_search(facet: str, q: str = ""):
+    """Typeahead endpoint backing the Downloads page's per-facet "Find
+    another..." box -- see _search_facet_tags. Used to reach any of a
+    library's 20,000+ tags, not just the top-10 suggestions already shown.
+    """
+    return JSONResponse(_search_facet_tags(facet, q))
 
 
 @app.get("/issues", response_class=HTMLResponse)

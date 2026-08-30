@@ -70,15 +70,24 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
   live count), a word-count range, a free-text box that searches title/author/summary/tags together,
   and a sort-by dropdown (title, author, word count, date downloaded). Fandom/Character/
   Relationship/Additional Tags/Language are different: a real library can have thousands of unique
-  values, so there's no autocomplete picker -- each of those shows only whatever you've already
-  selected (so you can unselect it) plus its top 10 next-most-common values *given every other
-  filter you've already applied*, so the list keeps shifting toward what's actually relevant as you
-  narrow things down. Selecting more than one value within a facet is OR'd ("Explicit or Mature");
-  different facets AND together. If the tag you want never shows up in the top 10, the free-text
-  search box matches tag text too. Every active filter shows as a removable chip, checking a box
-  always jumps back to page 1, and the URL is fully shareable/bookmarkable (`?rating=...&fandom=...`
-  etc. -- the old `?fandom=...` links from the Fandom column and the Fandoms page still work
-  unchanged, they're just one facet among several now).
+  values, so each of those shows only whatever you've already selected (so you can unselect it) plus
+  its top 10 next-most-common values *given every other filter you've already applied*, so the list
+  keeps shifting toward what's actually relevant as you narrow things down. Selecting more than one
+  value within a facet is OR'd ("Explicit or Mature"); different facets AND together.
+
+  To reach a tag that never shows up in the top 10, Fandom/Character/Relationship/Additional Tags
+  each have their own "Find another..." typeahead box (backed by `/tags/search`, a small
+  [`fast-autocomplete`](https://github.com/seperman/fast-autocomplete)-powered index built lazily
+  per facet and rebuilt only when you refresh) -- it matches by prefix, and for a relationship tag
+  specifically also matches by either party's name (typing "Jack" finds "Ianto Jones/Jack Harkness"
+  even though the tag doesn't start with "Jack"), since the two are joined by `/` or `&` and indexed
+  separately from the full tag. Picking a suggestion (or typing the exact name and hitting Enter)
+  checks it, same as any other checkbox. Language isn't included here -- its vocabulary is small
+  enough that every value is already shown. The free-text search box above also matches tag text, as
+  a further fallback. Every active filter shows as a removable chip, checking a box always jumps back
+  to page 1, and the URL is fully shareable/bookmarkable (`?rating=...&fandom=...` etc. -- the old
+  `?fandom=...` links from the Fandom column and the Fandoms page still work unchanged, they're just
+  one facet among several now).
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.

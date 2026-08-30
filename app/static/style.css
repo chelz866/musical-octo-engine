@@ -497,6 +497,19 @@ th {
   border-radius: 4px;
 }
 
+.facet-autocomplete {
+  margin-top: 0.3rem;
+}
+
+.facet-autocomplete input {
+  width: 100%;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
 .tag-table th:first-child, .tag-table td:first-child {
   width: 1.5rem;
 }

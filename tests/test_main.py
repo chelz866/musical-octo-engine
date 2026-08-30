@@ -3,6 +3,7 @@ from datetime import datetime
 from app.main import (
     FACETS,
     SORT_OPTIONS,
+    _build_autocomplete_index,
     _completion_status,
     _entry_matches,
     _facet_suggestions,
@@ -209,6 +210,47 @@ def test_filter_query_string_excludes_one_value():
 
 def test_filter_query_string_empty_when_no_filters_active():
     assert _filter_query_string(_filters()) == ""
+
+
+def _search(autocompleter, word_to_tags, q, limit=20):
+    results = autocompleter.search(word=q, max_cost=2, size=limit * 2)
+    matched = set()
+    for result in results:
+        key = " ".join(result) if isinstance(result, list) else result
+        matched.update(word_to_tags.get(key, ()))
+    return sorted(matched, key=str.lower)[:limit]
+
+
+def test_autocomplete_index_matches_by_prefix():
+    autocompleter, word_to_tags = _build_autocomplete_index({"Torchwood", "Doctor Who"})
+    assert _search(autocompleter, word_to_tags, "tor") == ["Torchwood"]
+
+
+def test_autocomplete_index_finds_relationship_tag_by_either_party():
+    autocompleter, word_to_tags = _build_autocomplete_index({"Ianto Jones/Jack Harkness"})
+    assert _search(autocompleter, word_to_tags, "ianto") == ["Ianto Jones/Jack Harkness"]
+    assert _search(autocompleter, word_to_tags, "jack") == ["Ianto Jones/Jack Harkness"]
+
+
+def test_autocomplete_index_splits_on_ampersand_too():
+    # Matching is by prefix of a full indexed key, not per-word -- "The
+    # Doctor" is indexed as its own key from the split, so it's reachable
+    # by its own prefix ("the"), not by a word in the middle ("doctor").
+    autocompleter, word_to_tags = _build_autocomplete_index({"Rose Tyler & The Doctor"})
+    assert _search(autocompleter, word_to_tags, "the") == ["Rose Tyler & The Doctor"]
+    assert _search(autocompleter, word_to_tags, "rose") == ["Rose Tyler & The Doctor"]
+
+
+def test_autocomplete_index_a_shared_party_resolves_to_every_relationship_with_them():
+    autocompleter, word_to_tags = _build_autocomplete_index({
+        "Ianto Jones/Jack Harkness", "Jack Harkness/Gwen Cooper",
+    })
+    assert _search(autocompleter, word_to_tags, "jack") == ["Ianto Jones/Jack Harkness", "Jack Harkness/Gwen Cooper"]
+
+
+def test_autocomplete_index_no_match_returns_empty():
+    autocompleter, word_to_tags = _build_autocomplete_index({"Torchwood"})
+    assert _search(autocompleter, word_to_tags, "xyz") == []
 
 
 def test_sort_newest_prefers_mtime_then_log_timestamp_then_min():

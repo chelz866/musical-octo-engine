@@ -15,7 +15,7 @@
       {% endfor %}
 
       {% for name, facet in filter_panel.dynamic.items() %}
-      <fieldset>
+      <fieldset data-facet="{{ name }}">
         <legend>{{ facet.label }}</legend>
         {% for value, count in facet.selected %}
         <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}" checked> {{ value }} ({{ count }})</label>
@@ -23,8 +23,16 @@
         {% for value, count in facet.suggestions %}
         <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}"> {{ value }} ({{ count }})</label>
         {% endfor %}
-        {% if not facet.selected and not facet.suggestions %}
+        {% if not facet.selected and not facet.suggestions and name not in filter_panel.searchable_facets %}
         <p class="hint">No {{ facet.label.lower() }} tags found.</p>
+        {% endif %}
+        {% if name in filter_panel.searchable_facets %}
+        <div class="facet-autocomplete">
+          <input type="text" list="dl-{{ name }}" placeholder="Find another&hellip;" autocomplete="off"
+                 oninput="onFacetSearch(this, '{{ name }}')"
+                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); addFacetValue('{{ name }}', this); }">
+          <datalist id="dl-{{ name }}"></datalist>
+        </div>
         {% endif %}
       </fieldset>
       {% endfor %}
@@ -32,8 +40,8 @@
 
     <p class="hint">
       Only the top {{ filter_panel.suggestion_count }} unselected values are shown per tag facet --
-      narrowing another filter shifts the list, and the search box above also matches tag text, so
-      it's the way to find something that never shows up here.
+      narrowing another filter shifts the list. Type into a facet's own "Find another..." box (or the
+      search box above, which also matches tag text) to reach any tag, not just what's suggested.
     </p>
 
     <div class="filter-row">
@@ -53,4 +61,71 @@
     {% if has_active_filters %}<a href="/">Clear all</a>{% endif %}
   </form>
 </details>
+
+<script>
+  function onFacetSearch(input, facet) {
+    clearTimeout(input._debounce);
+    var q = input.value.trim();
+    if (q.length < 2) return;
+    input._debounce = setTimeout(function () {
+      fetch("/tags/search?facet=" + encodeURIComponent(facet) + "&q=" + encodeURIComponent(q))
+        .then(function (r) { return r.json(); })
+        .then(function (matches) {
+          var datalist = document.getElementById("dl-" + facet);
+          datalist.textContent = "";
+          matches.forEach(function (value) {
+            var option = document.createElement("option");
+            option.value = value;
+            datalist.appendChild(option);
+          });
+        });
+    }, 200);
+  }
+
+  function addFacetValue(facet, inputEl) {
+    var typed = inputEl.value.trim();
+    if (!typed) return;
+    // The search endpoint resolves a partial/relationship-party query (e.g.
+    // "jack") to the real, full tag value(s) it belongs to (e.g. "Ianto
+    // Jones/Jack Harkness") -- what's typed is very often not the tag
+    // itself. So only add on Enter when that's unambiguous: either what was
+    // typed exactly matches one fetched option (case-insensitively -- this
+    // is also how a mouse/keyboard datalist selection reaches here, since
+    // the browser fills the input with the option's exact text first), or
+    // there's currently exactly one candidate on the list. Otherwise do
+    // nothing -- forcing a real pick avoids silently adding a made-up tag
+    // that would just match zero works, or the wrong one of several.
+    var options = Array.from(document.getElementById("dl-" + facet).options);
+    var exact = options.find(function (o) { return o.value.toLowerCase() === typed.toLowerCase(); });
+    var value;
+    if (exact) {
+      value = exact.value;
+    } else if (options.length === 1) {
+      value = options[0].value;
+    } else {
+      return;
+    }
+    var fieldset = inputEl.closest("fieldset");
+    // This value might already be sitting in the list as an unchecked
+    // suggestion (it's a top-10 value, just for a different current
+    // filter) -- check that one instead of inserting a duplicate row.
+    var existingCheckbox = fieldset.querySelector('input[type="checkbox"][value="' + CSS.escape(value) + '"]');
+    if (existingCheckbox) {
+      existingCheckbox.checked = true;
+      inputEl.value = "";
+      return;
+    }
+    var label = document.createElement("label");
+    label.className = "fandom-option";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.name = facet;
+    checkbox.value = value;
+    checkbox.checked = true;
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(" " + value));
+    fieldset.insertBefore(label, inputEl.closest(".facet-autocomplete"));
+    inputEl.value = "";
+  }
+</script>
 {% endmacro %}
