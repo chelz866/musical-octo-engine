@@ -37,6 +37,8 @@ class WorkEntry:
     relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
     fandom_candidates: list[str] = field(default_factory=list)
+    characters: list[str] = field(default_factory=list)
+    freeform_tags: list[str] = field(default_factory=list)
     series: str | None = None
     series_index: str | None = None
     published_date: str | None = None
@@ -178,21 +180,37 @@ def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, Abs
     return entries
 
 
-def _resolve_fandoms(entry: WorkEntry, tag_flags: dict[str, bool]) -> list[str]:
-    """A tag counts as fandom if it's been explicitly classified that way
-    (globally, via the Tags page -- see db.set_tag_flags), else falls back
-    to this work's own heuristic guess (already sitting in entry.fandoms).
+def _resolve_tag_categories(
+    entry: WorkEntry, tag_categories: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Each candidate tag resolves to fandom/character/freeform: an explicit
+    global classification (from the Tags page or the per-work picker -- see
+    db.set_tag_categories) wins; an unclassified tag falls back to this
+    work's own heuristic fandom guess (entry.fandoms, from
+    epub_meta._guess_fandoms), and anything that's neither explicitly
+    classified nor guessed-fandom defaults to freeform -- the same "not
+    fandom" bucket every other leftover tag already fell into before
+    categories existed, just labeled now instead of lumped together.
     """
     if not entry.fandom_candidates:
-        return entry.fandoms
-    guessed = set(entry.fandoms)
-    return [tag for tag in entry.fandom_candidates if tag_flags.get(tag, tag in guessed)]
+        return entry.fandoms, [], []
+    guessed_fandoms = set(entry.fandoms)
+    fandoms, characters, freeform = [], [], []
+    for tag in entry.fandom_candidates:
+        category = tag_categories.get(tag) or ("fandom" if tag in guessed_fandoms else "freeform")
+        if category == "fandom":
+            fandoms.append(tag)
+        elif category == "character":
+            characters.append(tag)
+        else:
+            freeform.append(tag)
+    return fandoms, characters, freeform
 
 
 def _finalize(
     entries: list[WorkEntry],
     overrides: dict[str, db.Override],
-    tag_flags: dict[str, bool],
+    tag_categories: dict[str, str],
 ) -> ScanResult:
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
@@ -205,7 +223,7 @@ def _finalize(
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
 
-        entry.fandoms = _resolve_fandoms(entry, tag_flags)
+        entry.fandoms, entry.characters, entry.freeform_tags = _resolve_tag_categories(entry, tag_categories)
 
         override = overrides.get(work_id)
         if override:
@@ -239,8 +257,8 @@ def scan(
     abs_matches: dict[str, AbsBookMatch] | None = None,
 ) -> ScanResult:
     overrides = db.get_all_overrides(db_path) if db_path else {}
-    tag_flags = db.get_all_tag_flags(db_path) if db_path else {}
-    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_flags)
+    tag_categories = db.get_all_tag_categories(db_path) if db_path else {}
+    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories)
 
 
 def refresh_cache(
@@ -251,13 +269,13 @@ def refresh_cache(
 ) -> ScanResult:
     entries = scan_raw(download_dir, log_path, abs_matches)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_flags(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path))
 
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
     entries = [_row_to_entry(row) for row in rows]
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_flags(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path))
 
 
 def _join(values: list[str]) -> str | None:

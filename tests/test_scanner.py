@@ -5,7 +5,7 @@ import zipfile
 
 from app import db
 from app.audiobookshelf import AbsBookMatch
-from app.scanner import load_cached, refresh_cache, scan
+from app.scanner import WorkEntry, _resolve_tag_categories, load_cached, refresh_cache, scan
 
 _CONTAINER_XML = """<?xml version="1.0"?>
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -304,11 +304,58 @@ def test_tag_flag_overrides_heuristic_guess_for_one_work():
             ["Fanworks", "Torchwood", "Ianto Jones"],
         )
         refresh_cache(downloads, None, db_path)
-        db.set_tag_flags(db_path, {"Torchwood": False, "Ianto Jones": True})  # user corrects the guess
+        db.set_tag_categories(db_path, {"Torchwood": "freeform", "Ianto Jones": "fandom"})  # user corrects the guess
 
         entry = load_cached(db_path).entries[0]
     assert entry.fandoms == ["Ianto Jones"]
     assert entry.fandom_candidates == ["Torchwood", "Ianto Jones"]  # picker options unchanged
+
+
+def test_resolve_tag_categories_explicit_classification_wins():
+    entry = WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Ianto Jones", "Angst"], fandoms=["Torchwood"])
+    fandoms, characters, freeform = _resolve_tag_categories(
+        entry, {"Ianto Jones": "character", "Angst": "freeform"},
+    )
+    assert fandoms == ["Torchwood"]
+    assert characters == ["Ianto Jones"]
+    assert freeform == ["Angst"]
+
+
+def test_resolve_tag_categories_unclassified_falls_back_to_heuristic_guess():
+    # "Torchwood" was heuristically guessed as a fandom (in entry.fandoms)
+    # and has no explicit tag_categories entry -- it should still resolve
+    # as fandom, not silently drop to freeform.
+    entry = WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Ianto Jones"], fandoms=["Torchwood"])
+    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    assert fandoms == ["Torchwood"]
+    assert characters == []
+    assert freeform == ["Ianto Jones"]
+
+
+def test_resolve_tag_categories_unclassified_non_guessed_defaults_to_freeform():
+    entry = WorkEntry(work_id="1", fandom_candidates=["Angst", "Fluff"], fandoms=[])
+    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    assert fandoms == []
+    assert characters == []
+    assert freeform == ["Angst", "Fluff"]
+
+
+def test_resolve_tag_categories_explicit_character_overrides_fandom_guess():
+    # Even if the heuristic guessed this tag as a fandom, an explicit
+    # 'character' classification must win.
+    entry = WorkEntry(work_id="1", fandom_candidates=["The Authority"], fandoms=["The Authority"])
+    fandoms, characters, freeform = _resolve_tag_categories(entry, {"The Authority": "character"})
+    assert fandoms == []
+    assert characters == ["The Authority"]
+    assert freeform == []
+
+
+def test_resolve_tag_categories_no_candidates_returns_existing_fandoms_only():
+    entry = WorkEntry(work_id="1", fandom_candidates=[], fandoms=["Torchwood"])
+    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    assert fandoms == ["Torchwood"]
+    assert characters == []
+    assert freeform == []
 
 
 def test_abs_match_replaces_epub_parsing_for_that_work():
@@ -444,8 +491,31 @@ def test_tag_flag_applies_to_every_work_sharing_that_tag():
         assert "Ianto Jones" not in before["1"].fandoms
         assert "Ianto Jones" not in before["2"].fandoms
 
-        db.set_tag_flags(db_path, {"Ianto Jones": True})
+        db.set_tag_categories(db_path, {"Ianto Jones": "fandom"})
 
         entries = {e.work_id: e for e in load_cached(db_path).entries}
     assert "Ianto Jones" in entries["1"].fandoms
     assert "Ianto Jones" in entries["2"].fandoms
+
+
+def test_character_classification_applies_to_every_work_sharing_that_tag():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "Some Fandom (2020)", "Ianto Jones"])
+        _build_epub(os.path.join(downloads, "2_B.epub"), ["Fanworks", "Other Fandom (2021)", "Ianto Jones"])
+        refresh_cache(downloads, None, db_path)
+
+        # before classifying: heuristic already excludes "Ianto Jones" from
+        # fandoms, so today it would just default to freeform
+        before = {e.work_id: e for e in load_cached(db_path).entries}
+        assert "Ianto Jones" in before["1"].freeform_tags
+        assert "Ianto Jones" in before["2"].freeform_tags
+
+        db.set_tag_categories(db_path, {"Ianto Jones": "character"})
+
+        entries = {e.work_id: e for e in load_cached(db_path).entries}
+    assert "Ianto Jones" in entries["1"].characters
+    assert "Ianto Jones" in entries["2"].characters
+    assert "Ianto Jones" not in entries["1"].freeform_tags
+    assert "Ianto Jones" not in entries["2"].freeform_tags

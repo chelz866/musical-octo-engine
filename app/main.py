@@ -19,6 +19,7 @@ FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
 AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", 60 * 60))
 
 DOWNLOADS_PAGE_SIZE = 25
+TAGS_PAGE_SIZE = 100
 
 # Optional: link downloaded works to their Audiobookshelf copy, if any.
 # All three unset (the default) disables the integration entirely.
@@ -146,14 +147,15 @@ def blurb_icons(entry) -> dict:
 
 
 def blurb_tag_line(entry) -> list[dict]:
-    """Warnings, relationships, then leftover tags not classified as fandom
-    -- the closest approximation of AO3's own Warning/Relationship/
-    Character/Freeform tag line available, since this app only distinguishes
-    fandom vs. not within fandom_candidates (see epub_meta.classify_subjects).
+    """Warnings, relationships, characters, then freeform/additional tags --
+    AO3's own Warning/Relationship/Character/Freeform tag line, now that
+    scanner._resolve_tag_categories actually distinguishes characters from
+    freeform tags instead of lumping every non-fandom leftover together.
     """
     tags = [{"text": w, "class": "tag-warning"} for w in entry.warnings]
     tags += [{"text": r, "class": "tag"} for r in entry.relationships]
-    tags += [{"text": t, "class": "tag"} for t in entry.fandom_candidates if t not in entry.fandoms]
+    tags += [{"text": c, "class": "tag-character"} for c in entry.characters]
+    tags += [{"text": t, "class": "tag"} for t in entry.freeform_tags]
     return tags
 
 
@@ -259,49 +261,87 @@ def set_work_fandom(
     other_fandoms: str = Form(""),
     next: str = Form("/"),
 ):
-    """Classifies tags globally (see db.set_tag_flags), scoped to this
+    """Classifies tags globally (see db.set_tag_categories), scoped to this
     work's own candidate tags plus whatever the user typed in "other" --
     it looks like a per-work edit, but the effect applies to every work
-    that shares the same tag, since fandom is classified per tag now.
+    that shares the same tag, since classification is per tag, not per work.
+    Unchecking a candidate here marks it Freeform, not Character -- this
+    widget is a quick per-work fandom shortcut, not the full 3-way tool
+    (see the Tags page for Character classification).
     """
     by_id = {e.work_id: e for e in scanner.load_cached(DB_PATH).entries}
     entry = by_id.get(work_id)
     candidates = entry.fandom_candidates if entry else []
 
     checked = set(fandoms)
-    flags = {tag: (tag in checked) for tag in candidates}
+    categories = {tag: ("fandom" if tag in checked else "freeform") for tag in candidates}
     for extra in (f.strip() for f in other_fandoms.split(",")):
         if extra:
-            flags[extra] = True
+            categories[extra] = "fandom"
 
-    db.set_tag_flags(DB_PATH, flags)
+    db.set_tag_categories(DB_PATH, categories)
     return RedirectResponse(url=next or "/", status_code=303)
 
 
 @app.get("/tags", response_class=HTMLResponse)
-def tags_page(request: Request):
+def tags_page(request: Request, filter: str = "all", page: int = 1):
     result = scanner.load_cached(DB_PATH)
     counts: Counter = Counter()
-    is_fandom_now: dict[str, bool] = {}
     for entry in result.entries:
         for tag in entry.fandom_candidates:
             counts[tag] += 1
-            is_fandom_now[tag] = is_fandom_now.get(tag, False) or tag in entry.fandoms
 
-    sorted_tags = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0].lower()))
+    explicit = db.get_all_tag_categories(DB_PATH)
+    bucket_counts = {"fandom": 0, "character": 0, "freeform": 0, "unclassified": 0}
+    for tag in counts:
+        bucket_counts[explicit.get(tag, "unclassified")] += 1
+
+    tags = [(tag, count, explicit.get(tag)) for tag, count in counts.items()]
+    if filter != "all":
+        tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
+    tags.sort(key=lambda row: (-row[1], row[0].lower()))
+
+    page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags.html",
         {
             **_base_context(request),
-            "tags": [(tag, count, is_fandom_now[tag]) for tag, count in sorted_tags],
+            "tags": page_tags,
+            "filter": filter,
+            "page": page,
+            "total_pages": total_pages,
+            "bucket_counts": bucket_counts,
+            "total_tags": len(counts),
+            "pager_qs": f"&filter={quote(filter)}",
         },
     )
 
 
 @app.post("/tags/set")
-def set_tags(all_tags: list[str] = Form([]), fandoms: list[str] = Form([])):
-    checked = set(fandoms)
-    db.set_tag_flags(DB_PATH, {tag: (tag in checked) for tag in all_tags})
+def set_tags(
+    all_tags: list[str] = Form([]),
+    category: list[str] = Form([]),
+    filter: str = Form("all"),
+    page: int = Form(1),
+):
+    updates = {tag: cat for tag, cat in zip(all_tags, category) if cat in ("fandom", "character", "freeform")}
+    db.set_tag_categories(DB_PATH, updates)
+    return RedirectResponse(url=f"/tags?filter={quote(filter)}&page={page}", status_code=303)
+
+
+@app.post("/tags/mark_page_freeform")
+def mark_page_freeform(tags: list[str] = Form([]), filter: str = Form("all"), page: int = Form(1)):
+    explicit = db.get_all_tag_categories(DB_PATH)
+    db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
+    return RedirectResponse(url=f"/tags?filter={quote(filter)}&page={page}", status_code=303)
+
+
+@app.post("/tags/mark_all_unclassified_freeform")
+def mark_all_unclassified_freeform():
+    result = scanner.load_cached(DB_PATH)
+    all_tags = {t for e in result.entries for t in e.fandom_candidates}
+    explicit = db.get_all_tag_categories(DB_PATH)
+    db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit})
     return RedirectResponse(url="/tags", status_code=303)
 
 

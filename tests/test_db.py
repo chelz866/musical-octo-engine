@@ -65,32 +65,58 @@ def test_get_all_overrides():
         assert all_overrides["2"].dismissed is True
 
 
-def test_set_and_get_all_tag_flags():
+def test_set_and_get_all_tag_categories():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_tag_flags(path, {"Torchwood": True, "Ianto Jones": False})
+        db.set_tag_categories(path, {"Torchwood": "fandom", "Ianto Jones": "character"})
 
-        flags = db.get_all_tag_flags(path)
-        assert flags == {"Torchwood": True, "Ianto Jones": False}
+        categories = db.get_all_tag_categories(path)
+        assert categories == {"Torchwood": "fandom", "Ianto Jones": "character"}
 
 
-def test_set_tag_flags_overwrites_existing_entries():
+def test_set_tag_categories_overwrites_existing_entries():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_tag_flags(path, {"Torchwood": False})
-        db.set_tag_flags(path, {"Torchwood": True, "Doctor Who": True})
+        db.set_tag_categories(path, {"Torchwood": "freeform"})
+        db.set_tag_categories(path, {"Torchwood": "fandom", "Doctor Who": "fandom"})
 
-        flags = db.get_all_tag_flags(path)
-        assert flags == {"Torchwood": True, "Doctor Who": True}
+        categories = db.get_all_tag_categories(path)
+        assert categories == {"Torchwood": "fandom", "Doctor Who": "fandom"}
 
 
-def test_get_all_tag_flags_empty_by_default():
+def test_get_all_tag_categories_empty_by_default():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        assert db.get_all_tag_flags(path) == {}
+        assert db.get_all_tag_categories(path) == {}
+
+
+def test_init_db_migrates_legacy_is_fandom_to_category():
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        # Simulate rows from before `category` existed -- is_fandom-only.
+        conn = sqlite3.connect(path)
+        conn.execute("INSERT INTO tag_flags (tag, is_fandom) VALUES (?, ?)", ("Torchwood", 1))
+        conn.execute("INSERT INTO tag_flags (tag, is_fandom) VALUES (?, ?)", ("Ianto Jones", 0))
+        conn.commit()
+        conn.close()
+
+        db.init_db(path)  # migration runs here
+
+        categories = db.get_all_tag_categories(path)
+        assert categories == {"Torchwood": "fandom", "Ianto Jones": "freeform"}
+
+        # idempotent: running init_db again doesn't clobber a subsequent
+        # explicit correction
+        db.set_tag_categories(path, {"Ianto Jones": "character"})
+        db.init_db(path)
+        assert db.get_all_tag_categories(path)["Ianto Jones"] == "character"
 
 
 def _sample_work_row(work_id="1", **overrides):

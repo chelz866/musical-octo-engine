@@ -1,16 +1,16 @@
 """Small local SQLite store for the only persistent state this app keeps
 itself: per-work manual overrides (title/author), issue dismissals, a
-global tag -> is-fandom classification, the works_cache snapshot, and a
+global tag -> category classification, the works_cache snapshot, and a
 key/value meta table (currently just last-refreshed-at).
 
 Tracked feeds themselves are no longer stored here -- see app/rss.py,
 which uses the `reader` library and its own separate SQLite file for that
 (feed URLs, per-feed auto-refresh flag, and entries all live there now).
 
-Fandom is classified per *tag*, not per work: correcting one tag (e.g.
-marking "Torchwood" as a fandom) retroactively fixes every work that has
-that tag, instead of requiring a correction on each of what could be
-thousands of individual works. See scanner._resolve_fandoms.
+Fandom/Character/Freeform is classified per *tag*, not per work: correcting
+one tag (e.g. marking "Torchwood" as a fandom) retroactively fixes every
+work that has that tag, instead of requiring a correction on each of what
+could be thousands of individual works. See scanner._resolve_tag_categories.
 
 Everything else is computed live from the filesystem/log/feed on each
 request -- this is deliberately the minimum needed to make those pages useful.
@@ -90,6 +90,20 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "works_cache", "word_count", "INTEGER")
         _ensure_column(conn, "works_cache", "chapters_have", "INTEGER")
         _ensure_column(conn, "works_cache", "chapters_total", "INTEGER")
+        _ensure_column(conn, "tag_flags", "category")
+        # One-time, idempotent: is_fandom used to be the only signal. Existing
+        # True rows become an explicit 'fandom' category; existing False rows
+        # become 'freeform' (not "unclassified" -- the user already looked at
+        # these and said "not a fandom", same bucket every other leftover tag
+        # already fell into before categories existed). Tags with no row at
+        # all (never explicitly touched) are left alone -- they're genuinely
+        # unclassified, which is what the new Tags page filter surfaces.
+        conn.execute(
+            """
+            UPDATE tag_flags SET category = CASE WHEN is_fandom = 1 THEN 'fandom' ELSE 'freeform' END
+            WHERE category IS NULL
+            """
+        )
 
 
 def pop_legacy_tracked_feeds(path: str) -> list[tuple[str, str | None]]:
@@ -166,24 +180,30 @@ def set_title_author(path: str, work_id: str, title: str | None, author: str | N
         )
 
 
-def get_all_tag_flags(path: str) -> dict[str, bool]:
+def get_all_tag_categories(path: str) -> dict[str, str]:
+    """tag -> 'fandom' | 'character' | 'freeform'. A tag with no row at all
+    is simply absent from the dict -- it's unclassified, see
+    scanner._resolve_tag_categories for how that falls back.
+    """
     with _connect(path) as conn:
-        rows = conn.execute("SELECT tag, is_fandom FROM tag_flags").fetchall()
-    return {row[0]: bool(row[1]) for row in rows}
+        rows = conn.execute("SELECT tag, category FROM tag_flags WHERE category IS NOT NULL").fetchall()
+    return dict(rows)
 
 
-def set_tag_flags(path: str, flags: dict[str, bool]) -> None:
-    """Bulk-sets tag -> is-fandom classifications. Explicitly classifying a
-    tag applies everywhere that tag appears, across every work -- this is
-    the mechanism for correcting fandom at scale instead of per work.
+def set_tag_categories(path: str, categories: dict[str, str]) -> None:
+    """Bulk-sets tag -> category ('fandom'/'character'/'freeform'). Explicitly
+    classifying a tag applies everywhere that tag appears, across every work
+    -- this is the mechanism for correcting classification at scale instead
+    of per work. is_fandom is kept in sync purely because the column is
+    still NOT NULL; nothing reads it anymore.
     """
     with _connect(path) as conn:
         conn.executemany(
             """
-            INSERT INTO tag_flags (tag, is_fandom) VALUES (?, ?)
-            ON CONFLICT(tag) DO UPDATE SET is_fandom = excluded.is_fandom
+            INSERT INTO tag_flags (tag, is_fandom, category) VALUES (?, ?, ?)
+            ON CONFLICT(tag) DO UPDATE SET is_fandom = excluded.is_fandom, category = excluded.category
             """,
-            [(tag, int(is_fandom)) for tag, is_fandom in flags.items()],
+            [(tag, int(category == "fandom"), category) for tag, category in categories.items()],
         )
 
 

@@ -70,8 +70,16 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
 - **Tags** (`/tags`) -- every untyped tag across the whole library, sorted by how many works have
-  it, with a checkbox for "is this a fandom." This is the bulk tool: classifying one tag here fixes
-  every work that has it in one action, instead of a per-work correction on each of them.
+  it, classified as Fandom, Character, or Freeform (a dropdown per tag, paginated 100 per page).
+  This is the bulk tool: classifying one tag here fixes every work that has it in one action,
+  instead of a per-work correction on each of them. Filter tabs at the top (Fandom/Character/
+  Freeform/Unclassified, each with a count) narrow the list to what still needs review; since AO3
+  libraries are typically mostly Freeform tags, two bulk actions ("mark unclassified on this page
+  as Freeform" / "mark ALL unclassified tags as Freeform") let you pick out the handful of real
+  Fandom/Character tags first and sweep the rest in one click rather than clicking through each one.
+  A tag with no explicit classification falls back to the same heuristic guess used elsewhere
+  (see `app/epub_meta.py`) for Fandom, or Freeform otherwise -- "Unclassified" specifically means
+  no one has confirmed it either way yet.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

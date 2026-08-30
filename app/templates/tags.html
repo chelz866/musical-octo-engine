@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_pager.html" as pagination %}
 {% block title %}Tags - AO3 Downloads{% endblock %}
 {% block content %}
   <header>
@@ -11,23 +12,55 @@
     </p>
   </header>
 
-  <input type="search" id="tag-filter" placeholder="Filter tags&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
+  <nav class="tag-filter-tabs">
+    <a href="/tags?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+  </nav>
+
+  <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
+  <p class="hint">Only searches the tags currently shown on this page -- change the page or filter above to search elsewhere.</p>
+
+  <div class="tag-bulk-actions">
+    <form method="post" action="/tags/mark_page_freeform">
+      {% for tag, count, category in tags %}<input type="hidden" name="tags" value="{{ tag }}">{% endfor %}
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <button type="submit">Mark unclassified on this page as Freeform</button>
+    </form>
+    <form method="post" action="/tags/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
+      <button type="submit">Mark ALL unclassified tags as Freeform</button>
+    </form>
+  </div>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 
   <form method="post" action="/tags/set">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <input type="hidden" name="page" value="{{ page }}">
     <table>
       <thead>
         <tr>
           <th>Tag</th>
           <th>Works</th>
-          <th>Fandom?</th>
+          <th>Category</th>
         </tr>
       </thead>
       <tbody>
-        {% for tag, count, is_fandom in tags %}
+        {% for tag, count, category in tags %}
         <tr class="tag-row" data-tag="{{ tag | lower }}">
           <td><input type="hidden" name="all_tags" value="{{ tag }}">{{ tag }}</td>
           <td>{{ count }}</td>
-          <td><input type="checkbox" name="fandoms" value="{{ tag }}" {% if is_fandom %}checked{% endif %}></td>
+          <td>
+            <select name="category">
+              <option value="" {% if not category %}selected{% endif %}>&mdash; Unclassified &mdash;</option>
+              <option value="fandom" {% if category == "fandom" %}selected{% endif %}>Fandom</option>
+              <option value="character" {% if category == "character" %}selected{% endif %}>Character</option>
+              <option value="freeform" {% if category == "freeform" %}selected{% endif %}>Freeform</option>
+            </select>
+          </td>
         </tr>
         {% else %}
         <tr>
@@ -40,6 +73,8 @@
     </table>
     {% if tags %}<button type="submit" style="margin-top: 1rem;">Save</button>{% endif %}
   </form>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 
   <script>
     function filterTags(query) {

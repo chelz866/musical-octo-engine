@@ -353,6 +353,13 @@ th {
   font-weight: 700;
 }
 
+.blurb-tags .tag-character {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  font-style: italic;
+}
+
 .blurb-summary {
   margin: 0 0 0.5rem;
   font-size: 0.9rem;
@@ -386,6 +393,43 @@ th {
 .pager-info {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.tag-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.tag-filter-tabs a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 2px solid transparent;
+}
+
+.tag-filter-tabs a.active {
+  color: inherit;
+  border-bottom-color: var(--muted);
+}
+
+.tag-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.tag-bulk-actions button {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
 }
 
 @media (max-width: 640px) {
