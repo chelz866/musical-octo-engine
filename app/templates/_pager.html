@@ -1,0 +1,9 @@
+{% macro pager(page, total_pages, pager_qs) %}
+{% if total_pages > 1 %}
+<nav class="pager">
+  {% if page > 1 %}<a href="?page={{ page - 1 }}{{ pager_qs }}">&larr; Previous</a>{% else %}<span class="pager-disabled">&larr; Previous</span>{% endif %}
+  <span class="pager-info">Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}<a href="?page={{ page + 1 }}{{ pager_qs }}">Next &rarr;</a>{% else %}<span class="pager-disabled">Next &rarr;</span>{% endif %}
+</nav>
+{% endif %}
+{% endmacro %}

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_fandom_picker.html" as picker %}
+{% import "_pager.html" as pagination %}
 {% block title %}AO3 Downloads{% endblock %}
 {% block content %}
   <header>
@@ -40,6 +41,8 @@
       <div class="stat-label">logged failures</div>
     </div>
   </section>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 
   <ul class="blurb-list">
     {% for e in entries %}
@@ -110,4 +113,6 @@
     </li>
     {% endfor %}
   </ul>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 {% endblock %}

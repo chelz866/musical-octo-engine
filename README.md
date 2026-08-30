@@ -58,8 +58,9 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
 ## Pages
 
 - **Downloads** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
-  completion icons, tags, summary, language/words/chapters), with stats up top, filterable by
-  fandom (`?fandom=...`, linked from the Fandom column or the Fandoms page). Chapter progress and
+  completion icons, tags, summary, language/words/chapters), with stats up top, paginated 25 per
+  page (`?page=...`), filterable by fandom (`?fandom=...`, linked from the Fandom column or the
+  Fandoms page, and combinable with `?page=...`). Chapter progress and
   completion status are real here, not guessed -- read straight from the epub's own preface page
   (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:" line into on every
   export. Word count comes from the same place; Audiobookshelf doesn't track it (confirmed against

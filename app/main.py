@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 from collections import Counter
 from datetime import datetime
@@ -16,6 +17,8 @@ LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
 DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
 FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
 AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECONDS", 60 * 60))
+
+DOWNLOADS_PAGE_SIZE = 25
 
 # Optional: link downloaded works to their Audiobookshelf copy, if any.
 # All three unset (the default) disables the integration entirely.
@@ -179,23 +182,43 @@ def _abs_links() -> dict[str, str]:
     }
 
 
+def paginate(items: list, page: int, page_size: int) -> tuple[list, int, int]:
+    """Clamps page into [1, total_pages] and slices items to that page.
+    Returns (page_items, clamped_page, total_pages). total_pages is always
+    >= 1, even for an empty list, so callers never divide by zero.
+    """
+    total_pages = max(1, math.ceil(len(items) / page_size))
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    return items[start : start + page_size], page, total_pages
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, fandom: str | None = None):
+def dashboard(request: Request, fandom: str | None = None, page: int = 1):
     result = scanner.load_cached(DB_PATH)
     entries = result.entries
     if fandom:
         entries = [e for e in entries if fandom in e.fandoms]
+
+    page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
+
+    pager_qs = f"&fandom={quote(fandom)}" if fandom else ""
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
             **_base_context(request),
-            "entries": entries,
+            "entries": page_entries,
             "stats": result.stats,
             "download_dir": DOWNLOAD_DIR,
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
             "fandom_filter": fandom,
             "abs_links": _abs_links(),
+            "page": page,
+            "total_pages": total_pages,
+            "total_filtered": len(entries),
+            "pager_qs": pager_qs,
         },
     )
 
