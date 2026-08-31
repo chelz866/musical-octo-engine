@@ -583,29 +583,145 @@ def test_removing_bookmark_clears_its_note():
         assert db.get_bookmark_notes(path, user_id) == {}
 
 
-def test_user_theme_css_round_trip():
+def test_create_theme_does_not_activate_it():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
         db.create_user(path, "admin", "hashed", "admin")
         user_id = db.list_users(path)[0].id
 
-        assert db.get_user_theme_css(path, user_id) is None
+        theme_id = db.create_theme(path, user_id, "Dark", "body { color: red; }", "2026-01-01T00:00:00")
+        assert db.get_active_theme_id(path, user_id) is None
+        assert db.get_active_theme_css(path, user_id) is None
+        assert db.list_user_themes(path, user_id) == [{"id": theme_id, "name": "Dark", "css": "body { color: red; }"}]
 
-        db.set_user_theme_css(path, user_id, "body { color: red; }")
-        assert db.get_user_theme_css(path, user_id) == "body { color: red; }"
 
-
-def test_set_user_theme_css_blank_clears_it():
+def test_set_active_theme_switches_the_applied_css():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
         db.create_user(path, "admin", "hashed", "admin")
         user_id = db.list_users(path)[0].id
 
-        db.set_user_theme_css(path, user_id, "body { color: red; }")
-        db.set_user_theme_css(path, user_id, "   ")
-        assert db.get_user_theme_css(path, user_id) is None
+        light = db.create_theme(path, user_id, "Light", "body { color: black; }", "2026-01-01T00:00:00")
+        dark = db.create_theme(path, user_id, "Dark", "body { color: white; }", "2026-01-01T00:00:00")
+
+        db.set_active_theme(path, user_id, light)
+        assert db.get_active_theme_id(path, user_id) == light
+        assert db.get_active_theme_css(path, user_id) == "body { color: black; }"
+
+        # Switching to another saved theme doesn't lose the first one.
+        db.set_active_theme(path, user_id, dark)
+        assert db.get_active_theme_id(path, user_id) == dark
+        assert db.get_active_theme_css(path, user_id) == "body { color: white; }"
+        assert len(db.list_user_themes(path, user_id)) == 2
+
+
+def test_set_active_theme_none_reverts_to_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        theme_id = db.create_theme(path, user_id, "Dark", "body {}", "2026-01-01T00:00:00")
+        db.set_active_theme(path, user_id, theme_id)
+        db.set_active_theme(path, user_id, None)
+
+        assert db.get_active_theme_id(path, user_id) is None
+        assert db.get_active_theme_css(path, user_id) is None
+        # Still saved, just not active.
+        assert len(db.list_user_themes(path, user_id)) == 1
+
+
+def test_set_active_theme_ignores_a_theme_owned_by_someone_else():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "alice", "hashed", "user")
+        db.create_user(path, "bob", "hashed", "user")
+        users = {u.username: u.id for u in db.list_users(path)}
+        alice_id = users["alice"]
+        bob_id = users["bob"]
+
+        bobs_theme = db.create_theme(path, bob_id, "Bob's theme", "body {}", "2026-01-01T00:00:00")
+        db.set_active_theme(path, alice_id, bobs_theme)
+
+        assert db.get_active_theme_id(path, alice_id) is None
+
+
+def test_update_theme_changes_name_and_css_without_touching_active_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        theme_id = db.create_theme(path, user_id, "Dark", "body { color: red; }", "2026-01-01T00:00:00")
+        db.set_active_theme(path, user_id, theme_id)
+
+        db.update_theme(path, user_id, theme_id, "Darker", "body { color: black; }")
+
+        assert db.get_user_theme(path, user_id, theme_id) == {"id": theme_id, "name": "Darker", "css": "body { color: black; }"}
+        assert db.get_active_theme_id(path, user_id) == theme_id
+        assert db.get_active_theme_css(path, user_id) == "body { color: black; }"
+
+
+def test_delete_theme_clears_it_as_active():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        theme_id = db.create_theme(path, user_id, "Dark", "body {}", "2026-01-01T00:00:00")
+        db.set_active_theme(path, user_id, theme_id)
+
+        db.delete_theme(path, user_id, theme_id)
+
+        assert db.list_user_themes(path, user_id) == []
+        assert db.get_active_theme_id(path, user_id) is None
+
+
+def test_delete_theme_leaves_a_different_active_theme_alone():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        light = db.create_theme(path, user_id, "Light", "body {}", "2026-01-01T00:00:00")
+        dark = db.create_theme(path, user_id, "Dark", "body {}", "2026-01-01T00:00:00")
+        db.set_active_theme(path, user_id, dark)
+
+        db.delete_theme(path, user_id, light)
+
+        assert db.get_active_theme_id(path, user_id) == dark
+
+
+def test_legacy_theme_css_migrates_into_a_named_active_theme():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        # Simulate a pre-migration row: the old single-theme column set
+        # directly, as it would have been by the removed set_user_theme_css.
+        with db._connect(path) as conn:
+            conn.execute("UPDATE users SET theme_css = ? WHERE id = ?", ("body { color: red; }", user_id))
+
+        db.init_db(path)  # re-running init_db performs the one-time migration
+
+        themes = db.list_user_themes(path, user_id)
+        assert len(themes) == 1
+        assert themes[0]["name"] == "My Theme"
+        assert themes[0]["css"] == "body { color: red; }"
+        assert db.get_active_theme_css(path, user_id) == "body { color: red; }"
+
+        # Idempotent: running init_db again doesn't create a duplicate.
+        db.init_db(path)
+        assert len(db.list_user_themes(path, user_id)) == 1
 
 
 def test_user_abs_username_round_trip():

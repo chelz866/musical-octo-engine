@@ -216,6 +216,17 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS themes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name TEXT NOT NULL,
+                css TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(conn, "works_cache", "fandom_candidates")
         _ensure_column(conn, "works_cache", "summary")
         _ensure_column(conn, "works_cache", "language")
@@ -225,7 +236,26 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "tag_flags", "category")
         _ensure_column(conn, "users", "theme_css")
         _ensure_column(conn, "users", "abs_username")
+        _ensure_column(conn, "users", "active_theme_id", "INTEGER")
         _ensure_column(conn, "bookmarks", "note")
+        # One-time, idempotent: users.theme_css used to hold a single unnamed
+        # theme per account. Existing values become a named theme ("My
+        # Theme") in the new themes table and are set active, so nobody's
+        # current look changes; theme_css is cleared in the same pass so
+        # this can't re-fire after someone later switches back to no active
+        # theme (which also leaves active_theme_id NULL).
+        legacy_themes = conn.execute(
+            "SELECT id, theme_css FROM users WHERE theme_css IS NOT NULL AND active_theme_id IS NULL"
+        ).fetchall()
+        for user_id, css in legacy_themes:
+            cursor = conn.execute(
+                "INSERT INTO themes (user_id, name, css, created_at) VALUES (?, 'My Theme', ?, datetime('now'))",
+                (user_id, css),
+            )
+            conn.execute(
+                "UPDATE users SET active_theme_id = ?, theme_css = NULL WHERE id = ?",
+                (cursor.lastrowid, user_id),
+            )
         # One-time, idempotent: is_fandom used to be the only signal. Existing
         # True rows become an explicit 'fandom' category; existing False rows
         # become 'freeform' (not "unclassified" -- the user already looked at
@@ -737,15 +767,91 @@ def get_bookmark_notes(path: str, user_id: int) -> dict[str, str]:
     return dict(rows)
 
 
-def get_user_theme_css(path: str, user_id: int) -> str | None:
+def list_user_themes(path: str, user_id: int) -> list[dict]:
+    """Every theme this user has saved, most recently created first."""
     with _connect(path) as conn:
-        row = conn.execute("SELECT theme_css FROM users WHERE id = ?", (user_id,)).fetchone()
+        rows = conn.execute(
+            "SELECT id, name, css FROM themes WHERE user_id = ? ORDER BY id DESC", (user_id,)
+        ).fetchall()
+    return [{"id": row[0], "name": row[1], "css": row[2]} for row in rows]
+
+
+def get_user_theme(path: str, user_id: int, theme_id: int) -> dict | None:
+    """One theme, scoped to `user_id` so one account can never read or
+    edit another's saved theme by guessing its id.
+    """
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT id, name, css FROM themes WHERE id = ? AND user_id = ?", (theme_id, user_id)
+        ).fetchone()
+    return {"id": row[0], "name": row[1], "css": row[2]} if row else None
+
+
+def create_theme(path: str, user_id: int, name: str, css: str, created_at: str) -> int:
+    with _connect(path) as conn:
+        cursor = conn.execute(
+            "INSERT INTO themes (user_id, name, css, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, name, css, created_at),
+        )
+        return cursor.lastrowid
+
+
+def update_theme(path: str, user_id: int, theme_id: int, name: str, css: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE themes SET name = ?, css = ? WHERE id = ? AND user_id = ?",
+            (name, css, theme_id, user_id),
+        )
+
+
+def delete_theme(path: str, user_id: int, theme_id: int) -> None:
+    """Deletes the theme, and clears it as the active theme if it was --
+    otherwise active_theme_id would keep pointing at a row that no longer
+    exists.
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM themes WHERE id = ? AND user_id = ?", (theme_id, user_id))
+        conn.execute(
+            "UPDATE users SET active_theme_id = NULL WHERE id = ? AND active_theme_id = ?",
+            (user_id, theme_id),
+        )
+
+
+def set_active_theme(path: str, user_id: int, theme_id: int | None) -> None:
+    """Switches which saved theme (if any) is applied to this user's own
+    page loads -- `theme_id=None` means "use the default look." A
+    `theme_id` that isn't one of this user's own saved themes is silently
+    ignored rather than pointing active_theme_id at someone else's row.
+    """
+    with _connect(path) as conn:
+        if theme_id is None:
+            conn.execute("UPDATE users SET active_theme_id = NULL WHERE id = ?", (user_id,))
+        else:
+            conn.execute(
+                """
+                UPDATE users SET active_theme_id = ?
+                WHERE id = ? AND EXISTS (SELECT 1 FROM themes WHERE id = ? AND user_id = ?)
+                """,
+                (theme_id, user_id, theme_id, user_id),
+            )
+
+
+def get_active_theme_id(path: str, user_id: int) -> int | None:
+    with _connect(path) as conn:
+        row = conn.execute("SELECT active_theme_id FROM users WHERE id = ?", (user_id,)).fetchone()
     return row[0] if row else None
 
 
-def set_user_theme_css(path: str, user_id: int, css: str) -> None:
+def get_active_theme_css(path: str, user_id: int) -> str | None:
     with _connect(path) as conn:
-        conn.execute("UPDATE users SET theme_css = ? WHERE id = ?", (css.strip() or None, user_id))
+        row = conn.execute(
+            """
+            SELECT themes.css FROM users JOIN themes ON themes.id = users.active_theme_id
+            WHERE users.id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return row[0] if row else None
 
 
 def get_user_abs_username(path: str, user_id: int) -> str | None:

@@ -97,8 +97,12 @@ Sessions are opaque server-side tokens (a `sessions` table, not a signed cookie)
 on a timer -- they last until you log out. That's a deliberate simplification for a small,
 private-network deployment; if that's ever not the case for your setup, keep that in mind.
 
-**Themes**: the Account page has a "Custom CSS" box where you can paste your own stylesheet --
-including a real AO3 skin. It only affects your own view. Rather than guessing at AO3's markup,
+**Themes**: the Account page lets you save any number of named themes -- each a "Custom CSS" box
+where you can paste your own stylesheet, including a real AO3 skin -- and pick one to actually use.
+Adding a theme applies it right away; switching back to an earlier saved one is a single "Use this
+theme" click on its row, no need to re-paste its CSS, and deleting or editing one never disturbs the
+others. "Switch to Default" turns your view back to the app's own look without deleting anything.
+Only you see this; it has no effect on anyone else's account. Rather than guessing at AO3's markup,
 this app's own page structure reuses AO3's real ids and classes directly, based on an actual
 saved AO3 page: `#outer.wrapper` / `#header` / `#inner.wrapper` / `#main`, the nav's
 `.primary.navigation.actions` / `.dropdown` classes, `li.blurb`, and -- the part that matters most

@@ -278,7 +278,7 @@ def _base_context(request: Request) -> dict:
     return {
         "request": request,
         "user": request.state.user,
-        "theme_css": db.get_user_theme_css(DB_PATH, request.state.user.id),
+        "theme_css": db.get_active_theme_css(DB_PATH, request.state.user.id),
         "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
         "feeds_last_refreshed": db.get_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY),
         "refresh_error": request.query_params.get("refresh_error"),
@@ -1841,22 +1841,55 @@ def account_page(request: Request, error: str = "", saved: str = ""):
             **context,
             "error": error,
             "saved": saved,
-            "theme_css": context["theme_css"] or "",
+            "themes": db.list_user_themes(DB_PATH, request.state.user.id),
+            "active_theme_id": db.get_active_theme_id(DB_PATH, request.state.user.id),
             "abs_username": db.get_user_abs_username(DB_PATH, request.state.user.id) or "",
         },
     )
 
 
-@app.post("/account/theme")
-def save_theme(request: Request, theme_css: str = Form("")):
-    """Raw CSS, applied only to this user's own page loads (see base.html,
-    translate_ao3_skin_selectors, and sanitize_style_content). A handful of
-    common AO3 skin selectors (#header, #dashboard, .splash, etc.) are
-    rewritten onto this app's closest equivalent element; anything else a
-    skin targets that has no equivalent here silently no-ops.
+@app.post("/account/themes")
+def add_theme(request: Request, name: str = Form(...), css: str = Form("")):
+    """Saves a new named theme (raw CSS, applied only to this user's own
+    page loads -- see base.html, translate_ao3_skin_selectors, and
+    sanitize_style_content) and switches to it right away, the same way
+    saving used to apply immediately back when there was only ever one
+    theme. Switching back to an earlier saved theme afterward is just
+    "Use" on its row -- no need to re-paste its CSS.
     """
-    db.set_user_theme_css(DB_PATH, request.state.user.id, theme_css)
+    theme_id = db.create_theme(
+        DB_PATH, request.state.user.id, name.strip() or "Untitled theme", css, datetime.now().isoformat()
+    )
+    db.set_active_theme(DB_PATH, request.state.user.id, theme_id)
     return RedirectResponse(url="/account?saved=theme", status_code=303)
+
+
+@app.post("/account/themes/{theme_id}/edit")
+def edit_theme(request: Request, theme_id: int, name: str = Form(...), css: str = Form("")):
+    """Updates a saved theme's name/CSS in place -- doesn't change which
+    theme is active, whether or not this is the one currently in use.
+    """
+    db.update_theme(DB_PATH, request.state.user.id, theme_id, name.strip() or "Untitled theme", css)
+    return RedirectResponse(url="/account?saved=theme", status_code=303)
+
+
+@app.post("/account/themes/{theme_id}/activate")
+def activate_theme(request: Request, theme_id: int):
+    db.set_active_theme(DB_PATH, request.state.user.id, theme_id)
+    return RedirectResponse(url="/account?saved=theme_active", status_code=303)
+
+
+@app.post("/account/themes/deactivate")
+def deactivate_theme(request: Request):
+    """Switches back to the default look without deleting any saved theme."""
+    db.set_active_theme(DB_PATH, request.state.user.id, None)
+    return RedirectResponse(url="/account?saved=theme_active", status_code=303)
+
+
+@app.post("/account/themes/{theme_id}/delete")
+def remove_theme(request: Request, theme_id: int):
+    db.delete_theme(DB_PATH, request.state.user.id, theme_id)
+    return RedirectResponse(url="/account?saved=theme_deleted", status_code=303)
 
 
 @app.post("/account/abs_username")

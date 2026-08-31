@@ -36,20 +36,85 @@
     <button type="submit">Save</button>
   </form>
 
-  <h2>Theme</h2>
+  <h2>Themes</h2>
   {% if saved == "theme" %}<p class="badge badge-ok">Theme saved.</p>{% endif %}
+  {% if saved == "theme_active" %}<p class="badge badge-ok">Active theme changed.</p>{% endif %}
+  {% if saved == "theme_deleted" %}<p class="badge badge-ok">Theme deleted.</p>{% endif %}
   <p class="paths">
-    Paste custom CSS here to restyle your own view of this app. This app's pages reuse AO3's own
-    ids and classes directly (<code>#header</code>, <code>#main</code>, tag/blurb markup), so most
-    of a real AO3 skin applies as-is with no translation. A couple of AO3-specific things with no
-    real equivalent here (like <code>.splash</code>) are mapped onto the closest stand-in; anything
-    else with no equivalent simply does nothing. Only you see this; it has no effect on anyone
-    else's account.
+    Save as many named themes as you like and switch between them freely -- picking a different one
+    to use never loses the others. Paste custom CSS to restyle your own view of this app. This app's
+    pages reuse AO3's own ids and classes directly (<code>#header</code>, <code>#main</code>,
+    tag/blurb markup), so most of a real AO3 skin applies as-is with no translation. A couple of
+    AO3-specific things with no real equivalent here (like <code>.splash</code>) are mapped onto the
+    closest stand-in; anything else with no equivalent simply does nothing. Only you see this; it has
+    no effect on anyone else's account.
   </p>
-  <form method="post" action="/account/theme" class="stacked-form theme-form">
-    <label>Custom CSS
-      <textarea name="theme_css" rows="16" spellcheck="false" placeholder="/* paste a theme's CSS here */">{{ theme_css }}</textarea>
+
+  <p class="paths">
+    Currently using:
+    <strong>{{ (themes | selectattr("id", "equalto", active_theme_id) | first).name if active_theme_id else "Default (no theme)" }}</strong>
+    {% if active_theme_id %}
+    <form method="post" action="/account/themes/deactivate" class="inline-form">
+      <button type="submit">Switch to Default</button>
+    </form>
+    {% endif %}
+  </p>
+
+  {% if themes %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Active</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for theme in themes %}
+      <tr>
+        <td>{{ theme.name }}</td>
+        <td>
+          {% if theme.id == active_theme_id %}
+          <span class="badge badge-ok">In use</span>
+          {% else %}
+          <form method="post" action="/account/themes/{{ theme.id }}/activate" class="inline-form">
+            <button type="submit">Use this theme</button>
+          </form>
+          {% endif %}
+        </td>
+        <td>
+          <details>
+            <summary>Edit</summary>
+            <form method="post" action="/account/themes/{{ theme.id }}/edit" class="stacked-form theme-form">
+              <label>Name
+                <input type="text" name="name" value="{{ theme.name }}" required>
+              </label>
+              <label>Custom CSS
+                <textarea name="css" rows="16" spellcheck="false">{{ theme.css }}</textarea>
+              </label>
+              <button type="submit">Save Changes</button>
+            </form>
+          </details>
+          <form method="post" action="/account/themes/{{ theme.id }}/delete" class="inline-form" onsubmit="return confirm('Delete the theme &quot;{{ theme.name }}&quot;? This can\'t be undone.');">
+            <button type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="paths">No themes saved yet -- add one below.</p>
+  {% endif %}
+
+  <h3>Add a theme</h3>
+  <form method="post" action="/account/themes" class="stacked-form theme-form">
+    <label>Name
+      <input type="text" name="name" placeholder="e.g. Dark AO3 skin" required>
     </label>
-    <button type="submit">Save Theme</button>
+    <label>Custom CSS
+      <textarea name="css" rows="16" spellcheck="false" placeholder="/* paste a theme's CSS here */"></textarea>
+    </label>
+    <button type="submit">Add Theme</button>
   </form>
 {% endblock %}
