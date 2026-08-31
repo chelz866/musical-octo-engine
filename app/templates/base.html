@@ -3,10 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}AO3 Downloads{% endblock %}</title>
+  <title>{% block title %}Archive Of My Own{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <header class="site-header">
+    <a class="site-brand" href="/">Archive Of My Own</a>
+  </header>
   <nav class="topnav">
     <div class="topnav-links">
       <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
