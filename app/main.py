@@ -3,7 +3,7 @@ import math
 import os
 import re
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from urllib.parse import quote
 
 from fast_autocomplete import AutoComplete
@@ -245,6 +245,14 @@ DYNAMIC_FACET_LABELS = {
     "language": "Language",
 }
 
+# Real AO3's Exclude section mirrors Include for these seven facets only --
+# Completion and Language have no Exclude equivalent there (they live under
+# "More Options" instead). Derived from the Include defs, not hand-written,
+# so they can't drift out of sync with them.
+EXCLUDE_FACETS = ("rating", "warning", "category", "fandom", "character", "relationship", "freeform")
+EXCLUDE_STATIC_FACET_DEFS = {k: v for k, v in STATIC_FACET_DEFS.items() if k in EXCLUDE_FACETS}
+EXCLUDE_DYNAMIC_FACET_LABELS = {k: v for k, v in DYNAMIC_FACET_LABELS.items() if k in EXCLUDE_FACETS}
+
 SORT_OPTIONS = {
     "title": lambda e: (e.title or "").lower(),
     "author": lambda e: (e.author or "").lower(),
@@ -316,20 +324,41 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20) -> list[str]:
     return sorted(matched, key=str.lower)[:limit]
 
 
-def _entry_matches(entry, filters: dict, exclude: str | None = None) -> bool:
-    """AND across facets, OR within one facet's selected values. `exclude`
-    skips one facet's own filter -- used to build that facet's own
-    suggestion/count list from what everything *else* currently matches.
+def _entry_matches(entry, filters: dict, skip_include: str | None = None, skip_exclude: str | None = None) -> bool:
+    """Include is AND across facets AND within a facet's selected values
+    (matches real AO3: checking both "M/M" and "F/F" means only works with
+    both). Exclude is OR within a facet (matching ANY excluded value drops
+    the work) and AND across facets, same as real AO3. `skip_include`/
+    `skip_exclude` each skip one facet's own Include/Exclude constraint --
+    used to build that facet's own suggestion/count list from what
+    everything *else* currently matches; they're independent since a facet
+    can have both an active Include and an active Exclude at once.
     """
     for name, values in filters["facets"].items():
-        if name == exclude or not values:
+        if name == skip_include or not values:
             continue
-        if not set(FACETS[name](entry)) & set(values):
+        if not set(values) <= set(FACETS[name](entry)):
+            return False
+    for name, values in filters["exclude"].items():
+        if name == skip_exclude or not values:
+            continue
+        if set(FACETS[name](entry)) & set(values):
             return False
     if filters["word_min"] is not None and (entry.word_count or 0) < filters["word_min"]:
         return False
     if filters["word_max"] is not None and (entry.word_count or 0) > filters["word_max"]:
         return False
+    if filters["crossover"] == "only" and len(entry.fandoms) < 2:
+        return False
+    if filters["crossover"] == "exclude" and len(entry.fandoms) >= 2:
+        return False
+    if filters["date_from"] is not None or filters["date_to"] is not None:
+        ts = scanner.effective_timestamp(entry)
+        entry_date = ts.date() if ts is not None else None
+        if filters["date_from"] is not None and (entry_date is None or entry_date < filters["date_from"]):
+            return False
+        if filters["date_to"] is not None and (entry_date is None or entry_date > filters["date_to"]):
+            return False
     if filters["q"]:
         q = filters["q"].lower()
         haystacks = [entry.title, entry.author, entry.summary, *entry.fandoms, *entry.characters, *entry.relationships, *entry.freeform_tags]
@@ -338,69 +367,96 @@ def _entry_matches(entry, filters: dict, exclude: str | None = None) -> bool:
     return True
 
 
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def _parse_filters(request: Request) -> dict:
     qp = request.query_params
     return {
         "facets": {name: qp.getlist(name) for name in FACETS},
+        "exclude": {name: qp.getlist(f"x_{name}") for name in EXCLUDE_FACETS},
         "word_min": int(qp["word_min"]) if qp.get("word_min", "").isdigit() else None,
         "word_max": int(qp["word_max"]) if qp.get("word_max", "").isdigit() else None,
+        "crossover": qp.get("crossover") if qp.get("crossover") in ("only", "exclude") else None,
+        "date_from": _parse_date(qp.get("date_from")),
+        "date_to": _parse_date(qp.get("date_to")),
         "q": qp.get("q", "").strip(),
         "sort": qp.get("sort") or DEFAULT_SORT,
     }
 
 
-def _facet_suggestions(entries: list, filters: dict, name: str, top_n: int = FACET_SUGGESTION_COUNT) -> list[tuple[str, int]]:
-    """Top `top_n` values for this facet, excluding whatever's already
+def _skip_kwargs(name: str, mode: str) -> dict:
+    return {"skip_include": name} if mode == "facets" else {"skip_exclude": name}
+
+
+def _facet_suggestions(entries: list, filters: dict, name: str, mode: str = "facets", top_n: int = FACET_SUGGESTION_COUNT) -> list[tuple[str, int]]:
+    """Top `top_n` values for this facet (Include values if mode="facets",
+    Exclude values if mode="exclude"), excluding whatever's already
     selected, counted against entries matching every *other* active filter
     (so narrowing a different facet updates the suggestions, but selecting
-    more values within this same facet doesn't shrink its own list).
+    more values within this same facet/direction doesn't shrink its own list).
     """
-    selected = set(filters["facets"][name])
+    selected = set(filters[mode][name])
     counts: Counter = Counter()
     for entry in entries:
-        if _entry_matches(entry, filters, exclude=name):
+        if _entry_matches(entry, filters, **_skip_kwargs(name, mode)):
             counts.update(v for v in FACETS[name](entry) if v not in selected)
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:top_n]
 
 
-def _selected_with_counts(entries: list, filters: dict, name: str) -> list[tuple[str, int]]:
-    selected = filters["facets"][name]
+def _selected_with_counts(entries: list, filters: dict, name: str, mode: str = "facets") -> list[tuple[str, int]]:
+    selected = filters[mode][name]
     counts: Counter = Counter()
     for entry in entries:
-        if _entry_matches(entry, filters, exclude=name):
+        if _entry_matches(entry, filters, **_skip_kwargs(name, mode)):
             counts.update(v for v in FACETS[name](entry) if v in selected)
     return [(v, counts.get(v, 0)) for v in selected]
 
 
-def _static_facet_counts(entries: list, filters: dict, name: str, options: list[tuple[str, str]]) -> list[tuple[str, str, int, bool]]:
+def _static_facet_counts(entries: list, filters: dict, name: str, options: list[tuple[str, str]], mode: str = "facets") -> list[tuple[str, str, int, bool]]:
     """Every fixed option for this facet, always shown, each with a live
     count (against entries matching every other active filter) and whether
     it's currently selected. Returns (value, label, count, checked).
     """
     counts: Counter = Counter()
     for entry in entries:
-        if _entry_matches(entry, filters, exclude=name):
+        if _entry_matches(entry, filters, **_skip_kwargs(name, mode)):
             counts.update(FACETS[name](entry))
-    selected = set(filters["facets"][name])
+    selected = set(filters[mode][name])
     return [(value, label, counts.get(value, 0), value in selected) for value, label in options]
 
 
-def _filter_query_string(filters: dict, *, exclude_key: str | None = None, exclude_value: str | None = None) -> str:
+def _filter_query_string(filters: dict, *, drop_key: str | None = None, drop_value: str | None = None) -> str:
     """Query string (leading '&', empty if no filters active) reflecting
     every currently active filter except `page` -- used for pagination
-    links and, with exclude_key/exclude_value set, for a single active
-    filter chip's "remove just this one" link.
+    links and, with drop_key/drop_value set, for a single active filter
+    chip's "remove just this one" link. `drop_key` for a facet is the raw
+    query param name -- an Include facet's own name (e.g. "fandom") or an
+    Exclude facet's `x_`-prefixed name (e.g. "x_fandom").
     """
     parts = []
     for name, values in filters["facets"].items():
         for v in values:
-            if name == exclude_key and v == exclude_value:
+            if name == drop_key and v == drop_value:
                 continue
             parts.append(f"{name}={quote(v)}")
-    for key in ("q", "word_min", "word_max"):
-        if filters[key] and exclude_key != key:
+    for name, values in filters["exclude"].items():
+        for v in values:
+            if f"x_{name}" == drop_key and v == drop_value:
+                continue
+            parts.append(f"x_{name}={quote(v)}")
+    for key in ("q", "word_min", "word_max", "date_from", "date_to"):
+        if filters[key] and drop_key != key:
             parts.append(f"{key}={quote(str(filters[key]))}")
-    if filters["sort"] != DEFAULT_SORT and exclude_key != "sort":
+    if filters["crossover"] and drop_key != "crossover":
+        parts.append(f"crossover={quote(filters['crossover'])}")
+    if filters["sort"] != DEFAULT_SORT and drop_key != "sort":
         parts.append(f"sort={quote(filters['sort'])}")
     return ("&" + "&".join(parts)) if parts else ""
 
@@ -415,14 +471,29 @@ def _active_chips(filters: dict) -> list[dict]:
         for value in values:
             chips.append({
                 "text": f"{label}: {value}",
-                "remove_href": "/?" + _filter_query_string(filters, exclude_key=name, exclude_value=value).lstrip("&"),
+                "remove_href": "/?" + _filter_query_string(filters, drop_key=name, drop_value=value).lstrip("&"),
+            })
+    for name, values in filters["exclude"].items():
+        label = STATIC_FACET_DEFS[name][0] if name in STATIC_FACET_DEFS else DYNAMIC_FACET_LABELS[name]
+        for value in values:
+            chips.append({
+                "text": f"Exclude {label}: {value}",
+                "remove_href": "/?" + _filter_query_string(filters, drop_key=f"x_{name}", drop_value=value).lstrip("&"),
             })
     if filters["q"]:
-        chips.append({"text": f'Search: "{filters["q"]}"', "remove_href": "/?" + _filter_query_string(filters, exclude_key="q").lstrip("&")})
+        chips.append({"text": f'Search: "{filters["q"]}"', "remove_href": "/?" + _filter_query_string(filters, drop_key="q").lstrip("&")})
     if filters["word_min"] is not None:
-        chips.append({"text": f"Words ≥ {filters['word_min']:,}", "remove_href": "/?" + _filter_query_string(filters, exclude_key="word_min").lstrip("&")})
+        chips.append({"text": f"Words ≥ {filters['word_min']:,}", "remove_href": "/?" + _filter_query_string(filters, drop_key="word_min").lstrip("&")})
     if filters["word_max"] is not None:
-        chips.append({"text": f"Words ≤ {filters['word_max']:,}", "remove_href": "/?" + _filter_query_string(filters, exclude_key="word_max").lstrip("&")})
+        chips.append({"text": f"Words ≤ {filters['word_max']:,}", "remove_href": "/?" + _filter_query_string(filters, drop_key="word_max").lstrip("&")})
+    if filters["date_from"] is not None:
+        chips.append({"text": f"Downloaded on/after {filters['date_from']}", "remove_href": "/?" + _filter_query_string(filters, drop_key="date_from").lstrip("&")})
+    if filters["date_to"] is not None:
+        chips.append({"text": f"Downloaded on/before {filters['date_to']}", "remove_href": "/?" + _filter_query_string(filters, drop_key="date_to").lstrip("&")})
+    if filters["crossover"] == "only":
+        chips.append({"text": "Crossovers only", "remove_href": "/?" + _filter_query_string(filters, drop_key="crossover").lstrip("&")})
+    elif filters["crossover"] == "exclude":
+        chips.append({"text": "No crossovers", "remove_href": "/?" + _filter_query_string(filters, drop_key="crossover").lstrip("&")})
     return chips
 
 
@@ -431,21 +502,36 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
         "q": filters["q"],
         "word_min": filters["word_min"],
         "word_max": filters["word_max"],
+        "date_from": filters["date_from"],
+        "date_to": filters["date_to"],
+        "crossover": filters["crossover"],
         "sort": filters["sort"],
         "sort_options": SORT_LABELS,
         "suggestion_count": FACET_SUGGESTION_COUNT,
         "searchable_facets": TAG_SEARCH_FACETS,
-        "static": {
-            name: {"label": label, "options": _static_facet_counts(entries, filters, name, options)}
+        "static_include": {
+            name: {"label": label, "options": _static_facet_counts(entries, filters, name, options, mode="facets")}
             for name, (label, options) in STATIC_FACET_DEFS.items()
         },
-        "dynamic": {
+        "dynamic_include": {
             name: {
                 "label": label,
-                "selected": _selected_with_counts(entries, filters, name),
-                "suggestions": _facet_suggestions(entries, filters, name),
+                "selected": _selected_with_counts(entries, filters, name, mode="facets"),
+                "suggestions": _facet_suggestions(entries, filters, name, mode="facets"),
             }
             for name, label in DYNAMIC_FACET_LABELS.items()
+        },
+        "static_exclude": {
+            name: {"label": label, "options": _static_facet_counts(entries, filters, name, options, mode="exclude")}
+            for name, (label, options) in EXCLUDE_STATIC_FACET_DEFS.items()
+        },
+        "dynamic_exclude": {
+            name: {
+                "label": label,
+                "selected": _selected_with_counts(entries, filters, name, mode="exclude"),
+                "suggestions": _facet_suggestions(entries, filters, name, mode="exclude"),
+            }
+            for name, label in EXCLUDE_DYNAMIC_FACET_LABELS.items()
         },
     }
 

@@ -65,29 +65,41 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
   (confirmed against a real schema export), so this only ever comes from the file itself, matched or
   not.
 
-  A collapsible **Search & Filter** panel above the list approximates AO3's own sidebar: checkboxes
-  for Rating/Warning/Category/Completion (fixed AO3 vocabularies, every option always listed with a
-  live count), a word-count range, a free-text box that searches title/author/summary/tags together,
-  and a sort-by dropdown (title, author, word count, date downloaded). Fandom/Character/
-  Relationship/Additional Tags/Language are different: a real library can have thousands of unique
-  values, so each of those shows only whatever you've already selected (so you can unselect it) plus
-  its top 10 next-most-common values *given every other filter you've already applied*, so the list
-  keeps shifting toward what's actually relevant as you narrow things down. Selecting more than one
-  value within a facet is OR'd ("Explicit or Mature"); different facets AND together.
+  A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
+  Include/Exclude split: every facet (Rating/Warning/Category/Fandom/Character/Relationship/
+  Additional Tags, plus Completion and Language for Include only -- AO3 has no Exclude equivalent
+  for those two) starts collapsed to just its label, same as AO3, expand whichever ones you want.
+  **Include** checkboxes are AND'd -- checking both "Angst" and "Fluff" means a work needs *both*,
+  not either, matching real AO3 exactly (including the quirk that checking two values of a
+  single-valued facet like Rating always matches nothing, since a work only ever has one).
+  **Exclude** is the opposite: OR'd, so checking any box there drops a work that has *any* of them.
+  Rating/Warning/Category (fixed AO3 vocabularies) always list every option with a live count.
+  Fandom/Character/Relationship/Additional Tags/Language can run into the thousands, so each shows
+  only what you've already selected (so you can unselect it) plus its top 10 next-most-common
+  values *given every other filter you've already applied* -- the list keeps shifting toward what's
+  relevant as you narrow down, for both Include and Exclude independently.
 
   To reach a tag that never shows up in the top 10, Fandom/Character/Relationship/Additional Tags
-  each have their own "Find another..." typeahead box (backed by `/tags/search`, a small
+  (Include and Exclude both) have their own "Find another..." typeahead box -- a self-rendered
+  dropdown (not the native `<input list>`/`<datalist>` combo, which turned out to be unreliable on
+  mobile Chrome/Safari and simply wouldn't show suggestions there) backed by `/tags/search`, a small
   [`fast-autocomplete`](https://github.com/seperman/fast-autocomplete)-powered index built lazily
-  per facet and rebuilt only when you refresh) -- it matches by prefix, and for a relationship tag
+  per facet and rebuilt only when you refresh. It matches by prefix, and for a relationship tag
   specifically also matches by either party's name (typing "Jack" finds "Ianto Jones/Jack Harkness"
   even though the tag doesn't start with "Jack"), since the two are joined by `/` or `&` and indexed
-  separately from the full tag. Picking a suggestion (or typing the exact name and hitting Enter)
-  checks it, same as any other checkbox. Language isn't included here -- its vocabulary is small
-  enough that every value is already shown. The free-text search box above also matches tag text, as
-  a further fallback. Every active filter shows as a removable chip, checking a box always jumps back
-  to page 1, and the URL is fully shareable/bookmarkable (`?rating=...&fandom=...` etc. -- the old
+  separately from the full tag. Tapping/clicking a suggestion (or typing the exact name and hitting
+  Enter) checks it, same as any other checkbox. The free-text search box above also matches tag
+  text, as a further fallback.
+
+  **More Options**: Crossovers (include/exclude/only), a word-count range, and a downloaded-date
+  range (`From`/`To`, compared against the same timestamp the "newest" sort uses). Sort-by covers
+  title, author, word count, and date downloaded -- not hits/kudos/comments/bookmarks, since those
+  are AO3 server-side engagement numbers this file-based dashboard has no access to. Every active
+  filter (Include, Exclude, crossover, word count, date range, search) shows as a removable chip,
+  checking a box always jumps back to page 1, and the URL is fully shareable/bookmarkable
+  (`?rating=...&fandom=...&x_character=...` etc. -- Exclude params are `x_`-prefixed; the old
   `?fandom=...` links from the Fandom column and the Fandoms page still work unchanged, they're just
-  one facet among several now).
+  one Include facet among several now).
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.

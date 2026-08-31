@@ -1,60 +1,81 @@
+{% macro static_facet(name, facet, field_prefix) %}
+<details class="facet-group">
+  <summary>{{ facet.label }}</summary>
+  {% for value, label, count, checked in facet.options %}
+  <label class="fandom-option"><input type="checkbox" name="{{ field_prefix }}{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}> {{ label }} ({{ count }})</label>
+  {% endfor %}
+</details>
+{% endmacro %}
+
+{% macro dynamic_facet(name, facet, field_prefix, searchable_facets) %}
+<details class="facet-group">
+  <summary>{{ facet.label }}</summary>
+  {% for value, count in facet.selected %}
+  <label class="fandom-option"><input type="checkbox" name="{{ field_prefix }}{{ name }}" value="{{ value }}" checked> {{ value }} ({{ count }})</label>
+  {% endfor %}
+  {% for value, count in facet.suggestions %}
+  <label class="fandom-option"><input type="checkbox" name="{{ field_prefix }}{{ name }}" value="{{ value }}"> {{ value }} ({{ count }})</label>
+  {% endfor %}
+  {% if not facet.selected and not facet.suggestions and name not in searchable_facets %}
+  <p class="hint">No {{ facet.label.lower() }} tags found.</p>
+  {% endif %}
+  {% if name in searchable_facets %}
+  <div class="facet-autocomplete" data-facet="{{ name }}" data-field="{{ field_prefix }}{{ name }}">
+    <input type="text" placeholder="Find another&hellip;" autocomplete="off" oninput="onFacetSearch(this)" onkeydown="onFacetKeydown(event, this)">
+    <div class="facet-suggestions" hidden></div>
+  </div>
+  {% endif %}
+</details>
+{% endmacro %}
+
 {% macro panel(filter_panel, has_active_filters) %}
 <details class="filter-panel" {% if has_active_filters %}open{% endif %}>
   <summary>Search &amp; Filter</summary>
   <form method="get" action="/">
     <input type="search" name="q" value="{{ filter_panel.q }}" placeholder="Search title, author, summary, tags&hellip;" class="fandom-other">
 
-    <div class="filter-grid">
-      {% for name, facet in filter_panel.static.items() %}
-      <fieldset>
-        <legend>{{ facet.label }}</legend>
-        {% for value, label, count, checked in facet.options %}
-        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}" {% if checked %}checked{% endif %}> {{ label }} ({{ count }})</label>
+    <label class="filter-sort">Sort by:
+      <select name="sort">
+        {% for value, label in filter_panel.sort_options.items() %}
+        <option value="{{ value }}" {% if value == filter_panel.sort %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
-      </fieldset>
-      {% endfor %}
+      </select>
+    </label>
 
-      {% for name, facet in filter_panel.dynamic.items() %}
-      <fieldset data-facet="{{ name }}">
-        <legend>{{ facet.label }}</legend>
-        {% for value, count in facet.selected %}
-        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}" checked> {{ value }} ({{ count }})</label>
-        {% endfor %}
-        {% for value, count in facet.suggestions %}
-        <label class="fandom-option"><input type="checkbox" name="{{ name }}" value="{{ value }}"> {{ value }} ({{ count }})</label>
-        {% endfor %}
-        {% if not facet.selected and not facet.suggestions and name not in filter_panel.searchable_facets %}
-        <p class="hint">No {{ facet.label.lower() }} tags found.</p>
-        {% endif %}
-        {% if name in filter_panel.searchable_facets %}
-        <div class="facet-autocomplete">
-          <input type="text" list="dl-{{ name }}" placeholder="Find another&hellip;" autocomplete="off"
-                 oninput="onFacetSearch(this, '{{ name }}')"
-                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); addFacetValue('{{ name }}', this); }">
-          <datalist id="dl-{{ name }}"></datalist>
-        </div>
-        {% endif %}
-      </fieldset>
-      {% endfor %}
+    <h3>Include</h3>
+    <p class="hint">
+      Checking more than one value in the same facet means a work must have <strong>all</strong> of
+      them, not just one -- same as real AO3. Only the top {{ filter_panel.suggestion_count }}
+      unselected values are shown per tag facet, narrowing as you filter; the search box above, or a
+      facet's own "Find another..." box, reaches anything that never shows up here.
+    </p>
+    <div class="facet-accordion facet-accordion-include">
+      {% for name, facet in filter_panel.static_include.items() %}{{ static_facet(name, facet, "") }}{% endfor %}
+      {% for name, facet in filter_panel.dynamic_include.items() %}{{ dynamic_facet(name, facet, "", filter_panel.searchable_facets) }}{% endfor %}
     </div>
 
-    <p class="hint">
-      Only the top {{ filter_panel.suggestion_count }} unselected values are shown per tag facet --
-      narrowing another filter shifts the list. Type into a facet's own "Find another..." box (or the
-      search box above, which also matches tag text) to reach any tag, not just what's suggested.
-    </p>
+    <h3>Exclude</h3>
+    <p class="hint">Checking any value here drops a work that has it -- checking more than one is "or."</p>
+    <div class="facet-accordion facet-accordion-exclude">
+      {% for name, facet in filter_panel.static_exclude.items() %}{{ static_facet(name, facet, "x_") }}{% endfor %}
+      {% for name, facet in filter_panel.dynamic_exclude.items() %}{{ dynamic_facet(name, facet, "x_", filter_panel.searchable_facets) }}{% endfor %}
+    </div>
 
+    <h3>More Options</h3>
     <div class="filter-row">
+      <label>Crossovers:
+        <select name="crossover">
+          <option value="" {% if not filter_panel.crossover %}selected{% endif %}>Include crossovers</option>
+          <option value="exclude" {% if filter_panel.crossover == "exclude" %}selected{% endif %}>Exclude crossovers</option>
+          <option value="only" {% if filter_panel.crossover == "only" %}selected{% endif %}>Show only crossovers</option>
+        </select>
+      </label>
       <label>Word count: <input type="number" name="word_min" value="{{ filter_panel.word_min if filter_panel.word_min is not none else '' }}" placeholder="min" min="0"></label>
       &ndash;
       <label><input type="number" name="word_max" value="{{ filter_panel.word_max if filter_panel.word_max is not none else '' }}" placeholder="max" min="0"></label>
-      <label>Sort by:
-        <select name="sort">
-          {% for value, label in filter_panel.sort_options.items() %}
-          <option value="{{ value }}" {% if value == filter_panel.sort %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      <label>Downloaded: <input type="date" name="date_from" value="{{ filter_panel.date_from if filter_panel.date_from else '' }}"></label>
+      &ndash;
+      <label><input type="date" name="date_to" value="{{ filter_panel.date_to if filter_panel.date_to else '' }}"></label>
     </div>
 
     <button type="submit">Apply filters</button>
@@ -63,69 +84,75 @@
 </details>
 
 <script>
-  function onFacetSearch(input, facet) {
+  function onFacetSearch(input) {
     clearTimeout(input._debounce);
     var q = input.value.trim();
-    if (q.length < 2) return;
+    var container = input.parentElement;
+    if (q.length < 2) { hideSuggestions(container); return; }
     input._debounce = setTimeout(function () {
-      fetch("/tags/search?facet=" + encodeURIComponent(facet) + "&q=" + encodeURIComponent(q))
+      fetch("/tags/search?facet=" + encodeURIComponent(container.dataset.facet) + "&q=" + encodeURIComponent(q))
         .then(function (r) { return r.json(); })
-        .then(function (matches) {
-          var datalist = document.getElementById("dl-" + facet);
-          datalist.textContent = "";
-          matches.forEach(function (value) {
-            var option = document.createElement("option");
-            option.value = value;
-            datalist.appendChild(option);
-          });
-        });
+        .then(function (matches) { renderSuggestions(container, matches); });
     }, 200);
   }
 
-  function addFacetValue(facet, inputEl) {
-    var typed = inputEl.value.trim();
-    if (!typed) return;
-    // The search endpoint resolves a partial/relationship-party query (e.g.
-    // "jack") to the real, full tag value(s) it belongs to (e.g. "Ianto
-    // Jones/Jack Harkness") -- what's typed is very often not the tag
-    // itself. So only add on Enter when that's unambiguous: either what was
-    // typed exactly matches one fetched option (case-insensitively -- this
-    // is also how a mouse/keyboard datalist selection reaches here, since
-    // the browser fills the input with the option's exact text first), or
-    // there's currently exactly one candidate on the list. Otherwise do
-    // nothing -- forcing a real pick avoids silently adding a made-up tag
-    // that would just match zero works, or the wrong one of several.
-    var options = Array.from(document.getElementById("dl-" + facet).options);
-    var exact = options.find(function (o) { return o.value.toLowerCase() === typed.toLowerCase(); });
-    var value;
-    if (exact) {
-      value = exact.value;
-    } else if (options.length === 1) {
-      value = options[0].value;
+  function renderSuggestions(container, matches) {
+    var list = container.querySelector(".facet-suggestions");
+    list.textContent = "";
+    if (!matches.length) {
+      list.hidden = true;
+      return;
+    }
+    matches.forEach(function (value) {
+      var item = document.createElement("div");
+      item.className = "facet-suggestion-item";
+      item.textContent = value;
+      // mousedown (not click) fires before the input's blur hides this
+      // list, on both mouse and touch input -- click alone fires too late.
+      item.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        addFacetValue(container, value);
+      });
+      list.appendChild(item);
+    });
+    list.hidden = false;
+  }
+
+  function onFacetKeydown(event, input) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    var container = input.parentElement;
+    var items = container.querySelectorAll(".facet-suggestion-item");
+    if (items.length === 1) {
+      addFacetValue(container, items[0].textContent);
+    }
+  }
+
+  function addFacetValue(container, value) {
+    var details = container.closest("details");
+    var existing = details.querySelector('input[type="checkbox"][value="' + CSS.escape(value) + '"]');
+    if (existing) {
+      existing.checked = true;
     } else {
-      return;
+      var label = document.createElement("label");
+      label.className = "fandom-option";
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = container.dataset.field;
+      checkbox.value = value;
+      checkbox.checked = true;
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(" " + value));
+      details.insertBefore(label, container);
     }
-    var fieldset = inputEl.closest("fieldset");
-    // This value might already be sitting in the list as an unchecked
-    // suggestion (it's a top-10 value, just for a different current
-    // filter) -- check that one instead of inserting a duplicate row.
-    var existingCheckbox = fieldset.querySelector('input[type="checkbox"][value="' + CSS.escape(value) + '"]');
-    if (existingCheckbox) {
-      existingCheckbox.checked = true;
-      inputEl.value = "";
-      return;
-    }
-    var label = document.createElement("label");
-    label.className = "fandom-option";
-    var checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.name = facet;
-    checkbox.value = value;
-    checkbox.checked = true;
-    label.appendChild(checkbox);
-    label.appendChild(document.createTextNode(" " + value));
-    fieldset.insertBefore(label, inputEl.closest(".facet-autocomplete"));
-    inputEl.value = "";
+    container.querySelector('input[type="text"]').value = "";
+    hideSuggestions(container);
+  }
+
+  function hideSuggestions(container) {
+    var list = container.querySelector(".facet-suggestions");
+    list.hidden = true;
+    list.textContent = "";
   }
 </script>
 {% endmacro %}

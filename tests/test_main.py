@@ -1,13 +1,16 @@
 from datetime import datetime
 
 from app.main import (
+    EXCLUDE_FACETS,
     FACETS,
     SORT_OPTIONS,
+    _active_chips,
     _build_autocomplete_index,
     _completion_status,
     _entry_matches,
     _facet_suggestions,
     _filter_query_string,
+    _parse_date,
     _selected_with_counts,
     _static_facet_counts,
     paginate,
@@ -15,11 +18,16 @@ from app.main import (
 from app.scanner import WorkEntry
 
 
-def _filters(facets=None, word_min=None, word_max=None, q="", sort="title"):
+def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=None,
+             date_from=None, date_to=None, q="", sort="title"):
     return {
         "facets": {name: [] for name in FACETS} | (facets or {}),
+        "exclude": {name: [] for name in EXCLUDE_FACETS} | (exclude or {}),
         "word_min": word_min,
         "word_max": word_max,
+        "crossover": crossover,
+        "date_from": date_from,
+        "date_to": date_to,
         "q": q,
         "sort": sort,
     }
@@ -94,17 +102,94 @@ def test_entry_matches_ands_across_facets():
     assert _entry_matches(entry, non_matching) is False
 
 
-def test_entry_matches_ors_within_one_facet():
+def test_entry_matches_include_ands_within_one_facet():
+    # Real AO3 semantics: checking two values in the same Include facet
+    # requires a work to have BOTH, not either.
+    entry = WorkEntry(work_id="1", freeform_tags=["Angst", "Fluff"])
+    both = _filters(facets={"freeform": ["Angst", "Fluff"]})
+    assert _entry_matches(entry, both) is True
+
+    only_one = WorkEntry(work_id="2", freeform_tags=["Angst"])
+    assert _entry_matches(only_one, both) is False
+
+
+def test_entry_matches_include_and_on_single_valued_facet_always_fails_with_two_selected():
+    # The accepted AO3 quirk: Rating is single-valued per work, so AND-ing
+    # two selected ratings can never match anything -- same as real AO3.
     entry = WorkEntry(work_id="1", rating="Mature")
     filters = _filters(facets={"rating": ["Explicit", "Mature"]})
-    assert _entry_matches(entry, filters) is True
+    assert _entry_matches(entry, filters) is False
 
 
-def test_entry_matches_exclude_skips_that_facet():
+def test_entry_matches_exclude_ors_within_one_facet():
+    entry = WorkEntry(work_id="1", characters=["Voldemort"])
+    filters = _filters(exclude={"character": ["Voldemort", "Umbridge"]})
+    assert _entry_matches(entry, filters) is False
+
+    other = WorkEntry(work_id="2", characters=["Harry Potter"])
+    assert _entry_matches(other, filters) is True
+
+
+def test_entry_matches_skip_include_skips_only_that_facets_include_constraint():
     entry = WorkEntry(work_id="1", rating="Mature")
     filters = _filters(facets={"rating": ["Explicit"]})
-    assert _entry_matches(entry, filters, exclude="rating") is True
+    assert _entry_matches(entry, filters, skip_include="rating") is True
     assert _entry_matches(entry, filters) is False
+
+
+def test_entry_matches_skip_exclude_skips_only_that_facets_exclude_constraint():
+    entry = WorkEntry(work_id="1", characters=["Voldemort"])
+    filters = _filters(exclude={"character": ["Voldemort"]})
+    assert _entry_matches(entry, filters, skip_exclude="character") is True
+    assert _entry_matches(entry, filters) is False
+
+
+def test_entry_matches_skip_include_and_skip_exclude_are_independent():
+    # Both an Include and an Exclude can be active on the same facet name
+    # at once -- skipping one shouldn't skip the other.
+    entry = WorkEntry(work_id="1", fandoms=["Harry Potter"])
+    filters = _filters(facets={"fandom": ["Torchwood"]}, exclude={"fandom": ["Harry Potter"]})
+    assert _entry_matches(entry, filters, skip_include="fandom") is False  # exclude still applies
+    assert _entry_matches(entry, filters, skip_exclude="fandom") is False  # include still applies
+    assert _entry_matches(entry, filters, skip_include="fandom", skip_exclude="fandom") is True
+
+
+def test_entry_matches_crossover_only():
+    crossover_entry = WorkEntry(work_id="1", fandoms=["Harry Potter", "Torchwood"])
+    single_fandom_entry = WorkEntry(work_id="2", fandoms=["Harry Potter"])
+    filters = _filters(crossover="only")
+    assert _entry_matches(crossover_entry, filters) is True
+    assert _entry_matches(single_fandom_entry, filters) is False
+
+
+def test_entry_matches_crossover_exclude():
+    crossover_entry = WorkEntry(work_id="1", fandoms=["Harry Potter", "Torchwood"])
+    single_fandom_entry = WorkEntry(work_id="2", fandoms=["Harry Potter"])
+    filters = _filters(crossover="exclude")
+    assert _entry_matches(crossover_entry, filters) is False
+    assert _entry_matches(single_fandom_entry, filters) is True
+
+
+def test_entry_matches_date_bounds_are_inclusive():
+    entry = WorkEntry(work_id="1", mtime=datetime(2024, 6, 15))
+    assert _entry_matches(entry, _filters(date_from=datetime(2024, 6, 15).date(), date_to=datetime(2024, 6, 15).date())) is True
+    assert _entry_matches(entry, _filters(date_from=datetime(2024, 6, 16).date())) is False
+    assert _entry_matches(entry, _filters(date_to=datetime(2024, 6, 14).date())) is False
+
+
+def test_entry_matches_date_bound_fails_for_entry_with_no_timestamp():
+    entry = WorkEntry(work_id="1")
+    assert _entry_matches(entry, _filters(date_from=datetime(2024, 1, 1).date())) is False
+
+
+def test_parse_date_valid():
+    assert _parse_date("2024-06-15") == datetime(2024, 6, 15).date()
+
+
+def test_parse_date_invalid_or_blank_returns_none():
+    assert _parse_date("not-a-date") is None
+    assert _parse_date("") is None
+    assert _parse_date(None) is None
 
 
 def test_entry_matches_word_count_bounds_are_inclusive():
@@ -191,25 +276,77 @@ def test_static_facet_counts_lists_every_option_with_counts_and_checked_state():
     assert result == [("Explicit", "Explicit", 2, True), ("Mature", "Mature", 0, False)]
 
 
+def test_facet_suggestions_exclude_mode_reads_the_exclude_dict():
+    entries = [
+        WorkEntry(work_id="1", characters=["Voldemort"]),
+        WorkEntry(work_id="2", characters=["Voldemort"]),
+        WorkEntry(work_id="3", characters=["Umbridge"]),
+    ]
+    filters = _filters(exclude={"character": ["Voldemort"]})
+    suggestions = _facet_suggestions(entries, filters, "character", mode="exclude")
+    assert suggestions == [("Umbridge", 1)]
+
+
+def test_selected_with_counts_exclude_mode():
+    entries = [WorkEntry(work_id="1", characters=["Umbridge"])]
+    filters = _filters(exclude={"character": ["Voldemort"]})
+    assert _selected_with_counts(entries, filters, "character", mode="exclude") == [("Voldemort", 0)]
+
+
+def test_static_facet_counts_exclude_mode():
+    entries = [WorkEntry(work_id="1", rating="Explicit")]
+    filters = _filters(exclude={"rating": ["Explicit"]})
+    options = [("Explicit", "Explicit"), ("Mature", "Mature")]
+    result = _static_facet_counts(entries, filters, "rating", options, mode="exclude")
+    assert result == [("Explicit", "Explicit", 1, True), ("Mature", "Mature", 0, False)]
+
+
 def test_filter_query_string_round_trips_multiple_facets():
-    filters = _filters(facets={"rating": ["Explicit"], "freeform": ["Angst", "Fluff"]}, q="test")
+    filters = _filters(
+        facets={"rating": ["Explicit"], "freeform": ["Angst", "Fluff"]},
+        exclude={"character": ["Voldemort"]},
+        crossover="only", q="test",
+    )
     qs = _filter_query_string(filters)
     assert qs.startswith("&")
     assert "rating=Explicit" in qs
     assert "freeform=Angst" in qs
     assert "freeform=Fluff" in qs
+    assert "x_character=Voldemort" in qs
+    assert "crossover=only" in qs
     assert "q=test" in qs
 
 
-def test_filter_query_string_excludes_one_value():
+def test_filter_query_string_drops_one_include_value():
     filters = _filters(facets={"freeform": ["Angst", "Fluff"]})
-    qs = _filter_query_string(filters, exclude_key="freeform", exclude_value="Angst")
+    qs = _filter_query_string(filters, drop_key="freeform", drop_value="Angst")
     assert "freeform=Fluff" in qs
     assert "freeform=Angst" not in qs
 
 
+def test_filter_query_string_drops_one_exclude_value():
+    filters = _filters(exclude={"character": ["Voldemort", "Umbridge"]})
+    qs = _filter_query_string(filters, drop_key="x_character", drop_value="Voldemort")
+    assert "x_character=Umbridge" in qs
+    assert "x_character=Voldemort" not in qs
+
+
 def test_filter_query_string_empty_when_no_filters_active():
     assert _filter_query_string(_filters()) == ""
+
+
+def test_active_chips_labels_exclude_values_distinctly():
+    filters = _filters(exclude={"character": ["Voldemort"]})
+    chips = _active_chips(filters)
+    assert any(chip["text"] == "Exclude Character: Voldemort" for chip in chips)
+
+
+def test_active_chips_include_crossover_and_date_range():
+    filters = _filters(crossover="only", date_from=datetime(2024, 1, 1).date())
+    chips = _active_chips(filters)
+    texts = [chip["text"] for chip in chips]
+    assert "Crossovers only" in texts
+    assert any(text.startswith("Downloaded on/after") for text in texts)
 
 
 def _search(autocompleter, word_to_tags, q, limit=20):

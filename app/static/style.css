@@ -457,27 +457,39 @@ th {
   margin-top: 0.75rem;
 }
 
-.filter-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  margin: 0.75rem 0;
-}
-
-.filter-grid fieldset {
-  border: none;
-  padding: 0;
-  margin: 0;
-  min-width: 160px;
-}
-
-.filter-grid legend {
+.filter-panel h3 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
   color: var(--muted);
+  margin: 1.25rem 0 0.25rem;
+}
+
+.filter-sort {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.facet-accordion {
+  border-top: 1px solid var(--border);
+}
+
+.facet-group {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+}
+
+.facet-group summary {
+  cursor: pointer;
   font-size: 0.8rem;
   font-weight: 600;
+  color: var(--muted);
   text-transform: uppercase;
-  padding: 0;
-  margin-bottom: 0.25rem;
+}
+
+.facet-group[open] summary {
+  color: inherit;
+  margin-bottom: 0.4rem;
 }
 
 .filter-row {
@@ -498,6 +510,7 @@ th {
 }
 
 .facet-autocomplete {
+  position: relative;
   margin-top: 0.3rem;
 }
 
@@ -508,6 +521,31 @@ th {
   border: 1px solid var(--border);
   border-radius: 4px;
   box-sizing: border-box;
+}
+
+.facet-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 2px;
+  background: Canvas;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.facet-suggestion-item {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.facet-suggestion-item:hover,
+.facet-suggestion-item:active {
+  background: var(--border);
 }
 
 .tag-table th:first-child, .tag-table td:first-child {
