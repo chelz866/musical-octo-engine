@@ -724,6 +724,30 @@ def test_legacy_theme_css_migrates_into_a_named_active_theme():
         assert len(db.list_user_themes(path, user_id)) == 1
 
 
+def test_user_home_edit_source_defaults_to_false():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        assert db.get_user_home_edit_source(path, user_id) is False
+
+
+def test_user_home_edit_source_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.set_user_home_edit_source(path, user_id, True)
+        assert db.get_user_home_edit_source(path, user_id) is True
+
+        db.set_user_home_edit_source(path, user_id, False)
+        assert db.get_user_home_edit_source(path, user_id) is False
+
+
 def test_user_abs_username_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

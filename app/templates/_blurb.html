@@ -1,8 +1,11 @@
 {% import "_fandom_picker.html" as picker %}
-{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids) %}
+{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, show_edit_button=false) %}
 {% set icons = e | blurb_icons %}
 {% set tags = e | blurb_tag_line %}
 <li class="blurb work group">
+  {% if show_edit_button %}
+  <a class="blurb-edit-button" href="/tags/classify?work_id={{ e.work_id }}" title="Edit this work's tags on Classify Tags">Edit</a>
+  {% endif %}
   <div class="blurb-header header module">
     <div class="blurb-icons">
       <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>

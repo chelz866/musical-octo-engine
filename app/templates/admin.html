@@ -37,4 +37,17 @@
       <div class="stat-label">logged failures</div>
     </div>
   </section>
+
+  <h2>Settings</h2>
+  <form method="post" action="/admin/home_edit_source">
+    <label class="hint">
+      <input type="checkbox" name="enabled" value="true" onchange="this.form.submit()" {% if home_edit_source %}checked{% endif %}>
+      Use Home as edit source
+    </label>
+    <p class="hint">
+      Adds a small "Edit" button in the bottom-right corner of every blurb on Home, jumping straight
+      to Classify Tags filtered to just that one work's own tags -- a shortcut for fixing up one fic's
+      tags without hunting for them in the whole library's list.
+    </p>
+  </form>
 {% endblock %}

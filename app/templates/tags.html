@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories) %}
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id) %}
 <tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-tag="{{ row.tag | lower }}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
@@ -30,6 +30,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <select name="fandom" onchange="this.form.submit()">
         <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
         <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
@@ -50,6 +51,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <label class="hint">{{ part }}:
         <select name="character_tag" onchange="this.form.submit()">
           <option value="">&mdash;</option>
@@ -68,6 +70,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <button type="submit" class="chip-remove">{{ c }} &times;</button>
     </form>
     {% endfor %}
@@ -76,6 +79,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <input type="text" name="character_tag" placeholder="Add character&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
@@ -90,6 +94,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <button type="submit" class="chip-remove">{{ r }} &times;</button>
     </form>
     {% endfor %}
@@ -98,6 +103,7 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <input type="text" name="relationship_tag" placeholder="Add relationship&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
@@ -105,7 +111,7 @@
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -145,18 +151,31 @@
     </p>
   </header>
 
+  {% if work_id %}
+  <p class="badge {{ 'badge-ok' if edit_source_entry else 'badge-warn' }}" style="display: block; margin-bottom: 1rem;">
+    {% if edit_source_entry %}
+    Editing tags for: <strong>{{ edit_source_entry.title or "(unknown title)" }}</strong>
+    {% if edit_source_entry.author %}by {{ edit_source_entry.author }}{% endif %}
+    {% else %}
+    That work could not be found -- it may have been removed since you followed this link.
+    {% endif %}
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}">(clear, show every tag)</a>
+  </p>
+  {% endif %}
+
   <nav class="tag-filter-tabs">
-    <a href="/tags/classify?filter=all&sort={{ sort }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags/classify?filter=fandom&sort={{ sort }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags/classify?filter=character&sort={{ sort }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags/classify?filter=relationship&sort={{ sort }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags/classify?filter=freeform&sort={{ sort }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags/classify?filter=unclassified&sort={{ sort }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags/classify?filter=all&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags/classify?filter=fandom&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags/classify?filter=character&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=relationship&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags/classify?filter=freeform&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags/classify?filter=unclassified&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
 
   <form method="get" action="/tags/classify" id="sort-form" class="tag-sort-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="organize_by" value="{{ organize_by }}">
+    <input type="hidden" name="work_id" value="{{ work_id }}">
     <label class="hint" for="tag-sort">Sort:
       <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}
@@ -168,9 +187,9 @@
 
   <nav class="tag-filter-tabs">
     <span class="hint">Organize by:</span>
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=" class="{% if not organize_by %}active{% endif %}">None</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=&work_id={{ work_id }}" class="{% if not organize_by %}active{% endif %}">None</a>
     {% for value, label in organize_by_options.items() %}
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}&work_id={{ work_id }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
     {% endfor %}
   </nav>
 
@@ -185,6 +204,7 @@
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="page" value="{{ page }}">
     <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="work_id" value="{{ work_id }}">
 
     <div class="tag-bulk-actions">
       <span class="hint" id="selected-count">0 selected</span>
@@ -246,7 +266,7 @@
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id) }}
         {% else %}
         <tr>
           <td colspan="7" class="empty">
@@ -266,9 +286,11 @@
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <button type="submit">Mark unclassified on this page as Freeform</button>
     </form>
     <form method="post" action="/tags/classify/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
       <button type="submit">Mark ALL unclassified tags as Freeform</button>
     </form>
   </div>

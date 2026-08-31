@@ -237,6 +237,7 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "users", "theme_css")
         _ensure_column(conn, "users", "abs_username")
         _ensure_column(conn, "users", "active_theme_id", "INTEGER")
+        _ensure_column(conn, "users", "home_edit_source", "INTEGER")
         _ensure_column(conn, "bookmarks", "note")
         # One-time, idempotent: users.theme_css used to hold a single unnamed
         # theme per account. Existing values become a named theme ("My
@@ -863,6 +864,23 @@ def get_user_abs_username(path: str, user_id: int) -> str | None:
 def set_user_abs_username(path: str, user_id: int, username: str) -> None:
     with _connect(path) as conn:
         conn.execute("UPDATE users SET abs_username = ? WHERE id = ?", (username.strip() or None, user_id))
+
+
+def get_user_home_edit_source(path: str, user_id: int) -> bool:
+    """Whether this user has opted into an "Edit" button on each Home
+    blurb (see the Admin Dashboard's "Use Home as edit source" checkbox)
+    that jumps straight to Classify Tags filtered to just that one work's
+    own tags, instead of the whole library. Off by default -- a NULL row
+    (never touched, or created before this setting existed) reads as False.
+    """
+    with _connect(path) as conn:
+        row = conn.execute("SELECT home_edit_source FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row[0]) if row else False
+
+
+def set_user_home_edit_source(path: str, user_id: int, enabled: bool) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE users SET home_edit_source = ? WHERE id = ?", (1 if enabled else 0, user_id))
 
 
 def list_user_abs_usernames(path: str) -> dict[int, str]:

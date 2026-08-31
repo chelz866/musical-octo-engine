@@ -829,6 +829,7 @@ def dashboard(request: Request, page: int = 1):
             "total_pages": total_pages,
             "total_filtered": len(entries),
             "pager_qs": pager_qs,
+            "home_edit_source": request.state.user.is_admin and db.get_user_home_edit_source(DB_PATH, request.state.user.id),
         },
     )
 
@@ -909,8 +910,19 @@ def admin(request: Request):
             "download_dir": DOWNLOAD_DIR,
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
+            "home_edit_source": db.get_user_home_edit_source(DB_PATH, request.state.user.id),
         },
     )
+
+
+@app.post("/admin/home_edit_source")
+def set_home_edit_source(request: Request, enabled: bool = Form(False)):
+    """Per-user, not global -- each admin decides for themselves whether
+    Home shows an "Edit" shortcut on every blurb (see _blurb.html), same
+    as the per-user Theme/Audiobookshelf-username settings on Account.
+    """
+    db.set_user_home_edit_source(DB_PATH, request.state.user.id, enabled)
+    return RedirectResponse(url="/admin", status_code=303)
 
 
 @app.get("/tags/search")
@@ -1057,11 +1069,19 @@ def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children
             counts[parent] = len(matching_ids)
 
 
-def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
+def _tag_rows(
+    result, filter: str, sort: str, restrict_to: set[str] | None = None
+) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
     tags is (tag, work_count, category). Shared by the admin classification
     page and the read-only Browse page: same underlying data, one mutable
     (checkboxes/bulk actions), one not.
+
+    `restrict_to`, when given, narrows the whole library down to just
+    these tag names before bucketing/filtering -- used by Classify Tags'
+    "edit source" view (a single work's own fandom_candidates) so the
+    filter tabs and their counts describe just that work's tags instead
+    of the whole library.
 
     `category` is a tag's effective Fandom/Relationship bucket, not just
     its explicit one: a heuristically guessed Fandom or Relationship
@@ -1089,6 +1109,8 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
     _add_virtual_parent_counts(
         counts, result.entries, lambda e: e.fandom_candidates, _expand_children_transitively(db.get_tag_children(DB_PATH))
     )
+    if restrict_to is not None:
+        counts = Counter({tag: count for tag, count in counts.items() if tag in restrict_to})
 
     explicit = db.get_all_tag_categories(DB_PATH)
     guessed_fandoms = {f for e in result.entries for f in e.fandoms}
@@ -1324,9 +1346,23 @@ def tags_classify_page(
     page: int = 1,
     sort: str = DEFAULT_NAME_COUNT_SORT,
     organize_by: str = "",
+    work_id: str = "",
 ):
+    """`work_id`, when set (see the Home page's "Edit" button, gated by
+    the "Use Home as edit source" account setting), narrows this whole
+    page down to just that one work's own tags -- restricting _tag_rows
+    to its fandom_candidates rather than the whole library -- so an admin
+    can jump straight from a specific fic on Home to classifying/
+    associating just its own tags, without hunting for them in a
+    library-wide list. Filter/sort/organize-by still apply on top of that
+    narrowed set. A work_id that doesn't match any entry (a stale link)
+    leaves edit_source_entry None so the template can say so instead of
+    silently showing the whole library.
+    """
     result = scanner.load_cached(DB_PATH)
-    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
+    edit_source_entry = next((e for e in result.entries if e.work_id == work_id), None) if work_id else None
+    restrict_to = set(edit_source_entry.fandom_candidates) if edit_source_entry else None
+    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort, restrict_to)
     tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     children_map = db.get_tag_children(DB_PATH)
@@ -1354,7 +1390,9 @@ def tags_classify_page(
             "freeform_characters": db.get_all_freeform_characters(DB_PATH),
             "freeform_relationships": db.get_all_freeform_relationships(DB_PATH),
             "relationship_name_parts": _relationship_name_parts,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}",
+            "work_id": work_id,
+            "edit_source_entry": edit_source_entry,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}&work_id={quote(work_id)}",
         },
     )
 
@@ -1389,6 +1427,7 @@ def wrangle_tags(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     """Bulk-wrangles every checked tag to `target`. 'synonym' is
     category-blind (two spellings of the same tag aren't a category
@@ -1416,7 +1455,7 @@ def wrangle_tags(
             except ValueError:
                 pass
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1495,6 +1534,7 @@ def set_tag_fandom_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     """Sets tag's own Fandom association -- 'No Fandom' is a real,
     explicit choice (it stops inheritance from an ancestor same-category
@@ -1508,7 +1548,7 @@ def set_tag_fandom_route(
     else:
         db.remove_tag_fandom(DB_PATH, tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1520,6 +1560,7 @@ def set_relationship_character_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     """Links one of relationship_tag's "/"-or-"&"-separated name parts to
     an actual Character tag -- the Character's own spelling can differ
@@ -1533,7 +1574,7 @@ def set_relationship_character_route(
     else:
         db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1544,12 +1585,13 @@ def add_freeform_character_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     character_tag = character_tag.strip()
     if character_tag:
         db.add_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1560,10 +1602,11 @@ def remove_freeform_character_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1574,12 +1617,13 @@ def add_freeform_relationship_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     relationship_tag = relationship_tag.strip()
     if relationship_tag:
         db.add_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1590,10 +1634,11 @@ def remove_freeform_relationship_route(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1606,6 +1651,7 @@ def apply_associations(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     """Bulk-applies whichever of Fandom/Character/Relationship were picked
     (each blank means "don't touch that one") to every checked tag, so
@@ -1631,7 +1677,7 @@ def apply_associations(
             if relationship and category == "freeform":
                 db.add_freeform_relationship(DB_PATH, tag, relationship)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1642,11 +1688,12 @@ def set_selected_tags(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
@@ -1656,21 +1703,22 @@ def mark_page_freeform(
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
 ):
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
 
 
 @app.post("/tags/classify/mark_all_unclassified_freeform")
-def mark_all_unclassified_freeform():
+def mark_all_unclassified_freeform(work_id: str = Form("")):
     result = scanner.load_cached(DB_PATH)
     all_tags = {t for e in result.entries for t in e.fandom_candidates}
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit})
-    return RedirectResponse(url="/tags/classify", status_code=303)
+    return RedirectResponse(url=f"/tags/classify?work_id={quote(work_id)}", status_code=303)
 
 
 @app.get("/fandoms", response_class=HTMLResponse)

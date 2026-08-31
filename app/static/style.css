@@ -345,10 +345,29 @@ th {
 }
 
 .blurb {
+  position: relative;
   padding: 1.1rem;
   border-bottom: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 15px;
+}
+
+.blurb-edit-button {
+  position: absolute;
+  bottom: 0.6rem;
+  right: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+  background: Canvas;
+}
+
+.blurb-edit-button:hover {
+  background: var(--border);
 }
 
 .blurb:last-child {

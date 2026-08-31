@@ -181,7 +181,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 - **Admin Dashboard** (`/admin`) -- the mounted downloads/log paths, and the at-a-glance stats
   (works on disk, total size, logged-success-but-missing, on-disk-no-log-entry, logged failures)
   that used to sit at the top of the Downloads page -- moved here since they're a health check, not
-  something you need while browsing.
+  something you need while browsing. A "Use Home as edit source" checkbox (per-user, off by default)
+  adds a small "Edit" button to the bottom-right corner of every blurb on Home -- a shortcut straight
+  into Classify Tags, filtered to just that one work's own tags (a banner at the top says which work
+  is loaded, with a "clear" link back to the whole library), instead of hunting for them in a
+  library-wide list. Filter tabs, sort, and Organize-by still apply on top of that narrowed set, and
+  every action taken while a work is loaded keeps it loaded afterward.
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.

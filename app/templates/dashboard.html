@@ -19,7 +19,7 @@
 
   <ul class="blurb-list work index group">
     {% for e in entries %}
-      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids) }}
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, home_edit_source) }}
     {% else %}
     <li class="empty">
       {% if last_refreshed %}No works found. Check the mounted downloads/log paths on the <a href="/admin">Admin Dashboard</a>.
