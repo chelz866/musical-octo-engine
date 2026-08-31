@@ -22,6 +22,20 @@
     <button type="submit">Change Password</button>
   </form>
 
+  <h2>Audiobookshelf</h2>
+  {% if saved == "abs_username" %}<p class="badge badge-ok">Audiobookshelf username saved.</p>{% endif %}
+  <p class="paths">
+    If you also read these in Audiobookshelf, pair your account with your Audiobookshelf username
+    and the next Refresh will mark a work read here once you've finished it there. Leave this
+    blank to skip Audiobookshelf entirely and just use the manual Read/Unread toggle on Downloads.
+  </p>
+  <form method="post" action="/account/abs_username" class="stacked-form">
+    <label>Audiobookshelf username
+      <input type="text" name="abs_username" value="{{ abs_username }}" autocomplete="off">
+    </label>
+    <button type="submit">Save</button>
+  </form>
+
   <h2>Theme</h2>
   {% if saved == "theme" %}<p class="badge badge-ok">Theme saved.</p>{% endif %}
   <p class="paths">

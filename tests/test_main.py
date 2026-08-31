@@ -23,7 +23,7 @@ from app.scanner import WorkEntry
 
 
 def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=None,
-             date_from=None, date_to=None, bookmarked=False, q="", sort="title"):
+             date_from=None, date_to=None, bookmarked=False, unread=False, q="", sort="title"):
     return {
         "facets": {name: [] for name in FACETS} | (facets or {}),
         "exclude": {name: [] for name in EXCLUDE_FACETS} | (exclude or {}),
@@ -33,6 +33,7 @@ def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=
         "date_from": date_from,
         "date_to": date_to,
         "bookmarked": bookmarked,
+        "unread": unread,
         "q": q,
         "sort": sort,
     }
@@ -367,6 +368,21 @@ def test_filter_query_string_drops_bookmarked():
 def test_active_chips_includes_bookmarked_only():
     chips = _active_chips(_filters(bookmarked=True))
     assert any(chip["text"] == "Bookmarked only" for chip in chips)
+
+
+def test_filter_query_string_includes_unread():
+    qs = _filter_query_string(_filters(unread=True))
+    assert "unread=true" in qs
+
+
+def test_filter_query_string_drops_unread():
+    qs = _filter_query_string(_filters(unread=True), drop_key="unread")
+    assert "unread" not in qs
+
+
+def test_active_chips_includes_unread_only():
+    chips = _active_chips(_filters(unread=True))
+    assert any(chip["text"] == "Unread only" for chip in chips)
 
 
 def _search(autocompleter, word_to_tags, q, limit=20):

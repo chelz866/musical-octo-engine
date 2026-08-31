@@ -1,5 +1,5 @@
 {% import "_fandom_picker.html" as picker %}
-{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links) %}
+{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids) %}
 {% set icons = e | blurb_icons %}
 {% set tags = e | blurb_tag_line %}
 <li class="blurb work group">
@@ -80,6 +80,22 @@
         <span class="badge badge-missing">✗ missing</span>
       {% else %}
         <span class="badge badge-warn">✗ failed</span>
+      {% endif %}
+      &middot;
+      {% if e.work_id in abs_read_ids %}
+        <span class="badge badge-ok" title="Marked finished in Audiobookshelf">✓ Read</span>
+      {% elif e.work_id in read_marked_ids %}
+        <form method="post" action="/works/{{ e.work_id }}/read" class="read-form">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <input type="hidden" name="read" value="false">
+          <button type="submit" class="badge badge-ok read-toggle" title="Mark unread">✓ Read</button>
+        </form>
+      {% else %}
+        <form method="post" action="/works/{{ e.work_id }}/read" class="read-form">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <input type="hidden" name="read" value="true">
+          <button type="submit" class="read-toggle" title="Mark read">Mark Read</button>
+        </form>
       {% endif %}
     </p>
   </div>

@@ -497,3 +497,102 @@ def test_set_user_theme_css_blank_clears_it():
         db.set_user_theme_css(path, user_id, "body { color: red; }")
         db.set_user_theme_css(path, user_id, "   ")
         assert db.get_user_theme_css(path, user_id) is None
+
+
+def test_user_abs_username_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        assert db.get_user_abs_username(path, user_id) is None
+
+        db.set_user_abs_username(path, user_id, "chelz866")
+        assert db.get_user_abs_username(path, user_id) == "chelz866"
+
+
+def test_set_user_abs_username_blank_clears_it():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.set_user_abs_username(path, user_id, "chelz866")
+        db.set_user_abs_username(path, user_id, "   ")
+        assert db.get_user_abs_username(path, user_id) is None
+
+
+def test_list_user_abs_usernames_only_includes_users_who_set_one():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        db.create_user(path, "friend", "hashed", "user")
+        admin_id = db.get_user_credentials(path, "admin")[0].id
+        friend_id = db.get_user_credentials(path, "friend")[0].id
+
+        db.set_user_abs_username(path, admin_id, "chelz866")
+
+        assert db.list_user_abs_usernames(path) == {admin_id: "chelz866"}
+        assert friend_id not in db.list_user_abs_usernames(path)
+
+
+def test_read_marks_round_trip_and_scoped_per_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        db.create_user(path, "friend", "hashed", "user")
+        admin_id = db.get_user_credentials(path, "admin")[0].id
+        friend_id = db.get_user_credentials(path, "friend")[0].id
+
+        assert db.get_read_marked_work_ids(path, admin_id) == set()
+
+        db.add_read_mark(path, admin_id, "123", "2026-01-01T00:00:00")
+        assert db.get_read_marked_work_ids(path, admin_id) == {"123"}
+        assert db.get_read_marked_work_ids(path, friend_id) == set()
+
+        db.remove_read_mark(path, admin_id, "123")
+        assert db.get_read_marked_work_ids(path, admin_id) == set()
+
+
+def test_add_read_mark_is_idempotent():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.add_read_mark(path, user_id, "123", "2026-01-01T00:00:00")
+        db.add_read_mark(path, user_id, "123", "2026-01-02T00:00:00")
+        assert db.get_read_marked_work_ids(path, user_id) == {"123"}
+
+
+def test_save_abs_read_status_replaces_the_whole_snapshot_for_one_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.save_abs_read_status(path, user_id, {"1": "2026-01-01", "2": None})
+        assert db.get_abs_read_work_ids(path, user_id) == {"1", "2"}
+
+        db.save_abs_read_status(path, user_id, {"3": "2026-02-01"})
+        assert db.get_abs_read_work_ids(path, user_id) == {"3"}
+
+
+def test_abs_read_status_is_scoped_per_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        db.create_user(path, "friend", "hashed", "user")
+        admin_id = db.get_user_credentials(path, "admin")[0].id
+        friend_id = db.get_user_credentials(path, "friend")[0].id
+
+        db.save_abs_read_status(path, admin_id, {"1": "2026-01-01"})
+        assert db.get_abs_read_work_ids(path, admin_id) == {"1"}
+        assert db.get_abs_read_work_ids(path, friend_id) == set()

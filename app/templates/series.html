@@ -9,7 +9,7 @@
 
   <ul class="blurb-list work index group">
     {% for e in entries %}
-      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links) }}
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids) }}
     {% else %}
     <li class="empty">No downloaded works found for this series.</li>
     {% endfor %}

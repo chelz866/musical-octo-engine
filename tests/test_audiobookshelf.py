@@ -1,7 +1,7 @@
 import json
 import sqlite3
 
-from app.audiobookshelf import item_url, load_matches
+from app.audiobookshelf import item_url, load_matches, load_read_work_ids
 
 FANFIC_LIBRARY = "89973a2b-bced-4abc-8c74-d8672154c5d7"
 OTHER_LIBRARY = "1a613b3f-a7aa-4297-ab38-01bf85475cdb"
@@ -22,21 +22,31 @@ def _make_abs_db(
     books: dict[str, tuple] | None = None,
     series: dict[str, str] | None = None,
     book_series: list[tuple[str, str, str, str, str]] | None = None,
+    users: dict[str, str] | None = None,
+    media_progresses: list[tuple[str, str, int, str | None, str]] | None = None,
 ) -> None:
     """items: (item_id, path, libraryId, mediaId).
     books: mediaId -> (title, description, genres_json[, language]).
     series: seriesId -> name.
     book_series: (id, sequence, createdAt, bookId, seriesId) rows -- real
     Audiobookshelf's join table between books and series.
+    users: userId -> username.
+    media_progresses: (id, mediaItemId, isFinished, finishedAt, userId) rows
+    -- real Audiobookshelf's per-user progress table (confirmed against a
+    real export; only the columns load_read_work_ids actually reads).
     """
     books = books or {}
     series = series or {}
     book_series = book_series or []
+    users = users or {}
+    media_progresses = media_progresses or []
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE libraryItems (id TEXT PRIMARY KEY, path TEXT, authorNamesFirstLast TEXT, libraryId TEXT, mediaId TEXT)")
     conn.execute("CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, description TEXT, language TEXT, genres TEXT)")
     conn.execute("CREATE TABLE series (id TEXT PRIMARY KEY, name TEXT)")
     conn.execute("CREATE TABLE bookSeries (id TEXT PRIMARY KEY, sequence TEXT, createdAt TEXT, bookId TEXT, seriesId TEXT)")
+    conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT)")
+    conn.execute("CREATE TABLE mediaProgresses (id TEXT PRIMARY KEY, mediaItemId TEXT, isFinished INTEGER, finishedAt TEXT, userId TEXT)")
     conn.executemany(
         "INSERT INTO libraryItems (id, path, authorNamesFirstLast, libraryId, mediaId) VALUES (?, ?, 'Some Author', ?, ?)",
         items,
@@ -52,6 +62,11 @@ def _make_abs_db(
     conn.executemany(
         "INSERT INTO bookSeries (id, sequence, createdAt, bookId, seriesId) VALUES (?, ?, ?, ?, ?)",
         book_series,
+    )
+    conn.executemany("INSERT INTO users (id, username) VALUES (?, ?)", list(users.items()))
+    conn.executemany(
+        "INSERT INTO mediaProgresses (id, mediaItemId, isFinished, finishedAt, userId) VALUES (?, ?, ?, ?, ?)",
+        media_progresses,
     )
     conn.commit()
     conn.close()
@@ -205,3 +220,67 @@ def test_load_matches_picks_one_series_deterministically_when_book_has_multiple(
     match = load_matches(db_path, FANFIC_LIBRARY)["9778112"]
     assert match.series == "First Series"
     assert match.series_index == "1"
+
+
+def test_load_read_work_ids_returns_finished_at_for_the_named_user(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+        users={"user-1": "chelz866"},
+        media_progresses=[("mp-1", "book-1", 1, "2026-06-30 21:57:40.894 +00:00", "user-1")],
+    )
+
+    finished = load_read_work_ids(db_path, FANFIC_LIBRARY, "chelz866")
+    assert finished == {"9778112": "2026-06-30 21:57:40.894 +00:00"}
+
+
+def test_load_read_work_ids_excludes_unfinished_progress(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+        users={"user-1": "chelz866"},
+        media_progresses=[("mp-1", "book-1", 0, None, "user-1")],
+    )
+
+    assert load_read_work_ids(db_path, FANFIC_LIBRARY, "chelz866") == {}
+
+
+def test_load_read_work_ids_scoped_to_the_named_user_only(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+        users={"user-1": "chelz866", "user-2": "someone_else"},
+        media_progresses=[("mp-1", "book-1", 1, "2026-06-30 21:57:40.894 +00:00", "user-2")],
+    )
+
+    assert load_read_work_ids(db_path, FANFIC_LIBRARY, "chelz866") == {}
+    assert load_read_work_ids(db_path, FANFIC_LIBRARY, "someone_else") == {"9778112": "2026-06-30 21:57:40.894 +00:00"}
+
+
+def test_load_read_work_ids_ignores_other_libraries(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/comics/9999999 Not A Fic.epub", OTHER_LIBRARY, "book-1")],
+        books={"book-1": ("Not A Fic", None, "[]")},
+        users={"user-1": "chelz866"},
+        media_progresses=[("mp-1", "book-1", 1, "2026-06-30 21:57:40.894 +00:00", "user-1")],
+    )
+
+    assert load_read_work_ids(db_path, FANFIC_LIBRARY, "chelz866") == {}
+
+
+def test_load_read_work_ids_blank_username_returns_empty(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(db_path, [])
+    assert load_read_work_ids(db_path, FANFIC_LIBRARY, "") == {}
+
+
+def test_load_read_work_ids_missing_db_file_returns_empty(tmp_path):
+    assert load_read_work_ids(str(tmp_path / "does-not-exist.sqlite"), FANFIC_LIBRARY, "chelz866") == {}

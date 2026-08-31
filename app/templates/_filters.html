@@ -72,6 +72,7 @@
       &ndash;
       <label><input type="date" name="date_to" value="{{ filter_panel.date_to if filter_panel.date_to else '' }}"></label>
       <label><input type="checkbox" name="bookmarked" value="true" {% if filter_panel.bookmarked %}checked{% endif %}> Show only bookmarked</label>
+      <label><input type="checkbox" name="unread" value="true" {% if filter_panel.unread %}checked{% endif %}> Show only unread</label>
     </div>
 
     <button type="submit" class="filter-apply">Search and Filter</button>

@@ -861,3 +861,23 @@ th {
   padding: 0;
   color: #b3261e;
 }
+
+.read-form {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.read-toggle {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+}
+
+button.read-toggle.badge {
+  text-decoration: none;
+}

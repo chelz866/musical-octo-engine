@@ -50,6 +50,15 @@ library, matched works get two things:
   the summary and the stats line, and is a link to `/series/<name>` -- a local series view listing
   every other downloaded work in that series, in series order -- rather than to AO3 itself, since
   this app has no AO3 series id to link to (only Audiobookshelf's own internal one).
+- Read status, once an account pairs itself with an Audiobookshelf username (Account page --
+  entirely optional, and separate from that account's login). Audiobookshelf's `mediaProgresses`
+  table tracks finished/unfinished per its own user, so pairing tells this app whose progress to
+  read at the next Refresh -- one household's accounts can each pair their own Audiobookshelf
+  username, pair none at all, or share one, independently of each other. A work Audiobookshelf
+  reports finished shows a plain "✓ Read" badge (not editable here -- Audiobookshelf is the
+  source of truth for it); everything else gets a manual Mark Read / Mark Unread toggle instead,
+  which never touches or overrides the Audiobookshelf-derived status. "Show only unread" (More
+  Options) hides anything either source marks read.
 
 Matching is by AO3 work id, extracted from Audiobookshelf's own `libraryItems.path` column the same
 way this app reads its own downloads folder, joined to the `books` table via `libraryItems.mediaId`

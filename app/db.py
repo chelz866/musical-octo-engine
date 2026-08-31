@@ -120,6 +120,26 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS read_marks (
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                work_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, work_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS abs_read_status (
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                work_id TEXT NOT NULL,
+                finished_at TEXT,
+                PRIMARY KEY (user_id, work_id)
+            )
+            """
+        )
         _ensure_column(conn, "works_cache", "fandom_candidates")
         _ensure_column(conn, "works_cache", "summary")
         _ensure_column(conn, "works_cache", "language")
@@ -128,6 +148,7 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "works_cache", "chapters_total", "INTEGER")
         _ensure_column(conn, "tag_flags", "category")
         _ensure_column(conn, "users", "theme_css")
+        _ensure_column(conn, "users", "abs_username")
         _ensure_column(conn, "bookmarks", "note")
         # One-time, idempotent: is_fandom used to be the only signal. Existing
         # True rows become an explicit 'fandom' category; existing False rows
@@ -433,3 +454,69 @@ def get_user_theme_css(path: str, user_id: int) -> str | None:
 def set_user_theme_css(path: str, user_id: int, css: str) -> None:
     with _connect(path) as conn:
         conn.execute("UPDATE users SET theme_css = ? WHERE id = ?", (css.strip() or None, user_id))
+
+
+def get_user_abs_username(path: str, user_id: int) -> str | None:
+    with _connect(path) as conn:
+        row = conn.execute("SELECT abs_username FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row[0] if row else None
+
+
+def set_user_abs_username(path: str, user_id: int, username: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE users SET abs_username = ? WHERE id = ?", (username.strip() or None, user_id))
+
+
+def list_user_abs_usernames(path: str) -> dict[int, str]:
+    """user_id -> abs_username, only for users who've actually set one --
+    the refresh cycle uses this to know which app users to sync Audiobookshelf
+    read status for at all (see audiobookshelf.load_read_work_ids).
+    """
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT id, abs_username FROM users WHERE abs_username IS NOT NULL AND abs_username != ''"
+        ).fetchall()
+    return dict(rows)
+
+
+def add_read_mark(path: str, user_id: int, work_id: str, created_at: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO read_marks (user_id, work_id, created_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id, work_id) DO NOTHING
+            """,
+            (user_id, work_id, created_at),
+        )
+
+
+def remove_read_mark(path: str, user_id: int, work_id: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM read_marks WHERE user_id = ? AND work_id = ?", (user_id, work_id))
+
+
+def get_read_marked_work_ids(path: str, user_id: int) -> set[str]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id FROM read_marks WHERE user_id = ?", (user_id,)).fetchall()
+    return {row[0] for row in rows}
+
+
+def save_abs_read_status(path: str, user_id: int, finished: dict[str, str | None]) -> None:
+    """Replaces one user's whole work_id -> finishedAt snapshot (finished_at
+    may be None if Audiobookshelf didn't record a timestamp) -- same
+    replace-all-on-refresh approach as save_abs_matches, just scoped to a
+    single user_id since read status is per-person, unlike the shared
+    work_id -> item_id match.
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM abs_read_status WHERE user_id = ?", (user_id,))
+        conn.executemany(
+            "INSERT INTO abs_read_status (user_id, work_id, finished_at) VALUES (?, ?, ?)",
+            [(user_id, work_id, finished_at) for work_id, finished_at in finished.items()],
+        )
+
+
+def get_abs_read_work_ids(path: str, user_id: int) -> set[str]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id FROM abs_read_status WHERE user_id = ?", (user_id,)).fetchall()
+    return {row[0] for row in rows}

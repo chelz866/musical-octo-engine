@@ -31,6 +31,14 @@ This is optional and read-only: if the db file isn't mounted, isn't a
 valid Audiobookshelf database, or the query otherwise fails, matching
 degrades to no matches rather than breaking the (unrelated) downloads/log
 refresh it runs alongside.
+
+Read status (has this work been finished) is handled separately, in
+load_read_work_ids below -- it's per-person (Audiobookshelf's own
+`mediaProgresses` table is keyed by its `users.id`), unlike everything
+above, which is shared metadata about the book itself. An app account
+only gets Audiobookshelf-synced read status once someone pairs it with
+an Audiobookshelf username (see db.get_user_abs_username); otherwise
+read/unread stays purely the manual per-user toggle (db.read_marks).
 """
 
 import json
@@ -106,3 +114,50 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
 
 def item_url(base_url: str, item_id: str) -> str:
     return f"{base_url.rstrip('/')}/item/{item_id}"
+
+
+def load_read_work_ids(abs_db_path: str, library_id: str, username: str) -> dict[str, str | None]:
+    """AO3 work_id -> finishedAt (may be None) for every work `username` has
+    marked finished in Audiobookshelf's `mediaProgresses` table, restricted
+    to one library the same way load_matches is.
+
+    Unlike load_matches (shared metadata, same for every app user),
+    "read" is inherently per-person -- Audiobookshelf itself tracks
+    mediaProgresses.userId per its own user, so the caller supplies the
+    Audiobookshelf *username* an app account has been paired with (see
+    db.get_user_abs_username) and this resolves it to that user's
+    internal id itself, rather than the caller needing to know it.
+    Reusing `mediaProgresses.mediaItemId = books.id = libraryItems.mediaId`
+    is the same join load_matches already uses.
+    """
+    if not abs_db_path or not os.path.isfile(abs_db_path) or not username:
+        return {}
+
+    try:
+        conn = sqlite3.connect(f"file:{abs_db_path}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                """
+                SELECT li.path, mp.finishedAt
+                FROM users u
+                JOIN mediaProgresses mp ON mp.userId = u.id
+                JOIN books b ON b.id = mp.mediaItemId
+                JOIN libraryItems li ON li.mediaId = b.id
+                WHERE u.username = ? AND li.libraryId = ? AND mp.isFinished = 1
+                """,
+                (username, library_id),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+
+    finished: dict[str, str | None] = {}
+    for path, finished_at in rows:
+        if not path:
+            continue
+        filename_match = FILENAME_RE.match(os.path.basename(path))
+        if not filename_match:
+            continue
+        finished[filename_match.group(1)] = finished_at
+    return finished

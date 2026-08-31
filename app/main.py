@@ -296,6 +296,15 @@ def _abs_links() -> dict[str, str]:
     }
 
 
+def _read_ids(user_id: int) -> tuple[set[str], set[str]]:
+    """(abs_read_ids, manually_read_ids) for one user -- kept separate
+    rather than pre-merged so the template can tell "Audiobookshelf says
+    so" (no toggle, it's not this app's call to override) from "you marked
+    it yourself" (toggle stays available) -- see _blurb.html.
+    """
+    return db.get_abs_read_work_ids(DB_PATH, user_id), db.get_read_marked_work_ids(DB_PATH, user_id)
+
+
 def paginate(items: list, page: int, page_size: int) -> tuple[list, int, int]:
     """Clamps page into [1, total_pages] and slices items to that page.
     Returns (page_items, clamped_page, total_pages). total_pages is always
@@ -497,6 +506,7 @@ def _parse_filters(request: Request) -> dict:
         "date_from": _parse_date(qp.get("date_from")),
         "date_to": _parse_date(qp.get("date_to")),
         "bookmarked": qp.get("bookmarked") == "true",
+        "unread": qp.get("unread") == "true",
         "q": qp.get("q", "").strip(),
         "sort": qp.get("sort") or DEFAULT_SORT,
     }
@@ -569,6 +579,8 @@ def _filter_query_string(filters: dict, *, drop_key: str | None = None, drop_val
         parts.append(f"crossover={quote(filters['crossover'])}")
     if filters["bookmarked"] and drop_key != "bookmarked":
         parts.append("bookmarked=true")
+    if filters["unread"] and drop_key != "unread":
+        parts.append("unread=true")
     if filters["sort"] != DEFAULT_SORT and drop_key != "sort":
         parts.append(f"sort={quote(filters['sort'])}")
     return ("&" + "&".join(parts)) if parts else ""
@@ -609,6 +621,8 @@ def _active_chips(filters: dict) -> list[dict]:
         chips.append({"text": "No crossovers", "remove_href": "/?" + _filter_query_string(filters, drop_key="crossover").lstrip("&")})
     if filters["bookmarked"]:
         chips.append({"text": "Bookmarked only", "remove_href": "/?" + _filter_query_string(filters, drop_key="bookmarked").lstrip("&")})
+    if filters["unread"]:
+        chips.append({"text": "Unread only", "remove_href": "/?" + _filter_query_string(filters, drop_key="unread").lstrip("&")})
     return chips
 
 
@@ -621,6 +635,7 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
         "date_to": filters["date_to"],
         "crossover": filters["crossover"],
         "bookmarked": filters["bookmarked"],
+        "unread": filters["unread"],
         "sort": filters["sort"],
         "sort_options": SORT_LABELS,
         "searchable_facets": TAG_SEARCH_FACETS,
@@ -664,10 +679,13 @@ def dashboard(request: Request, page: int = 1):
 
     bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
     bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
+    abs_read_ids, read_marked_ids = _read_ids(request.state.user.id)
 
     entries = [e for e in result.entries if _entry_matches(e, filters)]
     if filters["bookmarked"]:
         entries = [e for e in entries if e.work_id in bookmarked_ids]
+    if filters["unread"]:
+        entries = [e for e in entries if e.work_id not in abs_read_ids and e.work_id not in read_marked_ids]
     entries.sort(key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]))
 
     page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
@@ -681,6 +699,8 @@ def dashboard(request: Request, page: int = 1):
             "entries": page_entries,
             "bookmarked_ids": bookmarked_ids,
             "bookmark_notes": bookmark_notes,
+            "abs_read_ids": abs_read_ids,
+            "read_marked_ids": read_marked_ids,
             "filter_panel": filter_panel,
             "active_chips": active_chips,
             "abs_links": _abs_links(),
@@ -706,6 +726,7 @@ def series_view(request: Request, series_name: str):
 
     bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
     bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
+    abs_read_ids, read_marked_ids = _read_ids(request.state.user.id)
 
     return templates.TemplateResponse(
         "series.html",
@@ -715,6 +736,8 @@ def series_view(request: Request, series_name: str):
             "entries": entries,
             "bookmarked_ids": bookmarked_ids,
             "bookmark_notes": bookmark_notes,
+            "abs_read_ids": abs_read_ids,
+            "read_marked_ids": read_marked_ids,
             "abs_links": _abs_links(),
         },
     )
@@ -736,6 +759,21 @@ def toggle_bookmark(request: Request, work_id: str, bookmarked: bool = Form(...)
 @app.post("/works/{work_id}/bookmark/note")
 def set_bookmark_note(request: Request, work_id: str, note: str = Form(""), next: str = Form("/")):
     db.set_bookmark_note(DB_PATH, request.state.user.id, work_id, note)
+    return RedirectResponse(url=next or "/", status_code=303)
+
+
+@app.post("/works/{work_id}/read")
+def toggle_read(request: Request, work_id: str, read: bool = Form(...), next: str = Form("/")):
+    """Manual read/unread toggle, per-user like bookmarking. This never
+    touches abs_read_status -- if Audiobookshelf already reports a work
+    finished for this account, it stays shown as read regardless of what
+    happens here (see _blurb.html, which hides this toggle in that case
+    rather than pretending it can override Audiobookshelf).
+    """
+    if read:
+        db.add_read_mark(DB_PATH, request.state.user.id, work_id, datetime.now().isoformat())
+    else:
+        db.remove_read_mark(DB_PATH, request.state.user.id, work_id)
     return RedirectResponse(url=next or "/", status_code=303)
 
 
@@ -1047,6 +1085,12 @@ def refresh(next: str = Form("/")):
     scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH, abs_matches)
     if ABS_DB_PATH and ABS_LIBRARY_ID:
         db.save_abs_matches(DB_PATH, {work_id: m.item_id for work_id, m in abs_matches.items()})
+        # Read status is per-app-account, not shared like the match above --
+        # only accounts that have paired an Audiobookshelf username (Account
+        # page) get synced; everyone else stays on the manual toggle alone.
+        for user_id, abs_username in db.list_user_abs_usernames(DB_PATH).items():
+            finished = audiobookshelf.load_read_work_ids(ABS_DB_PATH, ABS_LIBRARY_ID, abs_username)
+            db.save_abs_read_status(DB_PATH, user_id, finished)
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
     return RedirectResponse(url=next or "/", status_code=303)
 
@@ -1100,7 +1144,13 @@ def account_page(request: Request, error: str = "", saved: str = ""):
     context = _base_context(request)
     return templates.TemplateResponse(
         "account.html",
-        {**context, "error": error, "saved": saved, "theme_css": context["theme_css"] or ""},
+        {
+            **context,
+            "error": error,
+            "saved": saved,
+            "theme_css": context["theme_css"] or "",
+            "abs_username": db.get_user_abs_username(DB_PATH, request.state.user.id) or "",
+        },
     )
 
 
@@ -1114,6 +1164,18 @@ def save_theme(request: Request, theme_css: str = Form("")):
     """
     db.set_user_theme_css(DB_PATH, request.state.user.id, theme_css)
     return RedirectResponse(url="/account?saved=theme", status_code=303)
+
+
+@app.post("/account/abs_username")
+def save_abs_username(request: Request, abs_username: str = Form("")):
+    """Pairs this account with an Audiobookshelf username so the next
+    Refresh can pull that person's own read/finished status (see
+    audiobookshelf.load_read_work_ids) -- purely opt-in, and per-account,
+    so one household's users can each pair their own (or not pair at all
+    and just use the manual read toggle).
+    """
+    db.set_user_abs_username(DB_PATH, request.state.user.id, abs_username)
+    return RedirectResponse(url="/account?saved=abs_username", status_code=303)
 
 
 @app.post("/account/password")
