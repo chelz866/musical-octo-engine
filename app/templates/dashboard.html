@@ -49,7 +49,9 @@
           {%- else -%}
             <span class="hint">no fandom guessed</span>
           {%- endif -%}
-          {%- if e.series -%}, <span class="blurb-series">{{ e.series }}{% if e.series_index %} (#{{ e.series_index }}){% endif %} Series</span>{%- endif %}
+          {%- if e.series -%}
+            , <span class="blurb-series">{% if e.series_index %}Part {{ e.series_index }} of {% endif %}{{ e.series }}</span>
+          {%- endif %}
           {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
         </div>
         {% if e.work_id in bookmarked_ids %}

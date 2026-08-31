@@ -18,6 +18,15 @@ in particular is the same flat AO3 tag list `epub_meta.classify_subjects`
 expects (confirmed content and ordering against a real row), so scanner.py
 uses it in place of an epub parse when a work has a match here.
 
+Series membership (AO3's "Part N of <series>") isn't in `books` at all --
+Audiobookshelf models it as a separate many-to-many join, `bookSeries`
+(`bookId`, `seriesId`, `sequence`) against a `series` table (`id`, `name`)
+(confirmed against a real export of both tables). A book with more than one
+series row picks whichever was added first (`ORDER BY ... createdAt LIMIT 1`)
+rather than surfacing all of them -- AO3 fics are effectively always in at
+most one series in practice, so this is a deliberate simplification, not a
+bug if it ever isn't.
+
 This is optional and read-only: if the db file isn't mounted, isn't a
 valid Audiobookshelf database, or the query otherwise fails, matching
 degrades to no matches rather than breaking the (unrelated) downloads/log
@@ -44,6 +53,8 @@ class AbsBookMatch:
     description: str | None = None
     language: str | None = None
     genres: list[str] = field(default_factory=list)  # same flat AO3 tag list an epub's dc:subject would have
+    series: str | None = None  # series.name, via the bookSeries join table
+    series_index: str | None = None  # bookSeries.sequence -- AO3's "Part N of" position
 
 
 def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
@@ -59,7 +70,11 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
         try:
             rows = conn.execute(
                 """
-                SELECT li.id, li.path, li.authorNamesFirstLast, b.title, b.description, b.language, b.genres
+                SELECT li.id, li.path, li.authorNamesFirstLast, b.title, b.description, b.language, b.genres,
+                    (SELECT s.name FROM bookSeries bs JOIN series s ON s.id = bs.seriesId
+                     WHERE bs.bookId = b.id ORDER BY bs.createdAt LIMIT 1) AS series_name,
+                    (SELECT bs.sequence FROM bookSeries bs
+                     WHERE bs.bookId = b.id ORDER BY bs.createdAt LIMIT 1) AS series_index
                 FROM libraryItems li
                 JOIN books b ON b.id = li.mediaId
                 WHERE li.libraryId = ?
@@ -72,7 +87,7 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
         return {}
 
     matches: dict[str, AbsBookMatch] = {}
-    for item_id, path, author, title, description, language, genres_json in rows:
+    for item_id, path, author, title, description, language, genres_json, series_name, series_index in rows:
         if not path:
             continue
         filename_match = FILENAME_RE.match(os.path.basename(path))
@@ -84,6 +99,7 @@ def load_matches(abs_db_path: str, library_id: str) -> dict[str, AbsBookMatch]:
             genres = []
         matches[filename_match.group(1)] = AbsBookMatch(
             item_id=item_id, title=title, author=author, description=description, language=language, genres=genres,
+            series=series_name, series_index=str(series_index) if series_index is not None else None,
         )
     return matches
 

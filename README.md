@@ -43,6 +43,10 @@ library, matched works get two things:
   parse-error Issue) still shows correct info as long as it matches in Audiobookshelf. Word count
   and chapter progress are the exception -- those always come from the epub file itself (see the
   Downloads page entry above), matched or not, since Audiobookshelf doesn't track either.
+- Series membership -- AO3's own "Part N of &lt;series&gt;" line -- comes from Audiobookshelf's
+  `series`/`bookSeries` tables (its own series management, separate from `books`) rather than the
+  epub file, which usually doesn't carry this at all. A book Audiobookshelf has filed under more
+  than one series shows whichever it was added to first.
 
 Matching is by AO3 work id, extracted from Audiobookshelf's own `libraryItems.path` column the same
 way this app reads its own downloads folder, joined to the `books` table via `libraryItems.mediaId`

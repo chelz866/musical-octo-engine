@@ -111,6 +111,8 @@ def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = 
                 entry.relationships = classification.relationships
                 entry.fandoms = classification.fandoms
                 entry.fandom_candidates = classification.fandom_candidates
+                entry.series = abs_match.series
+                entry.series_index = abs_match.series_index
             else:
                 try:
                     meta = parse_epub_metadata(full_path)

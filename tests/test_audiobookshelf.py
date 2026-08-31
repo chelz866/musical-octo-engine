@@ -16,14 +16,27 @@ REAL_GENRES = [
 ]
 
 
-def _make_abs_db(path: str, items: list[tuple[str, str, str, str]], books: dict[str, tuple] | None = None) -> None:
+def _make_abs_db(
+    path: str,
+    items: list[tuple[str, str, str, str]],
+    books: dict[str, tuple] | None = None,
+    series: dict[str, str] | None = None,
+    book_series: list[tuple[str, str, str, str, str]] | None = None,
+) -> None:
     """items: (item_id, path, libraryId, mediaId).
     books: mediaId -> (title, description, genres_json[, language]).
+    series: seriesId -> name.
+    book_series: (id, sequence, createdAt, bookId, seriesId) rows -- real
+    Audiobookshelf's join table between books and series.
     """
     books = books or {}
+    series = series or {}
+    book_series = book_series or []
     conn = sqlite3.connect(path)
     conn.execute("CREATE TABLE libraryItems (id TEXT PRIMARY KEY, path TEXT, authorNamesFirstLast TEXT, libraryId TEXT, mediaId TEXT)")
     conn.execute("CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT, description TEXT, language TEXT, genres TEXT)")
+    conn.execute("CREATE TABLE series (id TEXT PRIMARY KEY, name TEXT)")
+    conn.execute("CREATE TABLE bookSeries (id TEXT PRIMARY KEY, sequence TEXT, createdAt TEXT, bookId TEXT, seriesId TEXT)")
     conn.executemany(
         "INSERT INTO libraryItems (id, path, authorNamesFirstLast, libraryId, mediaId) VALUES (?, ?, 'Some Author', ?, ?)",
         items,
@@ -34,6 +47,11 @@ def _make_abs_db(path: str, items: list[tuple[str, str, str, str]], books: dict[
             (media_id, row[0], row[1], row[3] if len(row) > 3 else None, row[2])
             for media_id, row in books.items()
         ],
+    )
+    conn.executemany("INSERT INTO series (id, name) VALUES (?, ?)", list(series.items()))
+    conn.executemany(
+        "INSERT INTO bookSeries (id, sequence, createdAt, bookId, seriesId) VALUES (?, ?, ?, ?, ?)",
+        book_series,
     )
     conn.commit()
     conn.close()
@@ -138,3 +156,52 @@ def test_load_matches_invalid_database_returns_empty(tmp_path):
 def test_item_url_handles_trailing_slash_in_base_url():
     assert item_url("http://host:13378/audiobookshelf/", "abc-123") == "http://host:13378/audiobookshelf/item/abc-123"
     assert item_url("http://host:13378/audiobookshelf", "abc-123") == "http://host:13378/audiobookshelf/item/abc-123"
+
+
+def test_load_matches_includes_series_name_and_sequence(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+        series={"series-1": "Hogwarts Stranger Secrets"},
+        book_series=[("bs-1", "5", "2026-06-30 21:36:13.633 +00:00", "book-1", "series-1")],
+    )
+
+    match = load_matches(db_path, FANFIC_LIBRARY)["9778112"]
+    assert match.series == "Hogwarts Stranger Secrets"
+    assert match.series_index == "5"
+
+
+def test_load_matches_series_is_none_when_book_has_no_series_row(tmp_path):
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+    )
+
+    match = load_matches(db_path, FANFIC_LIBRARY)["9778112"]
+    assert match.series is None
+    assert match.series_index is None
+
+
+def test_load_matches_picks_one_series_deterministically_when_book_has_multiple(tmp_path):
+    # A book belonging to more than one series is an edge case ABS allows
+    # but AO3 fics don't really hit -- picking the earliest-added row
+    # deterministically (rather than an arbitrary one) is good enough.
+    db_path = str(tmp_path / "absdatabase.sqlite")
+    _make_abs_db(
+        db_path,
+        [("a1", "/storage/fics/ao3-dl/downloads/9778112 Sanctuary - SailorChibi.epub", FANFIC_LIBRARY, "book-1")],
+        books={"book-1": ("Sanctuary", None, "[]")},
+        series={"series-1": "First Series", "series-2": "Second Series"},
+        book_series=[
+            ("bs-1", "2", "2026-06-30 21:36:20.000 +00:00", "book-1", "series-2"),
+            ("bs-2", "1", "2026-06-30 21:36:13.633 +00:00", "book-1", "series-1"),
+        ],
+    )
+
+    match = load_matches(db_path, FANFIC_LIBRARY)["9778112"]
+    assert match.series == "First Series"
+    assert match.series_index == "1"

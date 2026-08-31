@@ -439,6 +439,21 @@ def test_abs_match_handles_a_real_20_plus_tag_work_without_choking():
     assert entry.summary == "Steve didn't want them to know. He didn't want them to know why he couldn't drive"
 
 
+def test_abs_match_includes_series():
+    with tempfile.TemporaryDirectory() as downloads:
+        with open(os.path.join(downloads, "1_Whatever.epub"), "w") as f:
+            f.write("not actually a zip")
+
+        abs_matches = {
+            "1": AbsBookMatch(item_id="item-1", title="Sanctuary", series="Hogwarts Stranger Secrets", series_index="5"),
+        }
+        result = scan(downloads, None, None, abs_matches)
+
+    entry = result.entries[0]
+    assert entry.series == "Hogwarts Stranger Secrets"
+    assert entry.series_index == "5"
+
+
 def test_abs_matches_do_not_affect_unmatched_works():
     with tempfile.TemporaryDirectory() as downloads:
         _build_epub(os.path.join(downloads, "2_Title_Author.epub"), ["Fanworks", "Torchwood"])
