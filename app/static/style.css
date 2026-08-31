@@ -710,18 +710,79 @@ th {
 }
 
 .stacked-form input,
-.stacked-form select {
+.stacked-form select,
+.stacked-form textarea {
   font-size: 0.9rem;
   padding: 0.4rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 4px;
   font-weight: normal;
+  font-family: inherit;
 }
 
 .stacked-form button {
   align-self: flex-start;
   font-size: 0.85rem;
   padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.theme-form {
+  max-width: 640px;
+}
+
+.theme-form textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+.bookmark-note-block {
+  margin: 0.3rem 0;
+}
+
+.bookmark-note {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+  margin: 0.2rem 0;
+  white-space: pre-wrap;
+}
+
+.note-editor summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.note-editor form {
+  margin-top: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.note-editor textarea {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.note-editor button {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.8rem;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;

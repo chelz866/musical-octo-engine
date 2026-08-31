@@ -52,6 +52,21 @@
           {%- if e.series -%}, <span class="blurb-series">{{ e.series }}{% if e.series_index %} (#{{ e.series_index }}){% endif %} Series</span>{%- endif %}
           {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
         </div>
+        {% if e.work_id in bookmarked_ids %}
+        <div class="bookmark-note-block">
+          {% if bookmark_notes.get(e.work_id) %}
+          <p class="bookmark-note">📝 {{ bookmark_notes.get(e.work_id) }}</p>
+          {% endif %}
+          <details class="note-editor">
+            <summary>{{ "edit note" if bookmark_notes.get(e.work_id) else "add note" }}</summary>
+            <form method="post" action="/works/{{ e.work_id }}/bookmark/note">
+              <input type="hidden" name="next" value="{{ request.url }}">
+              <textarea name="note" rows="2" placeholder="Note to yourself...">{{ bookmark_notes.get(e.work_id, "") }}</textarea>
+              <button type="submit">Save</button>
+            </form>
+          </details>
+        </div>
+        {% endif %}
         {% if tags %}
         <p class="blurb-tags">
           {% for tag in tags %}<span class="{{ tag.class }}">{{ tag.text }}</span>{% if not loop.last %}, {% endif %}{% endfor %}

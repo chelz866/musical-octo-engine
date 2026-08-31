@@ -215,10 +215,27 @@ templates.env.filters["blurb_icons"] = blurb_icons
 templates.env.filters["blurb_tag_line"] = blurb_tag_line
 
 
+def sanitize_style_content(css: str) -> str:
+    """<style> content is raw CSS text per the HTML spec, not HTML -- the
+    browser doesn't decode entities inside it, it just scans for the
+    literal closing tag. So the one thing a pasted theme could use to
+    break out into real HTML/script is a literal "</style" substring;
+    neutralizing just that (rather than HTML-escaping the whole thing,
+    which would corrupt valid CSS like `div > p`) is what actually makes
+    this safe to render unescaped. Used with the `safe` filter in
+    base.html for exactly that reason.
+    """
+    return re.sub(r"</style", "&lt;/style", css, flags=re.IGNORECASE)
+
+
+templates.env.filters["sanitize_style_content"] = sanitize_style_content
+
+
 def _base_context(request: Request) -> dict:
     return {
         "request": request,
         "user": request.state.user,
+        "theme_css": db.get_user_theme_css(DB_PATH, request.state.user.id),
         "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
         "feeds_last_refreshed": db.get_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY),
         "refresh_error": request.query_params.get("refresh_error"),
@@ -591,6 +608,7 @@ def dashboard(request: Request, page: int = 1):
     active_chips = _active_chips(filters)
 
     bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
+    bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
 
     entries = [e for e in result.entries if _entry_matches(e, filters)]
     if filters["bookmarked"]:
@@ -607,6 +625,7 @@ def dashboard(request: Request, page: int = 1):
             **_base_context(request),
             "entries": page_entries,
             "bookmarked_ids": bookmarked_ids,
+            "bookmark_notes": bookmark_notes,
             "filter_panel": filter_panel,
             "active_chips": active_chips,
             "abs_links": _abs_links(),
@@ -628,6 +647,12 @@ def toggle_bookmark(request: Request, work_id: str, bookmarked: bool = Form(...)
         db.add_bookmark(DB_PATH, request.state.user.id, work_id, datetime.now().isoformat())
     else:
         db.remove_bookmark(DB_PATH, request.state.user.id, work_id)
+    return RedirectResponse(url=next or "/", status_code=303)
+
+
+@app.post("/works/{work_id}/bookmark/note")
+def set_bookmark_note(request: Request, work_id: str, note: str = Form(""), next: str = Form("/")):
+    db.set_bookmark_note(DB_PATH, request.state.user.id, work_id, note)
     return RedirectResponse(url=next or "/", status_code=303)
 
 
@@ -988,11 +1013,24 @@ def logout(request: Request):
 
 
 @app.get("/account", response_class=HTMLResponse)
-def account_page(request: Request, error: str = "", saved: bool = False):
+def account_page(request: Request, error: str = "", saved: str = ""):
+    context = _base_context(request)
     return templates.TemplateResponse(
         "account.html",
-        {**_base_context(request), "error": error, "saved": saved},
+        {**context, "error": error, "saved": saved, "theme_css": context["theme_css"] or ""},
     )
+
+
+@app.post("/account/theme")
+def save_theme(request: Request, theme_css: str = Form("")):
+    """Raw CSS, applied only to this user's own page loads (see base.html
+    and sanitize_style_content) -- pasting a real AO3 skin will style
+    whatever happens to share a selector with this app's own markup
+    (tag pills, tables, form fields) and silently no-op on AO3-specific
+    ids like #header/#dashboard that don't exist here.
+    """
+    db.set_user_theme_css(DB_PATH, request.state.user.id, theme_css)
+    return RedirectResponse(url="/account?saved=theme", status_code=303)
 
 
 @app.post("/account/password")
@@ -1011,7 +1049,7 @@ def change_own_password(
     if len(new_password) < 4:
         return RedirectResponse(url="/account?error=" + quote("New password is too short."), status_code=303)
     db.set_user_password(DB_PATH, user.id, auth.hash_password(new_password))
-    return RedirectResponse(url="/account?saved=true", status_code=303)
+    return RedirectResponse(url="/account?saved=password", status_code=303)
 
 
 @app.get("/admin/users", response_class=HTMLResponse)

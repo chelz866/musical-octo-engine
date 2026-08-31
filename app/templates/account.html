@@ -7,7 +7,7 @@
   </header>
 
   {% if error %}<p class="badge badge-warn">{{ error }}</p>{% endif %}
-  {% if saved %}<p class="badge badge-ok">Password updated.</p>{% endif %}
+  {% if saved == "password" %}<p class="badge badge-ok">Password updated.</p>{% endif %}
 
   <form method="post" action="/account/password" class="stacked-form">
     <label>Current password
@@ -20,5 +20,21 @@
       <input type="password" name="confirm_password" required minlength="4">
     </label>
     <button type="submit">Change Password</button>
+  </form>
+
+  <h2>Theme</h2>
+  {% if saved == "theme" %}<p class="badge badge-ok">Theme saved.</p>{% endif %}
+  <p class="paths">
+    Paste custom CSS here to restyle your own view of this app. AO3 skins are written against
+    AO3's own page markup, so ids like <code>#header</code> or <code>#dashboard</code> won't
+    match anything here and will simply do nothing -- but generic selectors a skin happens to
+    share with this app (tags, tables, form fields) will still apply. Only you see this; it has
+    no effect on anyone else's account.
+  </p>
+  <form method="post" action="/account/theme" class="stacked-form theme-form">
+    <label>Custom CSS
+      <textarea name="theme_css" rows="16" spellcheck="false" placeholder="/* paste a theme's CSS here */">{{ theme_css }}</textarea>
+    </label>
+    <button type="submit">Save Theme</button>
   </form>
 {% endblock %}

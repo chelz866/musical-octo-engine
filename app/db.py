@@ -127,6 +127,8 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "works_cache", "chapters_have", "INTEGER")
         _ensure_column(conn, "works_cache", "chapters_total", "INTEGER")
         _ensure_column(conn, "tag_flags", "category")
+        _ensure_column(conn, "users", "theme_css")
+        _ensure_column(conn, "bookmarks", "note")
         # One-time, idempotent: is_fandom used to be the only signal. Existing
         # True rows become an explicit 'fandom' category; existing False rows
         # become 'freeform' (not "unclassified" -- the user already looked at
@@ -399,3 +401,35 @@ def get_bookmarked_work_ids(path: str, user_id: int) -> set[str]:
     with _connect(path) as conn:
         rows = conn.execute("SELECT work_id FROM bookmarks WHERE user_id = ?", (user_id,)).fetchall()
     return {row[0] for row in rows}
+
+
+def set_bookmark_note(path: str, user_id: int, work_id: str, note: str) -> None:
+    """No-ops if the work isn't bookmarked (no row to update) -- the note
+    editor is only ever shown for a bookmarked work, but this stays safe
+    either way rather than assuming the caller got that right.
+    """
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE bookmarks SET note = ? WHERE user_id = ? AND work_id = ?",
+            (note.strip() or None, user_id, work_id),
+        )
+
+
+def get_bookmark_notes(path: str, user_id: int) -> dict[str, str]:
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT work_id, note FROM bookmarks WHERE user_id = ? AND note IS NOT NULL",
+            (user_id,),
+        ).fetchall()
+    return dict(rows)
+
+
+def get_user_theme_css(path: str, user_id: int) -> str | None:
+    with _connect(path) as conn:
+        row = conn.execute("SELECT theme_css FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row[0] if row else None
+
+
+def set_user_theme_css(path: str, user_id: int, css: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE users SET theme_css = ? WHERE id = ?", (css.strip() or None, user_id))

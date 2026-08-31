@@ -73,11 +73,21 @@ username `admin`, password `admin` -- change that password immediately from the 
 only bookmarked" (under More Options in the filter panel) narrows the list to just yours -- your
 bookmarks are invisible to other accounts and vice versa. Everything else (the library itself,
 tag classifications, tracked feeds) stays shared across every account, unchanged from before
-logins existed.
+logins existed. A bookmarked work also gets an "add note" toggle underneath it, for a short
+private note to yourself (a reminder of why you saved it, where you left off, etc.) -- also
+per-user, and cleared automatically if you remove the bookmark.
 
 Sessions are opaque server-side tokens (a `sessions` table, not a signed cookie) and don't expire
 on a timer -- they last until you log out. That's a deliberate simplification for a small,
 private-network deployment; if that's ever not the case for your setup, keep that in mind.
+
+**Themes**: the Account page has a "Custom CSS" box where you can paste your own stylesheet --
+including an AO3 skin you like. It only affects your own view. AO3 skins are written against
+AO3's actual page markup (ids like `#header`, `#dashboard`, `.splash`), which doesn't exist on
+this app's pages, so those rules simply do nothing here; but any selector a skin happens to share
+with this app's own markup (tag pills, blurb cards, tables, form fields) will visibly apply. In
+other words: pasting a real AO3 skin gives a partial, not full, reskin -- there's no
+selector-translation layer, by design.
 
 ## Pages
 

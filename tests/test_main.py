@@ -14,6 +14,7 @@ from app.main import (
     _selected_with_counts,
     _static_facet_counts,
     paginate,
+    sanitize_style_content,
 )
 from app.scanner import WorkEntry
 
@@ -414,3 +415,21 @@ def test_sort_newest_prefers_mtime_then_log_timestamp_then_min():
     entries = [with_mtime, with_log_timestamp, with_neither]
     entries.sort(key=SORT_OPTIONS["newest"])
     assert [e.work_id for e in entries] == ["3", "2", "1"]
+
+
+def test_sanitize_style_content_neutralizes_closing_style_tag():
+    css = "body { color: red; } </style><script>alert(1)</script>"
+    result = sanitize_style_content(css)
+    assert "</style>" not in result
+    assert "&lt;/style" in result
+
+
+def test_sanitize_style_content_is_case_insensitive():
+    css = "a {} </STYLE><script>alert(1)</script>"
+    result = sanitize_style_content(css)
+    assert "</style" not in result.lower().replace("&lt;/style", "")
+
+
+def test_sanitize_style_content_leaves_ordinary_css_untouched():
+    css = "div > p { color: red; } a.tag { font-weight: bold; }"
+    assert sanitize_style_content(css) == css

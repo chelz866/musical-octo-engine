@@ -422,3 +422,78 @@ def test_bookmarks_are_scoped_per_user():
         db.add_bookmark(path, admin_id, "123", "2026-01-01T00:00:00")
         assert db.get_bookmarked_work_ids(path, admin_id) == {"123"}
         assert db.get_bookmarked_work_ids(path, friend_id) == set()
+
+
+def test_set_bookmark_note_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+        db.add_bookmark(path, user_id, "123", "2026-01-01T00:00:00")
+
+        db.set_bookmark_note(path, user_id, "123", "read this on a rainy day")
+        assert db.get_bookmark_notes(path, user_id) == {"123": "read this on a rainy day"}
+
+
+def test_set_bookmark_note_is_noop_when_not_bookmarked():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.set_bookmark_note(path, user_id, "123", "no bookmark for this work")
+        assert db.get_bookmark_notes(path, user_id) == {}
+
+
+def test_set_bookmark_note_blank_clears_it():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+        db.add_bookmark(path, user_id, "123", "2026-01-01T00:00:00")
+
+        db.set_bookmark_note(path, user_id, "123", "a note")
+        db.set_bookmark_note(path, user_id, "123", "   ")
+        assert db.get_bookmark_notes(path, user_id) == {}
+
+
+def test_removing_bookmark_clears_its_note():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+        db.add_bookmark(path, user_id, "123", "2026-01-01T00:00:00")
+        db.set_bookmark_note(path, user_id, "123", "a note")
+
+        db.remove_bookmark(path, user_id, "123")
+        db.add_bookmark(path, user_id, "123", "2026-01-02T00:00:00")
+        assert db.get_bookmark_notes(path, user_id) == {}
+
+
+def test_user_theme_css_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        assert db.get_user_theme_css(path, user_id) is None
+
+        db.set_user_theme_css(path, user_id, "body { color: red; }")
+        assert db.get_user_theme_css(path, user_id) == "body { color: red; }"
+
+
+def test_set_user_theme_css_blank_clears_it():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.set_user_theme_css(path, user_id, "body { color: red; }")
+        db.set_user_theme_css(path, user_id, "   ")
+        assert db.get_user_theme_css(path, user_id) is None
