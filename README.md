@@ -159,10 +159,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   Once one or more Fandoms are checked (Include), the Character/Relationship/Additional Tags
   suggestions and "Find another..." search both narrow to only tags that make sense for that
   fandom: a tag with no fandom link at all (an unwrangled, universal trope like "Coffee Shops")
-  always stays available, and one wrangled as a child of the selected fandom(s) stays available too,
-  but a tag wrangled under a *different* fandom (e.g. "The Doctor" under "Doctor Who") disappears
-  from both while browsing Harry Potter -- see Tag wrangling under Classify Tags below for how that
-  fandom link gets set.
+  always stays available, and one wrangled to the selected fandom(s) -- directly, or several
+  wrangling hops down a chain (e.g. a Character wrangled under a Relationship wrangled under the
+  Fandom) -- stays available too, but a tag wrangled under a *different* fandom (e.g. "The Doctor"
+  under "Doctor Who") disappears from both while browsing Harry Potter -- see Tag wrangling under
+  Classify Tags below for how that fandom link gets set.
 
   **More Options**: Crossovers (include/exclude/only), a word-count range, and a downloaded-date
   range (`From`/`To`, compared against the same timestamp the "newest" sort uses). Sort-by covers
@@ -213,28 +214,44 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
   to select anything.
 
-  This page also does AO3-style tag wrangling, single-level (a tag points directly at its
-  canonical/parent tag, not through a chain): "Merge selected into &rarr;" folds every checked tag
-  into one canonical tag everywhere -- display, Tags-page counts, and classification -- so it stops
-  appearing here as its own row (undo it from the "Wrangled Tags" list at the bottom of the page,
-  since a merged tag has no row of its own to undo it from). "Make selected children of &rarr;"
-  keeps each checked tag as itself (its own row, its own category) but makes filtering or excluding
-  Downloads by the parent also match works only tagged with the child -- e.g. searching "Alternate
-  Reality" also surfaces a work tagged only "Alternate Reality - Canon Divergence", the same way
-  real AO3 wrangling works. A tag can't be wrangled into a target that's itself already wrangled, or
-  wrangled away once other tags already point to it -- both are refused to keep the mapping flat.
+  This page also does AO3-style tag wrangling, split into two genuinely different mechanisms rather
+  than one generic graph, matching how real AO3 wrangling separates a tag's "Parent Tag" from its
+  "Fandom":
 
-  The parent typed into "Make selected children of" doesn't have to already exist as a tag on any
-  work -- typing a brand-new name creates a consolidated parent purely to group existing tags under
-  (e.g. wrangling "Torchwood" and "Doctor Who" as children of a new "Sci-Fi Shows"). It then shows
-  up here as its own row, with a count of the distinct works matching any of its children (not a
-  sum, so a work with two of that parent's children isn't counted twice), and works the same as any
-  other parent for both nesting and Downloads filtering.
+  **Same-category hierarchy** ("Merge selected into &rarr;" / "Make selected children of &rarr;")
+  -- "Merge selected into" folds every checked tag into one canonical tag everywhere (display,
+  Tags-page counts, classification), category-blind since two spellings of the same tag aren't a
+  category question; it stops appearing here as its own row (undo it from the "Wrangled Tags" list
+  at the bottom of the page). "Make selected children of" keeps each checked tag as itself but
+  *requires* the parent to share the same category -- a Fandom's parent must be a Fandom, a
+  Character's a Character, a Relationship's a Relationship, a Freeform tag's a Freeform tag; a tag
+  of a different category is silently skipped. Filtering or excluding Downloads by the parent also
+  matches works only tagged with the child, at any depth in the chain (a real multi-level hierarchy
+  is allowed, e.g. Freeform &rarr; Freeform &rarr; Freeform, cycle-checked). The parent doesn't have
+  to already exist as a real tag -- typing a brand-new name creates a consolidated parent purely to
+  group existing same-category tags under (e.g. wrangling "Torchwood" and "Doctor Who," both
+  Fandoms, as children of a new "Sci-Fi Shows"); it shows up here as its own row with a count of the
+  distinct works matching any descendant (not summed), but starts Unclassified like any new tag, so
+  it only appears under a specific category tab once you've classified it yourself. A parent with
+  children shows a small &#9656; toggle and renders them indented underneath, one level deeper per
+  hop, collapsed by default -- the same nesting shows on the read-only Tags and Fandoms pages too,
+  and searching this page's text filter for a descendant auto-expands every collapsed ancestor
+  needed to reveal it.
 
-  A parent with children shows a small &#9656; toggle and renders them indented directly
-  underneath, collapsed by default so a heavily-childed tag doesn't make the table any taller than
-  usual -- the same nesting shows on the read-only Tags page too. Searching this page's text filter
-  for a child's name auto-expands its parent to reveal it.
+  **Fandom/Character/Relationship association** (the Fandom/Character(s)/Relationship(s) columns)
+  -- a completely separate, cross-category concept: every Character, Relationship, and Freeform tag
+  gets its own "Fandom" dropdown (defaulting to "No Fandom"), a Relationship gets one Character
+  dropdown per "/"-or-"&amp;"-separated name part in its own text (the Character's spelling can
+  differ from the literal substring), and a Freeform tag can be linked to any number of Characters
+  and Relationships via small add/remove chips. "No Fandom" is a real, explicit choice, not just
+  "unset" -- a same-category child with no Fandom of its own inherits the nearest ancestor's
+  explicit choice (a real Fandom or an explicit "No Fandom," whichever is closer), defaulting to
+  "No Fandom" only if nothing in the whole chain has ever set one. Once a Character/Relationship/
+  Freeform tag resolves to a real Fandom, every work using that tag counts as belonging to that
+  Fandom for Downloads filtering and the Fandoms page, even when the epub's own raw tags never
+  mention it directly -- and the Character/Relationship/Additional-Tags suggestions and "Find
+  another..." search on Downloads narrow to that Fandom the same way (see the Search & Filter
+  section above).
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

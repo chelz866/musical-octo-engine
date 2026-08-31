@@ -767,6 +767,30 @@ th {
   padding-left: 1.5rem;
 }
 
+.tag-table-scroll {
+  overflow-x: auto;
+}
+
+.inline-form {
+  display: inline-block;
+  margin: 0.1rem 0.3rem 0.1rem 0;
+}
+
+.chip-remove {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+}
+
+.tag-mini-input {
+  width: 8rem;
+  font-size: 0.8rem;
+}
+
 @media (max-width: 640px) {
   .site-header {
     padding: 0.75rem 1rem 0;

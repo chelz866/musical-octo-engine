@@ -139,30 +139,53 @@ def test_set_tag_wrangling_rejects_self_wrangle():
         assert db.get_all_tag_wranglings(path) == {}
 
 
-def test_set_tag_wrangling_rejects_chaining_into_an_already_wrangled_target():
+def test_set_tag_wrangling_allows_chaining_into_an_already_wrangled_target():
+    # Multi-level hierarchies are the whole point now (e.g. a Character
+    # wrangled under a Relationship, itself wrangled under a Fandom).
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
         db.set_tag_wrangling(path, "B", "synonym", "C")
-        try:
-            db.set_tag_wrangling(path, "A", "synonym", "B")
-            assert False, "expected ValueError"
-        except ValueError:
-            pass
-        assert "A" not in db.get_all_tag_wranglings(path)
+        db.set_tag_wrangling(path, "A", "synonym", "B")
+        assert db.get_all_tag_wranglings(path) == {"A": ("synonym", "B"), "B": ("synonym", "C")}
 
 
-def test_set_tag_wrangling_rejects_wrangling_a_tag_that_already_has_followers():
+def test_set_tag_wrangling_allows_wrangling_a_tag_that_already_has_followers():
+    # A node can be both a parent (things point at it) and itself a child
+    # (it points at something else) at the same time -- that's just a tree.
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
         db.set_tag_wrangling(path, "A", "synonym", "B")
+        db.set_tag_wrangling(path, "B", "synonym", "C")
+        assert db.get_all_tag_wranglings(path) == {"A": ("synonym", "B"), "B": ("synonym", "C")}
+
+
+def test_set_tag_wrangling_rejects_a_direct_cycle():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "A", "child", "B")
         try:
-            db.set_tag_wrangling(path, "B", "synonym", "C")
+            db.set_tag_wrangling(path, "B", "child", "A")
             assert False, "expected ValueError"
         except ValueError:
             pass
         assert "B" not in db.get_all_tag_wranglings(path)
+
+
+def test_set_tag_wrangling_rejects_an_indirect_cycle():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "A", "child", "B")
+        db.set_tag_wrangling(path, "B", "child", "C")
+        try:
+            db.set_tag_wrangling(path, "C", "child", "A")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+        assert "C" not in db.get_all_tag_wranglings(path)
 
 
 def test_remove_tag_wrangling():

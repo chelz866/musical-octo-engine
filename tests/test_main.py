@@ -14,7 +14,9 @@ from app.main import (
     _parse_date,
     _selected_with_counts,
     _add_virtual_parent_counts,
+    _all_descendants,
     _build_fandom_scope,
+    _expand_children_transitively,
     _filter_by_letter,
     _group_tag_rows_by_parent,
     _series_sort_key,
@@ -339,14 +341,94 @@ def test_facet_suggestions_exclude_mode_reads_the_exclude_dict():
     assert suggestions == [("Umbridge", 1)]
 
 
-def test_build_fandom_scope_only_scopes_children_of_a_real_fandom():
-    entries = [WorkEntry(work_id="1", fandoms=["Doctor Who"])]
-    # "The Doctor" is wrangled under "Doctor Who" (a real fandom) --
-    # scoped. "Coffee Shops" is wrangled under "AUs" (never used as a
-    # fandom by any entry) -- not scoped, stays universal.
-    children = {"Doctor Who": {"The Doctor"}, "AUs": {"Coffee Shops"}}
-    scope = _build_fandom_scope(entries, children)
+def test_build_fandom_scope_uses_a_tags_own_explicit_association():
+    scope = _build_fandom_scope({}, {"The Doctor": "Doctor Who"})
     assert scope == {"The Doctor": "Doctor Who"}
+
+
+def test_build_fandom_scope_no_fandom_association_is_excluded():
+    scope = _build_fandom_scope({}, {"Coffee Shops": "No Fandom"})
+    assert scope == {}
+
+
+def test_build_fandom_scope_inherits_down_a_same_category_chain():
+    # "Ron Weasley (Auror)" is a same-category child of "Ron Weasley" --
+    # it has no Fandom of its own, so it inherits "Ron Weasley"'s.
+    children = {"Ron Weasley": {"Ron Weasley (Auror)"}}
+    scope = _build_fandom_scope(children, {"Ron Weasley": "Harry Potter"})
+    assert scope["Ron Weasley (Auror)"] == "Harry Potter"
+    assert scope["Ron Weasley"] == "Harry Potter"
+
+
+def test_build_fandom_scope_childs_own_explicit_association_overrides_inherited():
+    # "Anxious Character" (parent, no fandom) -> "Anxious Shane Hollander"
+    # (child, its own explicit Fandom) -- the child's own choice wins.
+    children = {"Anxious Character": {"Anxious Shane Hollander"}}
+    explicit = {"Anxious Character": "No Fandom", "Anxious Shane Hollander": "Heated Rivalry"}
+    scope = _build_fandom_scope(children, explicit)
+    assert scope["Anxious Shane Hollander"] == "Heated Rivalry"
+    assert "Anxious Character" not in scope
+
+
+def test_build_fandom_scope_walks_multiple_levels_up_to_the_fandom():
+    # Character -> Character -> Character, a real three-level chain --
+    # the great-grandchild's scope should resolve all the way up, not
+    # stop at its own direct parent.
+    children = {
+        "Ron Weasley": {"Ron Weasley (Auror)"},
+        "Ron Weasley (Auror)": {"Ron Weasley (Auror, Injured)"},
+    }
+    scope = _build_fandom_scope(children, {"Ron Weasley": "Harry Potter"})
+    assert scope["Ron Weasley (Auror, Injured)"] == "Harry Potter"
+
+
+def test_build_fandom_scope_chain_that_never_reaches_a_fandom_has_no_scope():
+    children = {"Alternate Universe": {"Coffee Shop AU"}, "Coffee Shop AU": {"Barista AU"}}
+    scope = _build_fandom_scope(children, {})
+    assert "Barista AU" not in scope
+    assert "Coffee Shop AU" not in scope
+
+
+def test_all_descendants_walks_multiple_levels():
+    children = {
+        "Harry Potter": {"Harry Potter/Hermione Granger"},
+        "Harry Potter/Hermione Granger": {"Hermione Granger"},
+    }
+    assert _all_descendants("Harry Potter", children) == {"Harry Potter/Hermione Granger", "Hermione Granger"}
+
+
+def test_all_descendants_of_a_leaf_is_empty():
+    children = {"Harry Potter": {"Hermione Granger"}}
+    assert _all_descendants("Hermione Granger", children) == set()
+
+
+def test_expand_children_transitively_flattens_the_whole_chain_per_parent():
+    children = {
+        "Harry Potter": {"Harry Potter/Hermione Granger"},
+        "Harry Potter/Hermione Granger": {"Hermione Granger"},
+    }
+    expanded = _expand_children_transitively(children)
+    assert expanded["Harry Potter"] == {"Harry Potter/Hermione Granger", "Hermione Granger"}
+    assert expanded["Harry Potter/Hermione Granger"] == {"Hermione Granger"}
+
+
+def test_value_or_children_present_matches_a_grandchild_via_expanded_map():
+    children = _expand_children_transitively({
+        "Harry Potter": {"Harry Potter/Hermione Granger"},
+        "Harry Potter/Hermione Granger": {"Hermione Granger"},
+    })
+    assert _value_or_children_present("Harry Potter", {"Hermione Granger"}, children) is True
+
+
+def test_add_virtual_parent_counts_reaches_grandchildren_via_expanded_map():
+    entries = [WorkEntry(work_id="1", fandom_candidates=["Hermione Granger"])]
+    counts = Counter({"Hermione Granger": 1})
+    expanded = _expand_children_transitively({
+        "Sci-Fi Ships": {"Harry Potter/Hermione Granger"},
+        "Harry Potter/Hermione Granger": {"Hermione Granger"},
+    })
+    _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, expanded)
+    assert counts["Sci-Fi Ships"] == 1
 
 
 def test_facet_suggestions_drops_a_tag_scoped_to_a_different_fandom():
@@ -720,7 +802,29 @@ def test_group_tag_rows_by_parent_nests_child_under_parent():
     children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
     grouped = _group_tag_rows_by_parent(tags, children)
     assert [row["tag"] for row in grouped] == ["Alternate Reality"]
-    assert grouped[0]["children"] == [("Alternate Reality - Canon Divergence", 2, "freeform")]
+    assert grouped[0]["children"] == [
+        {"tag": "Alternate Reality - Canon Divergence", "count": 2, "category": "freeform", "children": []}
+    ]
+
+
+def test_group_tag_rows_by_parent_nests_multiple_levels_deep():
+    # Fandom -> Relationship -> Character, a real three-level chain.
+    tags = [
+        ("Harry Potter", 5, "fandom"),
+        ("Harry Potter/Hermione Granger", 3, "relationship"),
+        ("Hermione Granger", 3, "character"),
+    ]
+    children = {
+        "Harry Potter": {"Harry Potter/Hermione Granger"},
+        "Harry Potter/Hermione Granger": {"Hermione Granger"},
+    }
+    grouped = _group_tag_rows_by_parent(tags, children)
+    assert [row["tag"] for row in grouped] == ["Harry Potter"]
+    relationship_row = grouped[0]["children"][0]
+    assert relationship_row["tag"] == "Harry Potter/Hermione Granger"
+    assert relationship_row["children"] == [
+        {"tag": "Hermione Granger", "count": 3, "category": "character", "children": []}
+    ]
 
 
 def test_group_tag_rows_by_parent_leaves_childless_tags_alone():
@@ -751,4 +855,4 @@ def test_group_tag_rows_by_parent_preserves_sort_order_for_top_level_and_childre
     grouped = _group_tag_rows_by_parent(tags, children)
     assert [row["tag"] for row in grouped] == ["Alternate Reality", "Angst"]
     # Children ride along in the same relative order they had in `tags`.
-    assert [c[0] for c in grouped[0]["children"]] == ["Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"]
+    assert [c["tag"] for c in grouped[0]["children"]] == ["Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"]

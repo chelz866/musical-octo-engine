@@ -14,11 +14,34 @@ fixes every work that has that tag, instead of requiring a correction on
 each of what could be thousands of individual works. See
 scanner._resolve_tag_categories.
 
-tag_wranglings is AO3-style tag wrangling, also global and single-level:
-a 'synonym' row merges one tag's spelling into a canonical tag everywhere
-(display, counts, classification), while a 'child' row keeps a tag's own
-identity but makes filtering by its parent also match it (e.g. "Alternate
-Reality - Canon Divergence" as a child of "Alternate Reality").
+tag_wranglings is AO3-style tag wrangling, also global, and now split into
+two genuinely different mechanisms rather than one generic graph:
+
+- 'synonym' rows merge one tag's spelling into a canonical tag everywhere
+  (display, counts, classification) -- category-blind, since two spellings
+  of "the same tag" aren't a category question.
+- 'child' rows are a same-*category*-only parent/child hierarchy (a
+  Fandom's parent is always a Fandom, a Character's a Character, etc --
+  enforced by the caller in main.py, since checking a tag's effective
+  category needs the scanned library, not just this table). Chains are
+  allowed within one category (e.g. Freeform -> Freeform -> Freeform),
+  cycle-checked by set_tag_wrangling.
+
+Fandom/Character/Relationship association is a *separate* concept from
+the same-category hierarchy above, matching how real AO3 wrangling
+splits "Parent Tag" (same-type) from a tag's "Fandom" (cross-type):
+
+- tag_fandoms: every Character/Relationship/Freeform tag has at most one
+  Fandom association (or the explicit sentinel "No Fandom"), inherited
+  down its own same-category 'child' chain when a tag itself has no
+  explicit row -- see scanner._resolve_tag_fandom. Fandom tags don't get
+  a row here; they don't have a Fandom of their own.
+- relationship_characters: each of a Relationship's "/"-or-"&"-separated
+  name parts (part_index, in split order) maps to one Character tag --
+  the character's own spelling can differ from the literal substring.
+- freeform_characters / freeform_relationships: a Freeform tag can be
+  associated with any number of Characters and/or Relationships, with no
+  slot structure (unlike a Relationship's fixed per-part Characters).
 
 Users/sessions/bookmarks are the one place this file departs from "global,
 shared data": bookmarks are scoped per user_id, everything else in this
@@ -105,6 +128,42 @@ def init_db(path: str) -> None:
                 tag TEXT PRIMARY KEY,
                 relation TEXT NOT NULL CHECK (relation IN ('synonym', 'child')),
                 target TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tag_fandoms (
+                tag TEXT PRIMARY KEY,
+                fandom TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS relationship_characters (
+                relationship_tag TEXT NOT NULL,
+                part_index INTEGER NOT NULL,
+                character_tag TEXT NOT NULL,
+                PRIMARY KEY (relationship_tag, part_index)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS freeform_characters (
+                freeform_tag TEXT NOT NULL,
+                character_tag TEXT NOT NULL,
+                PRIMARY KEY (freeform_tag, character_tag)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS freeform_relationships (
+                freeform_tag TEXT NOT NULL,
+                relationship_tag TEXT NOT NULL,
+                PRIMARY KEY (freeform_tag, relationship_tag)
             )
             """
         )
@@ -299,11 +358,16 @@ def get_tag_synonyms(path: str) -> dict[str, str]:
 
 
 def get_tag_children(path: str) -> dict[str, set[str]]:
-    """parent tag -> set of its child tags (relation='child' rows only). A
-    child keeps its own name and category everywhere -- this map only
-    powers Downloads filter expansion, where selecting or excluding the
-    parent also matches works tagged with any of its children instead of
-    only the parent tag itself. See main._entry_matches.
+    """parent tag -> set of its *direct* child tags only (relation='child'
+    rows only) -- one edge per row, not the transitive closure. Since
+    'child' rows are same-category-only (enforced by the caller in
+    main.py before it ever calls set_tag_wrangling), this is a
+    same-category hierarchy: used for nesting on the Tags/Fandoms pages
+    and for Downloads filter expansion within one category (selecting a
+    parent also matches its descendants). scanner._resolve_tag_fandom
+    walks this same edge list for a different purpose -- finding a
+    Character/Relationship/Freeform tag's nearest explicit Fandom
+    association up its own same-category chain.
     """
     children: dict[str, set[str]] = defaultdict(set)
     with _connect(path) as conn:
@@ -324,22 +388,33 @@ def get_all_tag_wranglings(path: str) -> dict[str, tuple[str, str]]:
 
 def set_tag_wrangling(path: str, tag: str, relation: str, target: str) -> None:
     """Points `tag` at `target` as either a 'synonym' (merges tag into
-    target everywhere -- display, counts, and classification) or a
-    'child' (tag keeps its own identity, but filtering by target also
-    matches works tagged with `tag`). Deliberately single-level, like AO3's
-    own wrangling: refuses to wrangle a tag into a target that is itself
-    already wrangled somewhere else, and refuses to wrangle a tag that
-    already has other tags pointing to it -- either would form a chain
-    (A -> B -> C) instead of the flat tag -> canonical-or-parent shape
-    every other part of this feature assumes.
+    target's canonical name and category everywhere -- display, counts,
+    classification) or a 'child' (a same-category parent/child hierarchy
+    edge -- tag keeps its own identity, but filtering by target also
+    matches works tagged with `tag`). This function doesn't itself check
+    that tag/target share a category for 'child' -- main.py's
+    wrangle_tags route does that using the scanned library before ever
+    calling this, since this module has no access to resolved categories.
+
+    Chains are allowed and expected -- `target` can itself already be
+    wrangled to something else, and other tags can already point at
+    `tag`, forming a real multi-level hierarchy (e.g. a Freeform tag
+    several levels under another Freeform tag). The only thing refused is
+    a cycle: wrangling `tag` into `target` when `target`'s own chain of
+    targets eventually leads back to `tag`, which would make every
+    read-time chain-walk loop forever.
     """
     if tag == target:
         raise ValueError("a tag can't be wrangled into itself")
     with _connect(path) as conn:
-        if conn.execute("SELECT 1 FROM tag_wranglings WHERE tag = ?", (target,)).fetchone():
-            raise ValueError(f"{target!r} is itself already wrangled -- point at its target instead")
-        if conn.execute("SELECT 1 FROM tag_wranglings WHERE target = ?", (tag,)).fetchone():
-            raise ValueError(f"other tags already point to {tag!r} -- wrangle those to {target!r} directly instead")
+        seen = {tag}
+        current = target
+        while current is not None:
+            if current in seen:
+                raise ValueError(f"wrangling {tag!r} into {target!r} would create a cycle")
+            seen.add(current)
+            row = conn.execute("SELECT target FROM tag_wranglings WHERE tag = ?", (current,)).fetchone()
+            current = row[0] if row else None
         conn.execute(
             """
             INSERT INTO tag_wranglings (tag, relation, target) VALUES (?, ?, ?)
@@ -352,6 +427,135 @@ def set_tag_wrangling(path: str, tag: str, relation: str, target: str) -> None:
 def remove_tag_wrangling(path: str, tag: str) -> None:
     with _connect(path) as conn:
         conn.execute("DELETE FROM tag_wranglings WHERE tag = ?", (tag,))
+
+
+def get_all_tag_fandoms(path: str) -> dict[str, str]:
+    """tag -> its explicit Fandom association ('No Fandom' or a real
+    fandom tag name). A tag absent from this dict has never had one set
+    explicitly -- see scanner._resolve_tag_fandom, which then walks the
+    tag's own same-category 'child' chain (get_tag_children) looking for
+    the nearest ancestor that does, defaulting to 'No Fandom' if the whole
+    chain comes up empty.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT tag, fandom FROM tag_fandoms").fetchall()
+    return dict(rows)
+
+
+def set_tag_fandom(path: str, tag: str, fandom: str) -> None:
+    """Sets tag's own explicit Fandom association -- 'No Fandom' is a
+    real, terminal choice here (it stops inheritance from an ancestor
+    just as much as a real fandom name would), not the same as never
+    having set anything at all.
+    """
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO tag_fandoms (tag, fandom) VALUES (?, ?)
+            ON CONFLICT(tag) DO UPDATE SET fandom = excluded.fandom
+            """,
+            (tag, fandom),
+        )
+
+
+def remove_tag_fandom(path: str, tag: str) -> None:
+    """Clears tag's own explicit Fandom association, reverting it to
+    whatever it would inherit from its same-category parent chain (or
+    'No Fandom' if nothing in the chain has one set either).
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM tag_fandoms WHERE tag = ?", (tag,))
+
+
+def get_all_relationship_characters(path: str) -> dict[str, dict[int, str]]:
+    """relationship tag -> {part_index: character_tag}, one entry per
+    "/"-or-"&"-separated name part that's been explicitly linked to an
+    actual Character tag (a part with no row yet just has no linked
+    Character -- see main._relationship_name_parts for how the parts
+    themselves are derived from the relationship's own tag text).
+    """
+    result: dict[str, dict[int, str]] = defaultdict(dict)
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT relationship_tag, part_index, character_tag FROM relationship_characters").fetchall()
+    for relationship_tag, part_index, character_tag in rows:
+        result[relationship_tag][part_index] = character_tag
+    return dict(result)
+
+
+def set_relationship_character(path: str, relationship_tag: str, part_index: int, character_tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO relationship_characters (relationship_tag, part_index, character_tag) VALUES (?, ?, ?)
+            ON CONFLICT(relationship_tag, part_index) DO UPDATE SET character_tag = excluded.character_tag
+            """,
+            (relationship_tag, part_index, character_tag),
+        )
+
+
+def remove_relationship_character(path: str, relationship_tag: str, part_index: int) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "DELETE FROM relationship_characters WHERE relationship_tag = ? AND part_index = ?",
+            (relationship_tag, part_index),
+        )
+
+
+def get_all_freeform_characters(path: str) -> dict[str, set[str]]:
+    """freeform tag -> set of Characters associated with it -- unlike a
+    Relationship's per-part Characters, this is just an unstructured set,
+    since a Freeform tag has no name-parts to match slots against.
+    """
+    result: dict[str, set[str]] = defaultdict(set)
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT freeform_tag, character_tag FROM freeform_characters").fetchall()
+    for freeform_tag, character_tag in rows:
+        result[freeform_tag].add(character_tag)
+    return dict(result)
+
+
+def add_freeform_character(path: str, freeform_tag: str, character_tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO freeform_characters (freeform_tag, character_tag) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            (freeform_tag, character_tag),
+        )
+
+
+def remove_freeform_character(path: str, freeform_tag: str, character_tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "DELETE FROM freeform_characters WHERE freeform_tag = ? AND character_tag = ?",
+            (freeform_tag, character_tag),
+        )
+
+
+def get_all_freeform_relationships(path: str) -> dict[str, set[str]]:
+    """freeform tag -> set of Relationships associated with it, same
+    unstructured shape as get_all_freeform_characters.
+    """
+    result: dict[str, set[str]] = defaultdict(set)
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT freeform_tag, relationship_tag FROM freeform_relationships").fetchall()
+    for freeform_tag, relationship_tag in rows:
+        result[freeform_tag].add(relationship_tag)
+    return dict(result)
+
+
+def add_freeform_relationship(path: str, freeform_tag: str, relationship_tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO freeform_relationships (freeform_tag, relationship_tag) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            (freeform_tag, relationship_tag),
+        )
+
+
+def remove_freeform_relationship(path: str, freeform_tag: str, relationship_tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "DELETE FROM freeform_relationships WHERE freeform_tag = ? AND relationship_tag = ?",
+            (freeform_tag, relationship_tag),
+        )
 
 
 def set_dismissed(path: str, work_id: str, dismissed: bool) -> None:

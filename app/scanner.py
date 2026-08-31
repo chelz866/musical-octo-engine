@@ -209,6 +209,8 @@ def _resolve_tag_categories(
     a child keeps its own name and classification; only Downloads filter
     matching treats it specially, expanding a selected parent value to also
     match works tagged with any of its children (see main._entry_matches).
+    Fandom/Character/Relationship association (see resolve_tag_fandom) is
+    also handled separately, in _finalize.
     """
     if not entry.fandom_candidates:
         return entry.fandom_candidates, entry.fandoms, [], [], []
@@ -243,11 +245,67 @@ def _resolve_tag_categories(
     return canonical_candidates, fandoms, characters, relationships, freeform
 
 
+def child_parent_map(children: dict[str, set[str]]) -> dict[str, str]:
+    """Inverts db.get_tag_children's parent -> {children} map into
+    child -> parent, one entry per 'child'-relation edge (each tag has at
+    most one, by construction -- see db.set_tag_wrangling).
+    """
+    return {child: parent for parent, kids in children.items() for child in kids}
+
+
+def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]) -> str:
+    """Walks `tag`'s own same-category 'child' chain (parent_of, from
+    child_parent_map/db.get_tag_children) looking for the nearest
+    ancestor -- including `tag` itself -- with an explicit Fandom
+    association (db.set_tag_fandom). 'No Fandom' is itself a real,
+    terminal choice that stops the walk just as much as a real fandom
+    name would; only a tag with no explicit row anywhere in its own chain
+    falls back to the 'No Fandom' default. Safe against a cycle even
+    though db.set_tag_wrangling already refuses to create one.
+    """
+    current = tag
+    seen: set[str] = set()
+    while current is not None:
+        if current in explicit_fandoms:
+            return explicit_fandoms[current]
+        if current in seen:
+            break
+        seen.add(current)
+        current = parent_of.get(current)
+    return "No Fandom"
+
+
+def _resolve_associated_fandoms(
+    characters: list[str],
+    relationships: list[str],
+    freeform: list[str],
+    parent_of: dict[str, str],
+    explicit_fandoms: dict[str, str],
+) -> list[str]:
+    """Every real Fandom that this work's own Characters/Relationships/
+    Freeform tags are associated with (see db.set_tag_fandom), in
+    first-seen order with no duplicates -- 'No Fandom' contributes
+    nothing. Folded into entry.fandoms in _finalize, so a work using a
+    fandom-associated Character/Relationship/Freeform tag counts as
+    belonging to that Fandom even when none of its own raw tags said so
+    directly (e.g. a fic tagged only with the Character "The Doctor",
+    associated with the Fandom "Doctor Who").
+    """
+    found: list[str] = []
+    for tag in (*characters, *relationships, *freeform):
+        fandom = resolve_tag_fandom(tag, parent_of, explicit_fandoms)
+        if fandom != "No Fandom" and fandom not in found:
+            found.append(fandom)
+    return found
+
+
 def _finalize(
     entries: list[WorkEntry],
     overrides: dict[str, db.Override],
     tag_categories: dict[str, str],
     tag_synonyms: dict[str, str],
+    same_category_parent_of: dict[str, str],
+    tag_fandoms: dict[str, str],
 ) -> ScanResult:
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
@@ -267,6 +325,12 @@ def _finalize(
             entry.relationships,
             entry.freeform_tags,
         ) = _resolve_tag_categories(entry, tag_categories, tag_synonyms)
+
+        for fandom in _resolve_associated_fandoms(
+            entry.characters, entry.relationships, entry.freeform_tags, same_category_parent_of, tag_fandoms
+        ):
+            if fandom not in entry.fandoms:
+                entry.fandoms.append(fandom)
 
         override = overrides.get(work_id)
         if override:
@@ -302,7 +366,12 @@ def scan(
     overrides = db.get_all_overrides(db_path) if db_path else {}
     tag_categories = db.get_all_tag_categories(db_path) if db_path else {}
     tag_synonyms = db.get_tag_synonyms(db_path) if db_path else {}
-    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories, tag_synonyms)
+    same_category_parent_of = child_parent_map(db.get_tag_children(db_path)) if db_path else {}
+    tag_fandoms = db.get_all_tag_fandoms(db_path) if db_path else {}
+    return _finalize(
+        scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories, tag_synonyms,
+        same_category_parent_of, tag_fandoms,
+    )
 
 
 def refresh_cache(
@@ -313,13 +382,19 @@ def refresh_cache(
 ) -> ScanResult:
     entries = scan_raw(download_dir, log_path, abs_matches)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path))
+    return _finalize(
+        entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
+        child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
+    )
 
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
     entries = [_row_to_entry(row) for row in rows]
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path))
+    return _finalize(
+        entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
+        child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
+    )
 
 
 def _join(values: list[str]) -> str | None:

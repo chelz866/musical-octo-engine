@@ -451,34 +451,84 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20, active_fandoms: set[
         # the top-10 suggestions (_facet_suggestions) -- otherwise typing
         # into "Find another..." would be the one way left to slip a
         # different fandom's tag past the scoping.
-        scope = _build_fandom_scope(scanner.load_cached(DB_PATH).entries, db.get_tag_children(DB_PATH))
+        scope = _build_fandom_scope(db.get_tag_children(DB_PATH), db.get_all_tag_fandoms(DB_PATH))
         matched = {tag for tag in matched if not scope.get(tag) or scope[tag] in active_fandoms}
     return sorted(matched, key=str.lower)[:limit]
 
 
-def _build_fandom_scope(entries: list, children: dict[str, set[str]]) -> dict[str, str]:
-    """tag -> the one fandom it's scoped to, for every 'child' wrangling
-    whose parent is itself used as a fandom somewhere in the library (see
-    scanner.WorkEntry.fandoms). Used to keep a fandom-specific tag (e.g.
-    "The Doctor", wrangled as a child of the fandom "Doctor Who") out of
-    a *different* fandom's Character/Relationship/Additional-Tags
-    suggestions and "Find another..." search results -- a tag wrangled
-    under something that ISN'T used as a fandom (an ordinary same-category
-    subtag, or a consolidated parent that isn't itself a fandom) has no
-    scope here and stays universally suggestible, same as an unwrangled
-    tag like "Coffee Shops".
+def _all_descendants(value: str, children: dict[str, set[str]]) -> set[str]:
+    """Every tag reachable by following 'child' wrangling edges downward
+    from `value`, at any depth -- not just its direct children. E.g. for
+    Fandom "Harry Potter" with Relationship "Harry Potter/Hermione
+    Granger" wrangled under it, and Characters "Harry Potter"/"Hermione
+    Granger" wrangled under *that* relationship, this returns all three,
+    not just the relationship. Safe against a cycle even though
+    db.set_tag_wrangling already refuses to create one, since a node
+    already visited is never re-expanded.
     """
-    known_fandoms = {name for entry in entries for name in entry.fandoms}
-    return {child: parent for parent, kids in children.items() if parent in known_fandoms for child in kids}
+    result: set[str] = set()
+    stack = list(children.get(value, ()))
+    while stack:
+        node = stack.pop()
+        if node in result:
+            continue
+        result.add(node)
+        stack.extend(children.get(node, ()))
+    return result
+
+
+def _build_fandom_scope(children: dict[str, set[str]], explicit_fandoms: dict[str, str]) -> dict[str, str]:
+    """tag -> its resolved Fandom association (see db.set_tag_fandom /
+    scanner.resolve_tag_fandom), for every Character/Relationship/Freeform
+    tag whose own same-category 'child' chain resolves to something other
+    than "No Fandom". Used to keep a fandom-specific tag (e.g. "The
+    Doctor", associated with the Fandom "Doctor Who") out of a *different*
+    fandom's Character/Relationship/Additional-Tags suggestions and "Find
+    another..." search results -- a tag that resolves to "No Fandom" (no
+    association anywhere in its own chain) has no scope here and stays
+    universally suggestible, same as an unwrangled tag like "Coffee Shops".
+
+    Unlike the old chain-walk this replaces, "which fandom does this tag
+    belong to" is no longer inferred by climbing the same-category
+    hierarchy looking for a Fandom node -- Fandom is its own explicit,
+    inheritable association (db.tag_fandoms), completely separate from
+    same-category parent/child. See scanner.resolve_tag_fandom, the same
+    resolution scanner already applies to fold associated fandoms into
+    entry.fandoms.
+    """
+    parent_of = scanner.child_parent_map(children)
+    scope = {}
+    for tag in set(parent_of) | set(explicit_fandoms):
+        fandom = scanner.resolve_tag_fandom(tag, parent_of, explicit_fandoms)
+        if fandom != "No Fandom":
+            scope[tag] = fandom
+    return scope
+
+
+def _expand_children_transitively(children: dict[str, set[str]]) -> dict[str, set[str]]:
+    """`children` (direct parent -> direct children only, see
+    db.get_tag_children) expanded so each parent maps to EVERY descendant
+    at any depth instead of just its direct children -- computed once per
+    request so Downloads filter matching (_entry_matches /
+    _value_or_children_present) and virtual-parent counts
+    (_add_virtual_parent_counts) don't re-walk the graph for every
+    (entry, value) pair. Nesting display (_group_tag_rows_by_parent)
+    deliberately keeps using the raw, un-expanded map instead, since it
+    needs the real tree shape (each level nested under its own direct
+    parent), not a flattened one.
+    """
+    return {parent: _all_descendants(parent, children) for parent in children}
 
 
 def _value_or_children_present(value: str, entry_values: set[str], children: dict[str, set[str]]) -> bool:
     """True if `value` itself is one of entry_values, or if entry_values
-    contains any tag wrangled as a 'child' of `value` (see
-    db.get_tag_children) -- a child keeps its own name/category, but
-    filtering by its parent should match it too, same as real AO3
-    wrangling (searching "Alternate Reality" also surfaces works only
-    tagged with "Alternate Reality - Canon Divergence").
+    contains any descendant of `value` at any depth (see
+    _expand_children_transitively -- `children` here is expected to
+    already be the transitive-closure map, not raw direct edges) -- a
+    descendant keeps its own name/category, but filtering by an ancestor
+    should match it too, same as real AO3 wrangling (searching "Alternate
+    Reality" also surfaces works only tagged with "Alternate Reality -
+    Canon Divergence", however many wrangling hops separate the two).
     """
     if value in entry_values:
         return True
@@ -495,9 +545,10 @@ def _entry_matches(entry, filters: dict, skip_include: str | None = None, skip_e
     everything *else* currently matches; they're independent since a facet
     can have both an active Include and an active Exclude at once.
 
-    `filters["children"]` (parent tag -> set of child tags, absent/empty
+    `filters["children"]` (parent tag -> set of ALL descendants at any
+    depth, already expanded by _expand_children_transitively; absent/empty
     when there's no wrangling) expands each selected value to also match a
-    work tagged with one of that value's children -- see
+    work tagged with any of that value's descendants -- see
     _value_or_children_present.
     """
     children = filters.get("children") or {}
@@ -737,8 +788,9 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
 def dashboard(request: Request, page: int = 1):
     result = scanner.load_cached(DB_PATH)
     filters = _parse_filters(request)
-    filters["children"] = db.get_tag_children(DB_PATH)
-    filters["fandom_scope"] = _build_fandom_scope(result.entries, filters["children"])
+    raw_children = db.get_tag_children(DB_PATH)
+    filters["children"] = _expand_children_transitively(raw_children)
+    filters["fandom_scope"] = _build_fandom_scope(raw_children, db.get_all_tag_fandoms(DB_PATH))
     # Facet suggestion/count computation needs the *whole* library, not the
     # already-filtered list below -- each facet's own counts are computed
     # by re-filtering result.entries excluding just that one facet (see
@@ -984,15 +1036,18 @@ def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
 def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children_map: dict[str, set[str]]) -> None:
     """Mutates `counts` in place to add an entry for each wrangling parent
     that isn't itself a real tag on any work -- a "consolidated" parent an
-    admin created purely to group existing children under (see
+    admin created purely to group existing descendants under (see
     db.set_tag_wrangling; the target of a 'child' wrangling never has to
-    already exist as a literal tag). Its count is the number of distinct
-    works matching ANY of its children -- the same "parent or any child"
+    already exist as a literal tag). `children_map` is expected to already
+    be the transitive-closure map (see _expand_children_transitively), so
+    a virtual grandparent's count reaches descendants at any depth, not
+    just its direct children. The count itself is the number of distinct
+    works matching ANY descendant -- the same "parent or any descendant"
     mechanism Downloads filtering already uses, see
-    _value_or_children_present -- not a sum of the children's own counts,
-    so a work with two of the same parent's children isn't double-counted.
-    A parent that's already a real tag is left alone; its count stays its
-    own literal count, same as before wrangling existed.
+    _value_or_children_present -- not a sum of the descendants' own
+    counts, so a work with two of the same parent's descendants isn't
+    double-counted. A parent that's already a real tag is left alone; its
+    count stays its own literal count, same as before wrangling existed.
     """
     for parent, children in children_map.items():
         if parent in counts:
@@ -1012,7 +1067,9 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
     for entry in result.entries:
         for tag in entry.fandom_candidates:
             counts[tag] += 1
-    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandom_candidates, db.get_tag_children(DB_PATH))
+    _add_virtual_parent_counts(
+        counts, result.entries, lambda e: e.fandom_candidates, _expand_children_transitively(db.get_tag_children(DB_PATH))
+    )
 
     explicit = db.get_all_tag_categories(DB_PATH)
     bucket_counts = {"fandom": 0, "character": 0, "relationship": 0, "freeform": 0, "unclassified": 0}
@@ -1030,21 +1087,22 @@ def _group_tag_rows_by_parent(
     tags: list[tuple[str, int, str | None]], children_map: dict[str, set[str]]
 ) -> list[dict]:
     """Groups an already-filtered-and-sorted (tag, count, category) list
-    into top-level rows with a nested `children` list -- see
-    db.get_tag_children -- so the Tags/Classify Tags/Fandoms tables can
-    render a child tag directly under its parent instead of wherever the
-    page's own sort order would otherwise place it (Fandoms has no
-    per-tag category, so it passes `category=None` for every row).
-    Pagination then paginates this
-    grouped list (one page slot per top-level row; a collapsed parent's
-    children ride along "for free" since they're hidden by default), so a
-    heavily-childed tag doesn't blow a page's row budget.
+    into a tree of {"tag", "count", "category", "children"} rows, each
+    "children" entry the same shape -- so a real multi-level hierarchy
+    (e.g. Fandom -> Relationship -> Character, see db.set_tag_wrangling)
+    renders as real nesting, not just one level (Fandoms has no per-tag
+    category, so it passes `category=None` for every row). Pagination
+    then paginates the returned top-level list only (one page slot per
+    top-level row; a collapsed parent's descendants ride along "for free"
+    since they're hidden by default), so a heavily-childed tag doesn't
+    blow a page's row budget regardless of how deep its own tree goes.
 
-    A child is only nested when its parent is also present in `tags` (the
-    same filtered set) -- e.g. the current filter tab excludes the parent's
-    category. Otherwise it falls back to its own top-level row instead of
-    silently disappearing. Children keep the relative order they already
-    have in `tags` (whatever sort is active), not a separate re-sort.
+    A tag only nests under its direct parent when that parent is also
+    present in `tags` (the same filtered set) -- e.g. the current filter
+    tab excludes the parent's category. Otherwise it falls back to its own
+    top-level row instead of silently disappearing. Children keep the
+    relative order they already have in `tags` (whatever sort is active),
+    not a separate re-sort.
     """
     by_tag = {tag: (tag, count, category) for tag, count, category in tags}
     parent_of = {child: parent for parent, children in children_map.items() for child in children}
@@ -1059,10 +1117,16 @@ def _group_tag_rows_by_parent(
         else:
             top_level.append(row)
 
-    return [
-        {"tag": tag, "count": count, "category": category, "children": children_by_parent.get(tag, [])}
-        for tag, count, category in top_level
-    ]
+    def to_row(row: tuple[str, int, str | None]) -> dict:
+        tag, count, category = row
+        return {
+            "tag": tag,
+            "count": count,
+            "category": category,
+            "children": [to_row(child_row) for child_row in children_by_parent.get(tag, [])],
+        }
+
+    return [to_row(row) for row in top_level]
 
 
 @app.get("/tags", response_class=HTMLResponse)
@@ -1120,9 +1184,39 @@ def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sor
             "sort": sort,
             "sort_options": NAME_COUNT_SORT_LABELS,
             "wranglings": db.get_all_tag_wranglings(DB_PATH),
+            "tag_fandoms": db.get_all_tag_fandoms(DB_PATH),
+            "known_fandoms": sorted({f for e in result.entries for f in e.fandoms}),
+            "known_characters": sorted({c for e in result.entries for c in e.characters}),
+            "known_relationships": sorted({r for e in result.entries for r in e.relationships}),
+            "relationship_characters": db.get_all_relationship_characters(DB_PATH),
+            "freeform_characters": db.get_all_freeform_characters(DB_PATH),
+            "freeform_relationships": db.get_all_freeform_relationships(DB_PATH),
+            "relationship_name_parts": _relationship_name_parts,
             "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
         },
     )
+
+
+def _effective_tag_category(entries: list, tag: str) -> str | None:
+    """The category `tag` behaves as somewhere in the library -- checking
+    entry.fandoms/characters/relationships/freeform_tags membership
+    (already resolved, explicit-or-heuristic, see
+    scanner._resolve_tag_categories) -- or None if the tag never appears
+    as a candidate anywhere yet (a brand-new/virtual tag with no real
+    occurrences to judge by). Used to enforce that a 'child' wrangling
+    really is same-category, even for a tag nobody's explicitly
+    classified on the Tags page.
+    """
+    for entry in entries:
+        if tag in entry.fandoms:
+            return "fandom"
+        if tag in entry.characters:
+            return "character"
+        if tag in entry.relationships:
+            return "relationship"
+        if tag in entry.freeform_tags:
+            return "freeform"
+    return None
 
 
 @app.post("/tags/classify/wrangle")
@@ -1134,16 +1228,27 @@ def wrangle_tags(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
 ):
-    """Bulk-wrangles every checked tag to `target`, either as a 'synonym'
-    (merged into target everywhere) or a 'child' (kept separate, but
-    matched whenever target is filtered on -- see db.set_tag_wrangling).
-    Each tag is wrangled independently, so one tag failing the single-level
-    guard (e.g. it's already someone's synonym target) doesn't block the
-    rest of the batch.
+    """Bulk-wrangles every checked tag to `target`. 'synonym' is
+    category-blind (two spellings of the same tag aren't a category
+    question) and merges the tag into target everywhere. 'child' is a
+    same-category hierarchy (a Fandom's parent must be a Fandom, a
+    Character's a Character, etc) -- see db.set_tag_wrangling -- so a tag
+    whose effective category (_effective_tag_category) differs from
+    target's is silently skipped, unless target has no established
+    category yet (a brand-new/virtual tag nobody's classified), in which
+    case anything can attach to it until it does get one. Each tag is
+    otherwise wrangled independently, so one tag failing this check or
+    the underlying cycle guard doesn't block the rest of the batch.
     """
     target = target.strip()
     if relation in ("synonym", "child") and target:
+        entries = scanner.load_cached(DB_PATH).entries if relation == "child" else []
+        target_category = _effective_tag_category(entries, target) if relation == "child" else None
         for tag in tags:
+            if relation == "child" and target_category is not None:
+                tag_category = _effective_tag_category(entries, tag)
+                if tag_category is not None and tag_category != target_category:
+                    continue
             try:
                 db.set_tag_wrangling(DB_PATH, tag, relation, target)
             except ValueError:
@@ -1161,6 +1266,119 @@ def unwrangle_tag(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
 ):
     db.remove_tag_wrangling(DB_PATH, tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+def _relationship_name_parts(relationship_tag: str) -> list[str]:
+    """The individual party names in a Relationship tag's own text, split
+    on "/" or "&" (same convention/regex as the autocomplete indexer) --
+    one Character-association slot per part, see
+    db.get_all_relationship_characters.
+    """
+    return [part.strip() for part in _RELATIONSHIP_SPLIT_RE.split(relationship_tag) if part.strip()]
+
+
+@app.post("/tags/classify/set_fandom")
+def set_tag_fandom_route(
+    tag: str = Form(...),
+    fandom: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    """Sets tag's own Fandom association -- 'No Fandom' is a real,
+    explicit choice (it stops inheritance from an ancestor same-category
+    tag), not the same as never setting anything. See
+    scanner.resolve_tag_fandom.
+    """
+    db.set_tag_fandom(DB_PATH, tag, fandom)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/set_relationship_character")
+def set_relationship_character_route(
+    relationship_tag: str = Form(...),
+    part_index: int = Form(...),
+    character_tag: str = Form(""),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    """Links one of relationship_tag's "/"-or-"&"-separated name parts to
+    an actual Character tag -- the Character's own spelling can differ
+    from the literal substring (e.g. the relationship says "Harry Potter"
+    but the Character tag is "Harry James Potter"). An empty
+    character_tag clears that slot instead of linking it.
+    """
+    character_tag = character_tag.strip()
+    if character_tag:
+        db.set_relationship_character(DB_PATH, relationship_tag, part_index, character_tag)
+    else:
+        db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/add_freeform_character")
+def add_freeform_character_route(
+    freeform_tag: str = Form(...),
+    character_tag: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    character_tag = character_tag.strip()
+    if character_tag:
+        db.add_freeform_character(DB_PATH, freeform_tag, character_tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/remove_freeform_character")
+def remove_freeform_character_route(
+    freeform_tag: str = Form(...),
+    character_tag: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/add_freeform_relationship")
+def add_freeform_relationship_route(
+    freeform_tag: str = Form(...),
+    relationship_tag: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    relationship_tag = relationship_tag.strip()
+    if relationship_tag:
+        db.add_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/remove_freeform_relationship")
+def remove_freeform_relationship_route(
+    freeform_tag: str = Form(...),
+    relationship_tag: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
     )
@@ -1212,7 +1430,7 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
         for name in entry.fandoms:
             counts[name] += 1
     children_map = db.get_tag_children(DB_PATH)
-    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, children_map)
+    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, _expand_children_transitively(children_map))
     sorted_fandoms = _sort_name_count_rows([(name, count, None) for name, count in counts.items()], sort)
     sorted_fandoms = _filter_by_letter(sorted_fandoms, letter)
     sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, children_map)

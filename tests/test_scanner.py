@@ -5,7 +5,16 @@ import zipfile
 
 from app import db
 from app.audiobookshelf import AbsBookMatch
-from app.scanner import WorkEntry, _resolve_tag_categories, load_cached, refresh_cache, scan
+from app.scanner import (
+    WorkEntry,
+    _resolve_associated_fandoms,
+    _resolve_tag_categories,
+    child_parent_map,
+    load_cached,
+    refresh_cache,
+    resolve_tag_fandom,
+    scan,
+)
 
 _CONTAINER_XML = """<?xml version="1.0"?>
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -611,3 +620,68 @@ def test_character_classification_applies_to_every_work_sharing_that_tag():
     assert "Ianto Jones" in entries["2"].characters
     assert "Ianto Jones" not in entries["1"].freeform_tags
     assert "Ianto Jones" not in entries["2"].freeform_tags
+
+
+def test_child_parent_map_inverts_children_map():
+    children = {"Ron Weasley": {"Ron Weasley (Auror)"}, "Angst": {"Hurt/Comfort Angst"}}
+    assert child_parent_map(children) == {
+        "Ron Weasley (Auror)": "Ron Weasley",
+        "Hurt/Comfort Angst": "Angst",
+    }
+
+
+def test_resolve_tag_fandom_uses_own_explicit_association():
+    assert resolve_tag_fandom("The Doctor", {}, {"The Doctor": "Doctor Who"}) == "Doctor Who"
+
+
+def test_resolve_tag_fandom_defaults_to_no_fandom_when_never_set():
+    assert resolve_tag_fandom("Coffee Shops", {}, {}) == "No Fandom"
+
+
+def test_resolve_tag_fandom_inherits_from_same_category_parent():
+    parent_of = {"Ron Weasley (Auror)": "Ron Weasley"}
+    assert resolve_tag_fandom("Ron Weasley (Auror)", parent_of, {"Ron Weasley": "Harry Potter"}) == "Harry Potter"
+
+
+def test_resolve_tag_fandom_own_explicit_association_overrides_inherited():
+    parent_of = {"Anxious Shane Hollander": "Anxious Character"}
+    explicit = {"Anxious Character": "No Fandom", "Anxious Shane Hollander": "Heated Rivalry"}
+    assert resolve_tag_fandom("Anxious Shane Hollander", parent_of, explicit) == "Heated Rivalry"
+
+
+def test_resolve_tag_fandom_walks_multiple_levels():
+    parent_of = {"Ron Weasley (Auror, Injured)": "Ron Weasley (Auror)", "Ron Weasley (Auror)": "Ron Weasley"}
+    explicit = {"Ron Weasley": "Harry Potter"}
+    assert resolve_tag_fandom("Ron Weasley (Auror, Injured)", parent_of, explicit) == "Harry Potter"
+
+
+def test_resolve_associated_fandoms_gathers_from_all_three_lists_deduped():
+    parent_of = {}
+    explicit = {"Hermione Granger": "Harry Potter", "Harry Potter/Ron Weasley": "Harry Potter", "Coffee Shops": "No Fandom"}
+    found = _resolve_associated_fandoms(
+        ["Hermione Granger"], ["Harry Potter/Ron Weasley"], ["Coffee Shops"], parent_of, explicit,
+    )
+    assert found == ["Harry Potter"]
+
+
+def test_resolve_associated_fandoms_empty_when_nothing_associated():
+    assert _resolve_associated_fandoms(["Some Character"], [], ["Some Tag"], {}, {}) == []
+
+
+def test_end_to_end_fandom_association_folds_into_entry_fandoms():
+    # A work tagged only with a Character (no raw Fandom tag at all) --
+    # once that Character is associated with a Fandom, the work should
+    # count as belonging to it.
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "The Doctor"])
+        refresh_cache(downloads, None, db_path)
+
+        db.set_tag_categories(db_path, {"The Doctor": "character"})
+        before = load_cached(db_path).entries[0]
+        assert "Doctor Who" not in before.fandoms
+
+        db.set_tag_fandom(db_path, "The Doctor", "Doctor Who")
+        after = load_cached(db_path).entries[0]
+    assert "Doctor Who" in after.fandoms

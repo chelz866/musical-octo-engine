@@ -1,5 +1,108 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth) %}
+<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-tag="{{ row.tag | lower }}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
+  <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
+  <td style="padding-left: {{ depth * 1.25 }}rem">
+    {% if row.children %}
+    <button type="button" class="tag-toggle" data-group="{{ row.tag }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
+    {% endif %}
+    {% if depth > 0 %}&#8627; {% endif %}{{ row.tag }}
+    {% if row.tag in wranglings and wranglings[row.tag][0] == "child" %}
+    <span class="hint">(child of {{ wranglings[row.tag][1] }})</span>
+    {% endif %}
+  </td>
+  <td>{{ row.count }}</td>
+  <td>{{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}</td>
+  <td>
+    {% if row.category in ("character", "relationship", "freeform") %}
+    <form method="post" action="/tags/classify/set_fandom" class="inline-form">
+      <input type="hidden" name="tag" value="{{ row.tag }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <select name="fandom" onchange="this.form.submit()">
+        <option value="No Fandom" {% if tag_fandoms.get(row.tag, "No Fandom") == "No Fandom" %}selected{% endif %}>No Fandom</option>
+        {% for f in known_fandoms %}
+        <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </td>
+  <td>
+    {% if row.category == "relationship" %}
+    {% for part in relationship_name_parts(row.tag) %}
+    {% set part_index = loop.index0 %}
+    <form method="post" action="/tags/classify/set_relationship_character" class="inline-form">
+      <input type="hidden" name="relationship_tag" value="{{ row.tag }}">
+      <input type="hidden" name="part_index" value="{{ part_index }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <label class="hint">{{ part }}:
+        <select name="character_tag" onchange="this.form.submit()">
+          <option value="">&mdash;</option>
+          {% for c in known_characters %}
+          <option value="{{ c }}" {% if relationship_characters.get(row.tag, {}).get(part_index) == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    {% endfor %}
+    {% elif row.category == "freeform" %}
+    {% for c in freeform_characters.get(row.tag, []) %}
+    <form method="post" action="/tags/classify/remove_freeform_character" class="inline-form">
+      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
+      <input type="hidden" name="character_tag" value="{{ c }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <button type="submit" class="chip-remove">{{ c }} &times;</button>
+    </form>
+    {% endfor %}
+    <form method="post" action="/tags/classify/add_freeform_character" class="inline-form">
+      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="text" name="character_tag" placeholder="Add character&hellip;" class="fandom-other tag-mini-input">
+      <button type="submit">+</button>
+    </form>
+    {% endif %}
+  </td>
+  <td>
+    {% if row.category == "freeform" %}
+    {% for r in freeform_relationships.get(row.tag, []) %}
+    <form method="post" action="/tags/classify/remove_freeform_relationship" class="inline-form">
+      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
+      <input type="hidden" name="relationship_tag" value="{{ r }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <button type="submit" class="chip-remove">{{ r }} &times;</button>
+    </form>
+    {% endfor %}
+    <form method="post" action="/tags/classify/add_freeform_relationship" class="inline-form">
+      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="text" name="relationship_tag" placeholder="Add relationship&hellip;" class="fandom-other tag-mini-input">
+      <button type="submit">+</button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
+{% for child in row.children %}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1) }}
+{% endfor %}
+{% endmacro %}
+{% macro hidden_tags_flat(rows) %}
+{%- for row in rows -%}
+<input type="hidden" name="tags" value="{{ row.tag }}">{{ hidden_tags_flat(row.children) }}
+{%- endfor -%}
+{% endmacro %}
 {% block title %}Tags - Archive Of My Own{% endblock %}
 {% block content %}
   <header>
@@ -13,12 +116,22 @@
       here). Classifying one here applies to every work that has it.
     </p>
     <p class="paths">
-      Tag wrangling merges duplicate spellings and links subtags to a parent, like AO3's own
-      wrangling: "Merge selected into" folds every checked tag into one canonical tag everywhere
-      (it stops appearing here as its own row -- see Wrangled Tags below to undo); "Make selected
-      children of" keeps each checked tag as itself but makes filtering Downloads by the parent
-      also match works tagged with the child (e.g. "Alternate Reality - Canon Divergence" as a
-      child of "Alternate Reality").
+      Tag wrangling links a same-category hierarchy: "Merge selected into" folds every checked tag
+      into one canonical tag everywhere -- display, Tags-page counts, and classification -- so it
+      stops appearing here as its own row (undo it from the "Wrangled Tags" list below). "Make
+      selected children of" keeps each checked tag as itself but requires the parent to be the same
+      category (a Fandom's parent is always a Fandom, a Freeform tag's parent always Freeform, etc)
+      -- filtering or excluding Downloads by the parent also matches works only tagged with the
+      child, at any depth in the chain.
+    </p>
+    <p class="paths">
+      Fandom/Character/Relationship association is separate from that hierarchy, and cross-category
+      by design: every Character, Relationship, and Freeform tag has its own "Fandom" dropdown
+      (defaulting to "No Fandom", inherited down a same-category chain unless a tag sets its own),
+      a Relationship gets one Character dropdown per "/"-or-"&amp;" name part, and a Freeform tag can
+      be linked to any number of Characters and Relationships. Once a Fandom is set, Downloads
+      filtering by that Fandom also matches works using the associated Character/Relationship/
+      Freeform tag, even when the epub's own raw tags never mention the Fandom directly.
     </p>
   </header>
 
@@ -67,9 +180,11 @@
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="synonym" disabled>Merge selected into &rarr;</button>
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="child" disabled>Make selected children of &rarr;</button>
     </div>
+  </form>
 
-    {{ pagination.pager(page, total_pages, pager_qs) }}
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 
+  <div class="tag-table-scroll">
     <table class="tag-table">
       <thead>
         <tr>
@@ -77,54 +192,30 @@
           <th>Tag</th>
           <th>Works</th>
           <th>Category</th>
+          <th>Fandom</th>
+          <th>Character(s)</th>
+          <th>Relationship(s)</th>
         </tr>
       </thead>
       <tbody>
         {% for row in tags %}
-        {% set outer_loop = loop %}
-        <tr class="tag-row" data-tag="{{ row.tag | lower }}">
-          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" onchange="updateSelectedCount()"></td>
-          <td>
-            {% if row.children %}
-            <button type="button" class="tag-toggle" data-group="g{{ outer_loop.index0 }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
-            {% endif %}
-            {{ row.tag }}
-          </td>
-          <td>{{ row.count }}</td>
-          <td>
-            {{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}
-            {% if row.tag in wranglings and wranglings[row.tag][0] == "child" %}
-            <span class="hint">(child of {{ wranglings[row.tag][1] }})</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% for child_tag, child_count, child_category in row.children %}
-        <tr class="tag-row tag-child-row" data-tag="{{ child_tag | lower }}" data-group="g{{ outer_loop.index0 }}" hidden>
-          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ child_tag }}" onchange="updateSelectedCount()"></td>
-          <td class="tag-child-name">&#8627; {{ child_tag }}</td>
-          <td>{{ child_count }}</td>
-          <td>{{ child_category | title if child_category else "&mdash; Unclassified &mdash;" | safe }}</td>
-        </tr>
-        {% endfor %}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0) }}
         {% else %}
         <tr>
-          <td colspan="4" class="empty">
+          <td colspan="7" class="empty">
             {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
 
-    {{ pagination.pager(page, total_pages, pager_qs) }}
-  </form>
+  {{ pagination.pager(page, total_pages, pager_qs) }}
 
   <div class="tag-bulk-actions">
     <form method="post" action="/tags/classify/mark_page_freeform">
-      {% for row in tags %}
-      <input type="hidden" name="tags" value="{{ row.tag }}">
-      {% for child_tag, child_count, child_category in row.children %}<input type="hidden" name="tags" value="{{ child_tag }}">{% endfor %}
-      {% endfor %}
+      {{ hidden_tags_flat(tags) }}
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
@@ -179,11 +270,25 @@
       document.querySelectorAll(".tag-row").forEach(function (row) {
         var matches = row.dataset.tag.includes(query);
         row.style.display = matches ? "" : "none";
-        if (matches && query && row.classList.contains("tag-child-row") && row.hidden) {
-          var toggle = document.querySelector('.tag-toggle[data-group="' + row.dataset.group + '"]');
-          if (toggle) { toggleChildren(toggle); }
+        if (matches && query) {
+          expandAncestors(row);
         }
       });
+    }
+
+    function expandAncestors(row) {
+      // Walks up as many levels as it takes (a match could be a
+      // grandchild or deeper) so a search hit is never left hidden behind
+      // a collapsed ancestor.
+      var parentGroup = row.dataset.parentGroup;
+      while (parentGroup) {
+        var toggle = document.querySelector('.tag-toggle[data-group="' + CSS.escape(parentGroup) + '"]');
+        if (toggle && toggle.getAttribute("aria-expanded") !== "true") {
+          toggleChildren(toggle);
+        }
+        var parentRow = document.querySelector('.tag-row[data-group="' + CSS.escape(parentGroup) + '"]');
+        parentGroup = parentRow ? parentRow.dataset.parentGroup : null;
+      }
     }
 
     function visibleCheckboxes() {
@@ -205,8 +310,16 @@
       var expanded = button.getAttribute("aria-expanded") === "true";
       button.setAttribute("aria-expanded", String(!expanded));
       button.textContent = expanded ? "▸" : "▾";
-      document.querySelectorAll('.tag-child-row[data-group="' + button.dataset.group + '"]').forEach(function (row) {
+      var group = button.dataset.group;
+      document.querySelectorAll('.tag-child-row[data-parent-group="' + CSS.escape(group) + '"]').forEach(function (row) {
         row.hidden = expanded;
+        if (expanded) {
+          // Collapsing: also re-collapse this row's own children (if it
+          // had been expanded), so a stale expanded grandchild doesn't
+          // linger and reappear wrong the next time this reopens.
+          var nestedToggle = row.querySelector('.tag-toggle[aria-expanded="true"]');
+          if (nestedToggle) { toggleChildren(nestedToggle); }
+        }
       });
     }
 
