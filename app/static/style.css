@@ -771,6 +771,20 @@ th {
   overflow-x: auto;
 }
 
+.tag-table-scroll .tag-table {
+  /* The generic `table { width: 100% }` rule, combined with this
+     wrapper's overflow-x, would otherwise let table auto-layout shrink
+     columns (and the <select>s/inputs inside them) down to fit the
+     wrapper instead of actually scrolling -- clipping a dropdown's own
+     rendered label mid-word rather than just needing a horizontal swipe
+     to see the rest of the row. Sizing to the content's natural width
+     (growing past 100% when it needs to) makes the wrapper's overflow-x
+     the thing that handles the excess instead of the controls inside it.
+  */
+  width: max-content;
+  min-width: 100%;
+}
+
 .inline-form {
   display: inline-block;
   margin: 0.1rem 0.3rem 0.1rem 0;
