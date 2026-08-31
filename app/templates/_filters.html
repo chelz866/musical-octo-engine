@@ -45,19 +45,12 @@
     </label>
 
     <h3>Include</h3>
-    <p class="hint">
-      Checking more than one value in the same facet means a work must have <strong>all</strong> of
-      them, not just one -- same as real AO3. Only the top {{ filter_panel.suggestion_count }}
-      unselected values are shown per tag facet, narrowing as you filter; the search box above, or a
-      facet's own "Find another..." box, reaches anything that never shows up here.
-    </p>
     <div class="facet-accordion facet-accordion-include">
       {% for name, facet in filter_panel.static_include.items() %}{{ static_facet(name, facet, "") }}{% endfor %}
       {% for name, facet in filter_panel.dynamic_include.items() %}{{ dynamic_facet(name, facet, "", filter_panel.searchable_facets) }}{% endfor %}
     </div>
 
     <h3>Exclude</h3>
-    <p class="hint">Checking any value here drops a work that has it -- checking more than one is "or."</p>
     <div class="facet-accordion facet-accordion-exclude">
       {% for name, facet in filter_panel.static_exclude.items() %}{{ static_facet(name, facet, "x_") }}{% endfor %}
       {% for name, facet in filter_panel.dynamic_exclude.items() %}{{ dynamic_facet(name, facet, "x_", filter_panel.searchable_facets) }}{% endfor %}

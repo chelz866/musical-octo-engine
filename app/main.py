@@ -507,7 +507,6 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
         "crossover": filters["crossover"],
         "sort": filters["sort"],
         "sort_options": SORT_LABELS,
-        "suggestion_count": FACET_SUGGESTION_COUNT,
         "searchable_facets": TAG_SEARCH_FACETS,
         "static_include": {
             name: {"label": label, "options": _static_facet_counts(entries, filters, name, options, mode="facets")}
