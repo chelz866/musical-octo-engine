@@ -10,27 +10,29 @@
       <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
       <span class="req-tag completion-{{ icons.completion_class }}" title="{{ icons.completion_label }}">{{ icons.completion_symbol }}</span>
     </div>
-    <h4 class="blurb-heading">
-      <form method="post" action="/works/{{ e.work_id }}/bookmark" class="bookmark-form">
-        <input type="hidden" name="next" value="{{ request.url }}">
-        <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
-        <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
-      </form>
-      <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
-        {{ e.title or "(unknown title)" }}
-      </a>
-      {% if e.work_id in abs_links %}
-      <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
-      {% endif %}
-      by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
-    </h4>
-    <div class="blurb-fandoms">
-      {%- if e.fandoms -%}
-        {% for f in e.fandoms %}<a class="tag" href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
-      {%- else -%}
-        <span class="hint">no fandom guessed</span>
-      {%- endif -%}
-      {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
+    <div class="blurb-heading-group">
+      <h4 class="blurb-heading">
+        <form method="post" action="/works/{{ e.work_id }}/bookmark" class="bookmark-form">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
+          <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
+        </form>
+        <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
+          {{ e.title or "(unknown title)" }}
+        </a>
+        {% if e.work_id in abs_links %}
+        <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
+        {% endif %}
+        by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
+      </h4>
+      <div class="blurb-fandoms">
+        {%- if e.fandoms -%}
+          {% for f in e.fandoms %}<a class="tag" href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
+        {%- else -%}
+          <span class="hint">no fandom guessed</span>
+        {%- endif -%}
+        {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
+      </div>
     </div>
   </div>
   <div class="blurb-body">
