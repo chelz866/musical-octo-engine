@@ -1129,6 +1129,115 @@ def _group_tag_rows_by_parent(
     return [to_row(row) for row in top_level]
 
 
+ORGANIZE_BY_OPTIONS = ("fandom", "character", "relationship")
+ORGANIZE_BY_LABELS = {"fandom": "Fandom", "character": "Character", "relationship": "Relationship"}
+
+
+def _association_parents(
+    tag: str,
+    dimension: str,
+    tag_fandoms: dict[str, str],
+    parent_of: dict[str, str],
+    relationship_characters: dict[str, dict[int, str]],
+    freeform_characters: dict[str, set[str]],
+    freeform_relationships: dict[str, set[str]],
+) -> list[str]:
+    """The "parent(s)" `tag` belongs to for the given Organize-by
+    dimension -- used to regroup a Tags-page listing by an association
+    (see db.tag_fandoms / relationship_characters / freeform_characters /
+    freeform_relationships) instead of the same-category wrangling
+    hierarchy. Fandom is always at most one value (see
+    scanner.resolve_tag_fandom); Character/Relationship can be several
+    (a Relationship's own per-name-part Characters plus, for a Freeform
+    tag, however many it's linked to) or none at all if `tag` has no
+    association for this dimension (e.g. organizing by Relationship while
+    looking at a Character tag).
+    """
+    if dimension == "fandom":
+        fandom = scanner.resolve_tag_fandom(tag, parent_of, tag_fandoms)
+        return [] if fandom == "No Fandom" else [fandom]
+    if dimension == "character":
+        chars = set(relationship_characters.get(tag, {}).values()) | freeform_characters.get(tag, set())
+        return sorted(chars)
+    if dimension == "relationship":
+        return sorted(freeform_relationships.get(tag, set()))
+    return []
+
+
+def _group_tag_rows_by_association(
+    tags: list[tuple[str, int, str | None]],
+    dimension: str,
+    tag_fandoms: dict[str, str],
+    parent_of: dict[str, str],
+    relationship_characters: dict[str, dict[int, str]],
+    freeform_characters: dict[str, set[str]],
+    freeform_relationships: dict[str, set[str]],
+    sort: str,
+) -> list[dict]:
+    """Regroups an already-filtered (tag, count, category) list by
+    Organize-by `dimension` (see _association_parents) instead of the
+    same-category wrangling hierarchy _group_tag_rows_by_parent builds --
+    e.g. organizing the Relationship tab by Fandom nests each relationship
+    under its resolved Fandom as a heading. A tag with no association for
+    this dimension stays its own top-level row instead of disappearing; a
+    tag with multiple parents (a Freeform tag linked to two Characters)
+    appears once under each one. Groups and standalone tags are then
+    merged into one list and sorted together by `sort`, same as any other
+    Tags-page listing, rather than groups always coming first.
+    """
+    groups: dict[str, list[tuple[str, int, str | None]]] = defaultdict(list)
+    ungrouped: list[tuple[str, int, str | None]] = []
+    for row in tags:
+        parents = _association_parents(
+            row[0], dimension, tag_fandoms, parent_of, relationship_characters, freeform_characters, freeform_relationships
+        )
+        if not parents:
+            ungrouped.append(row)
+        for parent in parents:
+            groups[parent].append(row)
+
+    # Children are carried alongside each summary tuple itself (a 4th
+    # element `_sort_name_count_rows` simply ignores, since it only reads
+    # indices 0/1) rather than looked back up by name afterward -- a
+    # group's name can collide with an unrelated real tag of the same name
+    # (e.g. organizing an unfiltered "All" list by Fandom puts a synthetic
+    # "Harry Potter" heading next to the real "Harry Potter" fandom tag),
+    # and a name-keyed lookup would have wrongly attached the group's
+    # children to that unrelated tag too.
+    summaries: list[tuple[str, int, str | None, list]] = [
+        (
+            parent,
+            sum(r[1] for r in rows),
+            None,
+            [{"tag": t, "count": c, "category": cat, "children": []} for t, c, cat in rows],
+        )
+        for parent, rows in groups.items()
+    ]
+    summaries.extend((tag, count, category, []) for tag, count, category in ungrouped)
+    ordered = _sort_name_count_rows(summaries, sort)
+
+    return [
+        {"tag": name, "count": count, "category": category, "children": children}
+        for name, count, category, children in ordered
+    ]
+
+
+def _grouped_tag_rows(tags: list[tuple[str, int, str | None]], organize_by: str, sort: str) -> list[dict]:
+    """Chooses the same-category wrangling nesting (default) or an
+    Organize-by association grouping (fandom/character/relationship, see
+    _group_tag_rows_by_association), whichever the caller asked for --
+    shared by both Tags pages so they group identically.
+    """
+    if organize_by in ORGANIZE_BY_OPTIONS:
+        parent_of = scanner.child_parent_map(db.get_tag_children(DB_PATH))
+        return _group_tag_rows_by_association(
+            tags, organize_by, db.get_all_tag_fandoms(DB_PATH), parent_of,
+            db.get_all_relationship_characters(DB_PATH), db.get_all_freeform_characters(DB_PATH),
+            db.get_all_freeform_relationships(DB_PATH), sort,
+        )
+    return _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
+
+
 @app.get("/tags", response_class=HTMLResponse)
 def tags_browse(
     request: Request,
@@ -1136,6 +1245,7 @@ def tags_browse(
     page: int = 1,
     sort: str = DEFAULT_NAME_COUNT_SORT,
     letter: str = "all",
+    organize_by: str = "",
 ):
     """Read-only tag browsing under Browse -- anyone logged in can see
     this, unlike /tags/classify (admin-only, see the module-level
@@ -1144,7 +1254,7 @@ def tags_browse(
     result = scanner.load_cached(DB_PATH)
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
     tags = _filter_by_letter(tags, letter)
-    tags = _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
+    tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags_browse.html",
@@ -1160,17 +1270,26 @@ def tags_browse(
             "sort_options": NAME_COUNT_SORT_LABELS,
             "letter": letter,
             "letter_options": LETTER_FILTER_OPTIONS,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}",
+            "organize_by": organize_by,
+            "organize_by_options": ORGANIZE_BY_LABELS,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}&organize_by={quote(organize_by)}",
         },
     )
 
 
 @app.get("/tags/classify", response_class=HTMLResponse)
-def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sort: str = DEFAULT_NAME_COUNT_SORT):
+def tags_classify_page(
+    request: Request,
+    filter: str = "all",
+    page: int = 1,
+    sort: str = DEFAULT_NAME_COUNT_SORT,
+    organize_by: str = "",
+):
     result = scanner.load_cached(DB_PATH)
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
-    tags = _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
+    tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
+    children_map = db.get_tag_children(DB_PATH)
     return templates.TemplateResponse(
         "tags.html",
         {
@@ -1183,16 +1302,18 @@ def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sor
             "total_tags": total_tags,
             "sort": sort,
             "sort_options": NAME_COUNT_SORT_LABELS,
+            "organize_by": organize_by,
+            "organize_by_options": ORGANIZE_BY_LABELS,
             "wranglings": db.get_all_tag_wranglings(DB_PATH),
             "tag_fandoms": db.get_all_tag_fandoms(DB_PATH),
-            "known_fandoms": sorted({f for e in result.entries for f in e.fandoms}),
-            "known_characters": sorted({c for e in result.entries for c in e.characters}),
-            "known_relationships": sorted({r for e in result.entries for r in e.relationships}),
+            "known_fandoms": _flatten_tag_options(sorted({f for e in result.entries for f in e.fandoms}), children_map),
+            "known_characters": _flatten_tag_options(sorted({c for e in result.entries for c in e.characters}), children_map),
+            "known_relationships": _flatten_tag_options(sorted({r for e in result.entries for r in e.relationships}), children_map),
             "relationship_characters": db.get_all_relationship_characters(DB_PATH),
             "freeform_characters": db.get_all_freeform_characters(DB_PATH),
             "freeform_relationships": db.get_all_freeform_relationships(DB_PATH),
             "relationship_name_parts": _relationship_name_parts,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}",
         },
     )
 
@@ -1280,6 +1401,41 @@ def tag_wranglings_page(request: Request):
 def unwrangle_tag(tag: str = Form(...)):
     db.remove_tag_wrangling(DB_PATH, tag)
     return RedirectResponse(url="/tags/classify/wranglings", status_code=303)
+
+
+def _flatten_tag_options(names: list[str], children_map: dict[str, set[str]]) -> list[tuple[str, int]]:
+    """Orders `names` (every known tag of one category, e.g. every
+    Character) into a depth-first walk of their same-category wrangling
+    hierarchy (db.get_tag_children), each paired with its depth (0 for a
+    top-level tag) -- so a <select> can list "Ron Weasley" immediately
+    followed by its indented children ("Ron Weasley (Auror)", etc.)
+    instead of scattering a hierarchy across one flat alphabetical list.
+    A tag whose parent isn't itself in `names` (a different category, or
+    simply not one of the names being listed) is treated as its own
+    top-level entry rather than disappearing. Every name in `names`
+    appears exactly once, siblings sorted alphabetically at each level.
+    """
+    names_set = set(names)
+    parent_of = {child: parent for parent, kids in children_map.items() for child in kids}
+    children_by_parent: dict[str, list[str]] = defaultdict(list)
+    top_level: list[str] = []
+    for name in names:
+        parent = parent_of.get(name)
+        if parent is not None and parent in names_set:
+            children_by_parent[parent].append(name)
+        else:
+            top_level.append(name)
+
+    ordered: list[tuple[str, int]] = []
+
+    def visit(name: str, depth: int) -> None:
+        ordered.append((name, depth))
+        for child in sorted(children_by_parent.get(name, [])):
+            visit(child, depth + 1)
+
+    for name in sorted(top_level):
+        visit(name, 0)
+    return ordered
 
 
 def _relationship_name_parts(relationship_tag: str) -> list[str]:

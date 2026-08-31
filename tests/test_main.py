@@ -15,9 +15,12 @@ from app.main import (
     _selected_with_counts,
     _add_virtual_parent_counts,
     _all_descendants,
+    _association_parents,
     _build_fandom_scope,
     _expand_children_transitively,
     _filter_by_letter,
+    _flatten_tag_options,
+    _group_tag_rows_by_association,
     _group_tag_rows_by_parent,
     _series_sort_key,
     _value_or_children_present,
@@ -856,3 +859,125 @@ def test_group_tag_rows_by_parent_preserves_sort_order_for_top_level_and_childre
     assert [row["tag"] for row in grouped] == ["Alternate Reality", "Angst"]
     # Children ride along in the same relative order they had in `tags`.
     assert [c["tag"] for c in grouped[0]["children"]] == ["Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"]
+
+
+def test_association_parents_fandom_returns_the_single_resolved_fandom():
+    parents = _association_parents(
+        "Hermione Granger", "fandom", {"Hermione Granger": "Harry Potter"}, {}, {}, {}, {}
+    )
+    assert parents == ["Harry Potter"]
+
+
+def test_association_parents_fandom_no_fandom_is_ungrouped():
+    parents = _association_parents("Random Character", "fandom", {}, {}, {}, {}, {})
+    assert parents == []
+
+
+def test_association_parents_fandom_inherits_up_the_same_category_chain():
+    parent_of = {"Anxious Shane Hollander": "Anxious Character"}
+    tag_fandoms = {"Anxious Character": "No Fandom", "Anxious Shane Hollander": "Heated Rivalry"}
+    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}) == ["Heated Rivalry"]
+
+
+def test_association_parents_character_unions_relationship_and_freeform_links():
+    relationship_characters = {"Harry/Draco": {0: "Harry Potter", 1: "Draco Malfoy"}}
+    freeform_characters = {"Angst": {"Draco Malfoy", "Ron Weasley"}}
+    parents = _association_parents("Harry/Draco", "character", {}, {}, relationship_characters, {}, {})
+    assert parents == ["Draco Malfoy", "Harry Potter"]
+    parents = _association_parents("Angst", "character", {}, {}, {}, freeform_characters, {})
+    assert parents == ["Draco Malfoy", "Ron Weasley"]
+
+
+def test_association_parents_character_has_no_effect_on_unlinked_tag():
+    assert _association_parents("Fluff", "character", {}, {}, {}, {}, {}) == []
+
+
+def test_association_parents_relationship_returns_sorted_freeform_links():
+    freeform_relationships = {"Angst": {"Harry/Draco", "Ron/Hermione"}}
+    parents = _association_parents("Angst", "relationship", {}, {}, {}, {}, freeform_relationships)
+    assert parents == ["Harry/Draco", "Ron/Hermione"]
+
+
+def test_association_parents_unknown_dimension_returns_nothing():
+    assert _association_parents("Angst", "nonsense", {}, {}, {}, {}, {}) == []
+
+
+def test_group_tag_rows_by_association_nests_tags_under_their_resolved_fandom():
+    tags = [("Harry Potter", 5, "fandom"), ("Hermione Granger", 3, "character")]
+    tag_fandoms = {"Hermione Granger": "Harry Potter"}
+    grouped = _group_tag_rows_by_association(tags, "fandom", tag_fandoms, {}, {}, {}, {}, "count_desc")
+    # The synthetic "Harry Potter" group heading and the real "Harry Potter"
+    # fandom tag (which has no fandom of its own -- untouched, stays
+    # ungrouped) are separate rows sharing a name; both must appear.
+    group_heading = next(r for r in grouped if r["children"])
+    assert group_heading["tag"] == "Harry Potter"
+    assert group_heading["category"] is None
+    assert [c["tag"] for c in group_heading["children"]] == ["Hermione Granger"]
+
+
+def test_group_tag_rows_by_association_tag_with_no_association_stays_standalone():
+    tags = [("Fluff", 2, "freeform")]
+    grouped = _group_tag_rows_by_association(tags, "fandom", {}, {}, {}, {}, {}, "count_desc")
+    assert grouped == [{"tag": "Fluff", "count": 2, "category": "freeform", "children": []}]
+
+
+def test_group_tag_rows_by_association_tag_with_multiple_parents_appears_under_each():
+    tags = [
+        ("Angst", 4, "freeform"),
+        ("Harry Potter", 5, "character"),
+        ("Draco Malfoy", 3, "character"),
+    ]
+    freeform_characters = {"Angst": {"Harry Potter", "Draco Malfoy"}}
+    grouped = _group_tag_rows_by_association(tags, "character", {}, {}, {}, freeform_characters, {}, "count_desc")
+    headings = {row["tag"]: row for row in grouped if row["children"]}
+    assert set(headings) == {"Harry Potter", "Draco Malfoy"}
+    assert headings["Harry Potter"]["children"] == [{"tag": "Angst", "count": 4, "category": "freeform", "children": []}]
+    assert headings["Draco Malfoy"]["children"] == [{"tag": "Angst", "count": 4, "category": "freeform", "children": []}]
+
+
+def test_group_tag_rows_by_association_group_count_sums_its_members():
+    tags = [("Harry Potter", 5, "fandom"), ("Hermione Granger", 3, "character"), ("Ron Weasley", 2, "character")]
+    tag_fandoms = {"Hermione Granger": "Harry Potter", "Ron Weasley": "Harry Potter"}
+    grouped = _group_tag_rows_by_association(tags, "fandom", tag_fandoms, {}, {}, {}, {}, "count_desc")
+    heading = next(r for r in grouped if r["children"])
+    assert heading["count"] == 5
+
+
+def test_group_tag_rows_by_association_merges_groups_and_standalone_by_sort_order():
+    tags = [("Aaa Standalone", 10, "freeform"), ("Harry Potter", 1, "fandom"), ("Hermione Granger", 1, "character")]
+    tag_fandoms = {"Hermione Granger": "Harry Potter"}
+    grouped = _group_tag_rows_by_association(tags, "fandom", tag_fandoms, {}, {}, {}, {}, "count_desc")
+    # Sorted together by count_desc -- the standalone tag's high count puts
+    # it first, not after every group the way a "groups always first" order would.
+    assert grouped[0]["tag"] == "Aaa Standalone"
+
+
+def test_flatten_tag_options_lists_a_parent_immediately_followed_by_its_children():
+    names = ["Alternate Reality", "Alternate Reality - Canon Divergence", "Angst"]
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    assert _flatten_tag_options(names, children) == [
+        ("Alternate Reality", 0),
+        ("Alternate Reality - Canon Divergence", 1),
+        ("Angst", 0),
+    ]
+
+
+def test_flatten_tag_options_nests_multiple_levels():
+    names = ["Harry Potter", "Harry Potter/Hermione Granger", "Hermione Granger"]
+    children = {"Harry Potter": {"Harry Potter/Hermione Granger"}, "Harry Potter/Hermione Granger": {"Hermione Granger"}}
+    assert _flatten_tag_options(names, children) == [
+        ("Harry Potter", 0),
+        ("Harry Potter/Hermione Granger", 1),
+        ("Hermione Granger", 2),
+    ]
+
+
+def test_flatten_tag_options_orphan_becomes_top_level_when_parent_not_in_names():
+    names = ["Alternate Reality - Canon Divergence"]
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    assert _flatten_tag_options(names, children) == [("Alternate Reality - Canon Divergence", 0)]
+
+
+def test_flatten_tag_options_siblings_are_alphabetical_at_each_level():
+    names = ["Zeta", "Alpha"]
+    assert _flatten_tag_options(names, {}) == [("Alpha", 0), ("Zeta", 0)]

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth) %}
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options) %}
 <tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-tag="{{ row.tag | lower }}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
@@ -13,7 +13,13 @@
     {% endif %}
   </td>
   <td>{{ row.count }}</td>
-  <td>{{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}</td>
+  <td>
+    {% if organize_by and row.children and not row.category %}
+    {{ organize_by_options[organize_by] }}
+    {% else %}
+    {{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}
+    {% endif %}
+  </td>
   <td>
     {% if row.category in ("character", "relationship", "freeform") %}
     <form method="post" action="/tags/classify/set_fandom" class="inline-form">
@@ -23,8 +29,8 @@
       <input type="hidden" name="sort" value="{{ sort }}">
       <select name="fandom" onchange="this.form.submit()">
         <option value="No Fandom" {% if tag_fandoms.get(row.tag, "No Fandom") == "No Fandom" %}selected{% endif %}>No Fandom</option>
-        {% for f in known_fandoms %}
-        <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ f }}</option>
+        {% for f, d in known_fandoms %}
+        <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ f }}</option>
         {% endfor %}
       </select>
     </form>
@@ -43,8 +49,8 @@
       <label class="hint">{{ part }}:
         <select name="character_tag" onchange="this.form.submit()">
           <option value="">&mdash;</option>
-          {% for c in known_characters %}
-          <option value="{{ c }}" {% if relationship_characters.get(row.tag, {}).get(part_index) == c %}selected{% endif %}>{{ c }}</option>
+          {% for c, d in known_characters %}
+          <option value="{{ c }}" {% if relationship_characters.get(row.tag, {}).get(part_index) == c %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ c }}</option>
           {% endfor %}
         </select>
       </label>
@@ -95,7 +101,7 @@
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -146,6 +152,7 @@
 
   <form method="get" action="/tags/classify" id="sort-form" class="tag-sort-form">
     <input type="hidden" name="filter" value="{{ filter }}">
+    <input type="hidden" name="organize_by" value="{{ organize_by }}">
     <label class="hint" for="tag-sort">Sort:
       <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}
@@ -154,6 +161,14 @@
       </select>
     </label>
   </form>
+
+  <nav class="tag-filter-tabs">
+    <span class="hint">Organize by:</span>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=" class="{% if not organize_by %}active{% endif %}">None</a>
+    {% for value, label in organize_by_options.items() %}
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </nav>
 
   <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
   <p class="hint">
@@ -185,20 +200,20 @@
       <select name="fandom">
         <option value="">Fandom: don't change</option>
         <option value="No Fandom">No Fandom</option>
-        {% for f in known_fandoms %}
-        <option value="{{ f }}">{{ f }}</option>
+        {% for f, d in known_fandoms %}
+        <option value="{{ f }}">{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ f }}</option>
         {% endfor %}
       </select>
       <select name="character">
         <option value="">Character: don't add</option>
-        {% for c in known_characters %}
-        <option value="{{ c }}">{{ c }}</option>
+        {% for c, d in known_characters %}
+        <option value="{{ c }}">{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ c }}</option>
         {% endfor %}
       </select>
       <select name="relationship">
         <option value="">Relationship: don't add</option>
-        {% for r in known_relationships %}
-        <option value="{{ r }}">{{ r }}</option>
+        {% for r, d in known_relationships %}
+        <option value="{{ r }}">{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ r }}</option>
         {% endfor %}
       </select>
       <button type="submit" formaction="/tags/classify/apply_associations" disabled>Apply to selected</button>
@@ -227,7 +242,7 @@
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options) }}
         {% else %}
         <tr>
           <td colspan="7" class="empty">

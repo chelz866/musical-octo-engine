@@ -1,18 +1,29 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, parent_tag, depth) %}
+{% macro render_tag_row(row, parent_tag, depth, organize_by) %}
 <tr class="{% if depth > 0 %}tag-child-row{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td style="padding-left: {{ depth * 1.25 }}rem">
     {% if row.children %}
     <button type="button" class="tag-toggle" data-group="{{ row.tag }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
     {% endif %}
-    {% if depth > 0 %}&#8627; {% endif %}<a href="/?{{ row.category or 'freeform' }}={{ row.tag | urlencode }}">{{ row.tag }}</a>
+    {% if depth > 0 %}&#8627; {% endif %}
+    {% if organize_by and row.children and not row.category %}
+    <a href="/?{{ organize_by }}={{ row.tag | urlencode }}">{{ row.tag }}</a>
+    {% else %}
+    <a href="/?{{ row.category or 'freeform' }}={{ row.tag | urlencode }}">{{ row.tag }}</a>
+    {% endif %}
   </td>
   <td>{{ row.count }}</td>
-  <td>{{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}</td>
+  <td>
+    {% if organize_by and row.children and not row.category %}
+    {{ organize_by_options[organize_by] }}
+    {% else %}
+    {{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}
+    {% endif %}
+  </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, row.tag, depth + 1) }}
+{{ render_tag_row(child, row.tag, depth + 1, organize_by) }}
 {% endfor %}
 {% endmacro %}
 {% block title %}Tags - Archive Of My Own{% endblock %}
@@ -42,6 +53,7 @@
   <form method="get" action="/tags" id="sort-form" class="tag-sort-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="letter" value="{{ letter }}">
+    <input type="hidden" name="organize_by" value="{{ organize_by }}">
     <label class="hint" for="tag-sort">Sort:
       <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}
@@ -50,6 +62,14 @@
       </select>
     </label>
   </form>
+
+  <nav class="tag-filter-tabs">
+    <span class="hint">Organize by:</span>
+    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by=" class="{% if not organize_by %}active{% endif %}">None</a>
+    {% for value, label in organize_by_options.items() %}
+    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by={{ value }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </nav>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 
@@ -63,7 +83,7 @@
     </thead>
     <tbody>
       {% for row in tags %}
-      {{ render_tag_row(row, none, 0) }}
+      {{ render_tag_row(row, none, 0, organize_by) }}
       {% else %}
       <tr>
         <td colspan="3" class="empty">

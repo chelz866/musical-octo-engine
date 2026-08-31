@@ -243,7 +243,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   gets its own "Fandom" dropdown (defaulting to "No Fandom"), a Relationship gets one Character
   dropdown per "/"-or-"&amp;"-separated name part in its own text (the Character's spelling can
   differ from the literal substring), and a Freeform tag can be linked to any number of Characters
-  and Relationships via small add/remove chips. "No Fandom" is a real, explicit choice, not just
+  and Relationships via small add/remove chips. Every one of these dropdowns (and the bulk "Apply to
+  selected" trio below) lists its options depth-first through the same-category hierarchy above
+  rather than one flat alphabetical list -- a parent tag is immediately followed by its own children,
+  each indented one level further, so a same-category family stays visually grouped even inside a
+  plain `<select>`. "No Fandom" is a real, explicit choice, not just
   "unset" -- a same-category child with no Fandom of its own inherits the nearest ancestor's
   explicit choice (a real Fandom or an explicit "No Fandom," whichever is closer), defaulting to
   "No Fandom" only if nothing in the whole chain has ever set one. Once a Character/Relationship/
@@ -259,6 +263,18 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   to every checked tag in one action -- Fandom to every selected Character/Relationship/Freeform
   tag, Character/Relationship only to selected Freeform tags (a Relationship's Characters stay
   per-name-part, set individually in its own row).
+
+  **Organize by:** (both this page and the read-only Tags page above) regroups the current listing
+  by association instead of the same-category hierarchy -- pick Fandom, Character, or Relationship
+  (mutually exclusive, "None" restores the normal same-category nesting) and every tag on the list
+  is nested under its resolved Fandom/linked Character(s)/linked Relationship(s) as a synthetic
+  parent row instead of its same-category parent. This is how you see, say, the Relationship tab
+  grouped by Fandom, or the Freeform tab grouped by the Characters each tag is linked to. A tag
+  with more than one association for the chosen dimension (a Freeform tag linked to two Characters)
+  appears once under each parent; a tag with none stays a standalone top-level row rather than
+  disappearing. On the read-only Tags page, clicking a synthetic parent heading filters Downloads by
+  that association directly (e.g. a Fandom heading links like the Fandoms page does), not by
+  whatever category the heading's own name happens to also be classified as.
 - **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
   into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
   sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is
