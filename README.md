@@ -216,6 +216,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   real AO3 wrangling works. A tag can't be wrangled into a target that's itself already wrangled, or
   wrangled away once other tags already point to it -- both are refused to keep the mapping flat.
 
+  The parent typed into "Make selected children of" doesn't have to already exist as a tag on any
+  work -- typing a brand-new name creates a consolidated parent purely to group existing tags under
+  (e.g. wrangling "Torchwood" and "Doctor Who" as children of a new "Sci-Fi Shows"). It then shows
+  up here as its own row, with a count of the distinct works matching any of its children (not a
+  sum, so a work with two of that parent's children isn't counted twice), and works the same as any
+  other parent for both nesting and Downloads filtering.
+
   A parent with children shows a small &#9656; toggle and renders them indented directly
   underneath, collapsed by default so a heavily-childed tag doesn't make the table any taller than
   usual -- the same nesting shows on the read-only Tags page too. Searching this page's text filter

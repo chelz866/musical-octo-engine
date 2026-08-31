@@ -931,6 +931,27 @@ def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
     return [row for row in rows if row[0][:1].upper() == letter]
 
 
+def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children_map: dict[str, set[str]]) -> None:
+    """Mutates `counts` in place to add an entry for each wrangling parent
+    that isn't itself a real tag on any work -- a "consolidated" parent an
+    admin created purely to group existing children under (see
+    db.set_tag_wrangling; the target of a 'child' wrangling never has to
+    already exist as a literal tag). Its count is the number of distinct
+    works matching ANY of its children -- the same "parent or any child"
+    mechanism Downloads filtering already uses, see
+    _value_or_children_present -- not a sum of the children's own counts,
+    so a work with two of the same parent's children isn't double-counted.
+    A parent that's already a real tag is left alone; its count stays its
+    own literal count, same as before wrangling existed.
+    """
+    for parent, children in children_map.items():
+        if parent in counts:
+            continue
+        matching_ids = {e.work_id for e in entries if set(tags_of(e)) & children}
+        if matching_ids:
+            counts[parent] = len(matching_ids)
+
+
 def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
     tags is (tag, work_count, explicit_category_or_None). Shared by the
@@ -941,6 +962,7 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
     for entry in result.entries:
         for tag in entry.fandom_candidates:
             counts[tag] += 1
+    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandom_candidates, db.get_tag_children(DB_PATH))
 
     explicit = db.get_all_tag_categories(DB_PATH)
     bucket_counts = {"fandom": 0, "character": 0, "relationship": 0, "freeform": 0, "unclassified": 0}
@@ -1139,9 +1161,11 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
     for entry in result.entries:
         for name in entry.fandoms:
             counts[name] += 1
+    children_map = db.get_tag_children(DB_PATH)
+    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, children_map)
     sorted_fandoms = _sort_name_count_rows([(name, count, None) for name, count in counts.items()], sort)
     sorted_fandoms = _filter_by_letter(sorted_fandoms, letter)
-    sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, db.get_tag_children(DB_PATH))
+    sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, children_map)
     return templates.TemplateResponse(
         "fandoms.html",
         {

@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 
 from app.main import (
@@ -12,6 +13,7 @@ from app.main import (
     _filter_query_string,
     _parse_date,
     _selected_with_counts,
+    _add_virtual_parent_counts,
     _filter_by_letter,
     _group_tag_rows_by_parent,
     _series_sort_key,
@@ -621,6 +623,45 @@ def test_filter_by_letter_all_is_a_no_op():
 def test_filter_by_letter_hash_catches_non_alphabetic_starts():
     rows = [("apple", 1), ("100 Ways", 2), ("(Working Title)", 3)]
     assert [r[0] for r in _filter_by_letter(rows, "#")] == ["100 Ways", "(Working Title)"]
+
+
+def test_add_virtual_parent_counts_creates_a_row_for_a_nonexistent_parent():
+    # "Sci-Fi Shows" was never an actual tag on any work -- it's a
+    # consolidated parent an admin typed in on the Classify Tags page
+    # purely to group existing children under.
+    entries = [
+        WorkEntry(work_id="1", fandom_candidates=["Torchwood"]),
+        WorkEntry(work_id="2", fandom_candidates=["Doctor Who"]),
+        WorkEntry(work_id="3", fandom_candidates=["Angst"]),
+    ]
+    counts = Counter({"Torchwood": 1, "Doctor Who": 1, "Angst": 1})
+    children = {"Sci-Fi Shows": {"Torchwood", "Doctor Who"}}
+    _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, children)
+    assert counts["Sci-Fi Shows"] == 2
+
+
+def test_add_virtual_parent_counts_does_not_double_count_a_work_with_two_children():
+    entries = [WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Doctor Who"])]
+    counts = Counter({"Torchwood": 1, "Doctor Who": 1})
+    children = {"Sci-Fi Shows": {"Torchwood", "Doctor Who"}}
+    _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, children)
+    assert counts["Sci-Fi Shows"] == 1
+
+
+def test_add_virtual_parent_counts_leaves_a_real_parent_tags_own_count_alone():
+    entries = [WorkEntry(work_id="1", fandom_candidates=["Torchwood"]), WorkEntry(work_id="2", fandom_candidates=["Doctor Who"])]
+    counts = Counter({"Torchwood": 5, "Doctor Who": 1})  # Torchwood's real count, unrelated to its child
+    children = {"Torchwood": {"Doctor Who"}}
+    _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, children)
+    assert counts["Torchwood"] == 5
+
+
+def test_add_virtual_parent_counts_skips_a_parent_whose_children_match_nothing():
+    entries = [WorkEntry(work_id="1", fandom_candidates=["Angst"])]
+    counts = Counter({"Angst": 1})
+    children = {"Sci-Fi Shows": {"Torchwood", "Doctor Who"}}
+    _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, children)
+    assert "Sci-Fi Shows" not in counts
 
 
 def test_group_tag_rows_by_parent_nests_child_under_parent():
