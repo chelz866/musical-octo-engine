@@ -894,6 +894,21 @@ def _sort_name_count_rows(rows: list[tuple], sort: str) -> list[tuple]:
     return sorted(rows, key=lambda row: row[0].lower())  # name_asc, and the default
 
 
+LETTER_FILTER_OPTIONS = ["all"] + [chr(c) for c in range(ord("A"), ord("Z") + 1)] + ["#"]
+
+
+def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
+    """Narrows (name, count, ...) rows to those starting with the given
+    uppercase letter; "#" catches names starting with anything else (a
+    digit, punctuation, etc.), "all" is a no-op.
+    """
+    if letter == "all":
+        return rows
+    if letter == "#":
+        return [row for row in rows if not row[0][:1].isalpha()]
+    return [row for row in rows if row[0][:1].upper() == letter]
+
+
 def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
     tags is (tag, work_count, explicit_category_or_None). Shared by the
@@ -918,13 +933,20 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
 
 
 @app.get("/tags", response_class=HTMLResponse)
-def tags_browse(request: Request, filter: str = "all", page: int = 1, sort: str = DEFAULT_NAME_COUNT_SORT):
+def tags_browse(
+    request: Request,
+    filter: str = "all",
+    page: int = 1,
+    sort: str = DEFAULT_NAME_COUNT_SORT,
+    letter: str = "all",
+):
     """Read-only tag browsing under Browse -- anyone logged in can see
     this, unlike /tags/classify (admin-only, see the module-level
     ADMIN_PATH_PREFIXES) which actually changes the shared classification.
     """
     result = scanner.load_cached(DB_PATH)
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
+    tags = _filter_by_letter(tags, letter)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags_browse.html",
@@ -938,7 +960,9 @@ def tags_browse(request: Request, filter: str = "all", page: int = 1, sort: str 
             "total_tags": total_tags,
             "sort": sort,
             "sort_options": NAME_COUNT_SORT_LABELS,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
+            "letter": letter,
+            "letter_options": LETTER_FILTER_OPTIONS,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}",
         },
     )
 
@@ -1004,13 +1028,14 @@ def mark_all_unclassified_freeform():
 
 
 @app.get("/fandoms", response_class=HTMLResponse)
-def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT):
+def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str = "all"):
     result = scanner.load_cached(DB_PATH)
     counts = Counter()
     for entry in result.entries:
         for name in entry.fandoms:
             counts[name] += 1
     sorted_fandoms = _sort_name_count_rows(list(counts.items()), sort)
+    sorted_fandoms = _filter_by_letter(sorted_fandoms, letter)
     return templates.TemplateResponse(
         "fandoms.html",
         {
@@ -1018,6 +1043,8 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT):
             "fandoms": sorted_fandoms,
             "sort": sort,
             "sort_options": NAME_COUNT_SORT_LABELS,
+            "letter": letter,
+            "letter_options": LETTER_FILTER_OPTIONS,
         },
     )
 

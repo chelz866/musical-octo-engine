@@ -173,15 +173,18 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
-  A sort dropdown (Name A-Z/Z-A, Most/Fewest Works -- defaulting to Most Works) reorders the list.
+  A sort dropdown (Name A-Z/Z-A, Most/Fewest Works -- defaulting to Most Works) reorders the list,
+  and an A-Z letter strip (plus "#" for names starting with anything else) jumps straight to fandoms
+  starting with that letter.
 - **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
   downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
 - **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library, with
   its Fandom/Character/Relationship/Freeform classification shown read-only. Filter tabs at the top
   (Fandom/Character/Relationship/Freeform/Unclassified, each with a count) narrow the list, a sort
-  dropdown (Name A-Z/Z-A, Most/Fewest Works) reorders it, and clicking a tag filters Downloads to
-  just those works -- same idea as the Fandoms page, just for every tag instead of only fandoms.
-  Sort and filter combine and both persist across pagination. A tag with no explicit
+  dropdown (Name A-Z/Z-A, Most/Fewest Works) reorders it, an A-Z/"#" letter strip narrows it further
+  by first letter, and clicking a tag filters Downloads to just those works -- same idea as the
+  Fandoms page, just for every tag instead of only fandoms. Filter, sort, and letter all combine and
+  persist across pagination. A tag with no explicit
   classification falls back to a heuristic guess (see `app/epub_meta.py`): `_guess_fandoms` for
   Fandom, the "/" or "&" convention between names for Relationship, or Freeform otherwise --
   "Unclassified" specifically means no one has confirmed it either way yet. The relationship guess

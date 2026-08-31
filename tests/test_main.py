@@ -12,6 +12,7 @@ from app.main import (
     _filter_query_string,
     _parse_date,
     _selected_with_counts,
+    _filter_by_letter,
     _series_sort_key,
     _sort_name_count_rows,
     _static_facet_counts,
@@ -566,3 +567,18 @@ def test_sort_name_count_rows_count_asc_tiebreaks_ascending_by_name_too():
 def test_sort_name_count_rows_defaults_to_name_asc_for_unknown_sort():
     rows = [("zeta", 1), ("alpha", 2)]
     assert [r[0] for r in _sort_name_count_rows(rows, "nonsense")] == ["alpha", "zeta"]
+
+
+def test_filter_by_letter_matches_case_insensitively():
+    rows = [("apple", 1), ("Avocado", 2), ("banana", 3)]
+    assert [r[0] for r in _filter_by_letter(rows, "A")] == ["apple", "Avocado"]
+
+
+def test_filter_by_letter_all_is_a_no_op():
+    rows = [("apple", 1), ("banana", 2)]
+    assert _filter_by_letter(rows, "all") == rows
+
+
+def test_filter_by_letter_hash_catches_non_alphabetic_starts():
+    rows = [("apple", 1), ("100 Ways", 2), ("(Working Title)", 3)]
+    assert [r[0] for r in _filter_by_letter(rows, "#")] == ["100 Ways", "(Working Title)"]

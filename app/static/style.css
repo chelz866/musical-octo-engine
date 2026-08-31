@@ -576,6 +576,31 @@ th {
   margin: 0 0 1rem;
 }
 
+.letter-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.letter-filter a {
+  display: inline-block;
+  min-width: 1.6rem;
+  text-align: center;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.letter-filter a.active {
+  color: inherit;
+  background: var(--border);
+}
+
 .tag-bulk-actions {
   display: flex;
   flex-wrap: wrap;
