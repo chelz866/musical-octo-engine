@@ -408,6 +408,16 @@ th {
   min-width: 0;
   flex: 1;
   overflow-wrap: break-word;
+  /* A column flex container, not just a block -- CSS float has no effect
+     at all on flex items (per spec), so if a skin floats one of these
+     direct children (fandoms, tags, summary, whatever) to build its own
+     layout, that float is simply ignored here and every child still
+     stacks full-width, one per line, exactly like an unstyled block would.
+     A block formatting context (overflow:hidden/flow-root) doesn't cover
+     this case -- it only stops floats from escaping to elements *outside*
+     the container, not from affecting normal-flow siblings inside it. */
+  display: flex;
+  flex-direction: column;
 }
 
 .blurb-heading {
