@@ -357,6 +357,19 @@ SORT_OPTIONS = {
     "word_count_asc": lambda e: (e.word_count or 0),
     "newest": lambda e: scanner.effective_timestamp(e) or datetime.min,
 }
+def _series_sort_key(entry) -> float:
+    """Numeric-aware ordering for the series view (see /series/{series_name}
+    below) -- AO3's own series page lists works "Part 1, 2, ... 10" in that
+    numeric order, not lexicographic ("1", "10", "2", ...). A work with no
+    recorded position (or a non-numeric one) sorts to the end rather than
+    erroring.
+    """
+    try:
+        return float(entry.series_index)
+    except (TypeError, ValueError):
+        return float("inf")
+
+
 SORT_LABELS = {
     "title": "Title (A–Z)",
     "author": "Author (A–Z)",
@@ -675,6 +688,34 @@ def dashboard(request: Request, page: int = 1):
             "total_pages": total_pages,
             "total_filtered": len(entries),
             "pager_qs": pager_qs,
+        },
+    )
+
+
+@app.get("/series/{series_name}", response_class=HTMLResponse)
+def series_view(request: Request, series_name: str):
+    """A local stand-in for AO3's own series page -- this app has no AO3
+    series id to link to (series membership comes from Audiobookshelf's own
+    series/bookSeries tables, see audiobookshelf.py, which don't carry
+    AO3's id), so clicking a work's series line stays inside this app and
+    lists every other downloaded work in the same series, in series order.
+    """
+    result = scanner.load_cached(DB_PATH)
+    entries = [e for e in result.entries if e.series == series_name]
+    entries.sort(key=_series_sort_key)
+
+    bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
+    bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
+
+    return templates.TemplateResponse(
+        "series.html",
+        {
+            **_base_context(request),
+            "series_name": series_name,
+            "entries": entries,
+            "bookmarked_ids": bookmarked_ids,
+            "bookmark_notes": bookmark_notes,
+            "abs_links": _abs_links(),
         },
     )
 

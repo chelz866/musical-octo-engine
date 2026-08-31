@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_fandom_picker.html" as picker %}
+{% import "_blurb.html" as blurb %}
 {% import "_pager.html" as pagination %}
 {% import "_filters.html" as filters %}
 {% block title %}Archive Of My Own{% endblock %}
@@ -19,90 +19,7 @@
 
   <ul class="blurb-list work index group">
     {% for e in entries %}
-    {% set icons = e | blurb_icons %}
-    {% set tags = e | blurb_tag_line %}
-    <li class="blurb work group">
-      <div class="blurb-icons">
-        <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
-        <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
-        <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
-        <span class="req-tag completion-{{ icons.completion_class }}" title="{{ icons.completion_label }}">{{ icons.completion_symbol }}</span>
-      </div>
-      <div class="blurb-body">
-        <h4 class="blurb-heading">
-          <form method="post" action="/works/{{ e.work_id }}/bookmark" class="bookmark-form">
-            <input type="hidden" name="next" value="{{ request.url }}">
-            <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
-            <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
-          </form>
-          <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
-            {{ e.title or "(unknown title)" }}
-          </a>
-          {% if e.work_id in abs_links %}
-          <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
-          {% endif %}
-          by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
-        </h4>
-        <div class="blurb-fandoms">
-          {%- if e.fandoms -%}
-            {% for f in e.fandoms %}<a class="tag" href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
-          {%- else -%}
-            <span class="hint">no fandom guessed</span>
-          {%- endif -%}
-          {%- if e.series -%}
-            , <span class="blurb-series">{% if e.series_index %}Part {{ e.series_index }} of {% endif %}{{ e.series }}</span>
-          {%- endif %}
-          {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
-        </div>
-        {% if e.work_id in bookmarked_ids %}
-        <div class="bookmark-note-block">
-          {% if bookmark_notes.get(e.work_id) %}
-          <p class="bookmark-note">📝 {{ bookmark_notes.get(e.work_id) }}</p>
-          {% endif %}
-          <details class="note-editor">
-            <summary>{{ "edit note" if bookmark_notes.get(e.work_id) else "add note" }}</summary>
-            <form method="post" action="/works/{{ e.work_id }}/bookmark/note">
-              <input type="hidden" name="next" value="{{ request.url }}">
-              <textarea name="note" rows="2" placeholder="Note to yourself...">{{ bookmark_notes.get(e.work_id, "") }}</textarea>
-              <button type="submit">Save</button>
-            </form>
-          </details>
-        </div>
-        {% endif %}
-        {% if tags %}
-        <ul class="blurb-tags tags commas">
-          {% for tag in tags %}
-          <li class="{{ tag.li_class }}">{% if tag.li_class == "warnings" %}<strong><a class="tag" href="/?{{ tag.param }}={{ tag.text | urlencode }}">{{ tag.text }}</a></strong>{% else %}<a class="tag" href="/?{{ tag.param }}={{ tag.text | urlencode }}">{{ tag.text }}</a>{% endif %}</li>
-          {% endfor %}
-        </ul>
-        {% endif %}
-        {% if e.summary %}<p class="blurb-summary">{{ e.summary }}</p>{% endif %}
-        {% if e.language or e.word_count or e.chapters_have %}
-        <dl class="stats blurb-ao3-stats">
-          {% if e.language %}<dt class="language">Language:</dt><dd class="language">{{ e.language }}</dd>{% endif %}
-          {% if e.word_count %}<dt class="words">Words:</dt><dd class="words">{{ e.word_count | format_number }}</dd>{% endif %}
-          {% if e.chapters_have %}<dt class="chapters">Chapters:</dt><dd class="chapters">{{ e.chapters_have }}/{{ e.chapters_total if e.chapters_total is not none else "?" }}</dd>{% endif %}
-        </dl>
-        {% endif %}
-        <p class="blurb-footer">
-          {{ e.size_bytes | human_size }}
-          &middot;
-          {% if e.mtime %}{{ e.mtime.strftime("%Y-%m-%d %H:%M") }}
-          {% elif e.log_timestamp %}{{ e.log_timestamp }}
-          {% else %}—{% endif %}
-          &middot;
-          {% if e.parse_error %}
-            <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
-          {% elif e.on_disk %}
-            <span class="badge badge-ok">✓ on disk</span>
-          {% elif e.log_success %}
-            <span class="badge badge-missing">✗ missing</span>
-          {% else %}
-            <span class="badge badge-warn">✗ failed</span>
-          {% endif %}
-        </p>
-      </div>
-    </li>
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links) }}
     {% else %}
     <li class="empty">
       {% if last_refreshed %}No works found. Check the mounted downloads/log paths on the <a href="/admin">Admin Dashboard</a>.

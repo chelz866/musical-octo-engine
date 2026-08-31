@@ -431,7 +431,14 @@ th {
 }
 
 .blurb-series {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
   font-style: italic;
+  color: var(--muted);
+}
+
+.blurb-series a {
+  color: inherit;
 }
 
 .blurb-tags {

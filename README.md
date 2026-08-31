@@ -46,7 +46,10 @@ library, matched works get two things:
 - Series membership -- AO3's own "Part N of &lt;series&gt;" line -- comes from Audiobookshelf's
   `series`/`bookSeries` tables (its own series management, separate from `books`) rather than the
   epub file, which usually doesn't carry this at all. A book Audiobookshelf has filed under more
-  than one series shows whichever it was added to first.
+  than one series shows whichever it was added to first. It appears on the Downloads blurb between
+  the summary and the stats line, and is a link to `/series/<name>` -- a local series view listing
+  every other downloaded work in that series, in series order -- rather than to AO3 itself, since
+  this app has no AO3 series id to link to (only Audiobookshelf's own internal one).
 
 Matching is by AO3 work id, extracted from Audiobookshelf's own `libraryItems.path` column the same
 way this app reads its own downloads folder, joined to the `books` table via `libraryItems.mediaId`
@@ -161,6 +164,8 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
+- **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
+  downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
 - **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library,
   sorted by how many works have it, with its Fandom/Character/Freeform classification shown
   read-only. Filter tabs at the top (Fandom/Character/Freeform/Unclassified, each with a count)

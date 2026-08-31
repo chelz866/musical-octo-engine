@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_blurb.html" as blurb %}
+{% block title %}{{ series_name }} - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>{{ series_name }}</h1>
+    <p class="hint">{{ entries | length }} work{{ "s" if entries | length != 1 else "" }} in this series, in series order.</p>
+  </header>
+
+  <ul class="blurb-list work index group">
+    {% for e in entries %}
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links) }}
+    {% else %}
+    <li class="empty">No downloaded works found for this series.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

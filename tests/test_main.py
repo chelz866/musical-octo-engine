@@ -12,6 +12,7 @@ from app.main import (
     _filter_query_string,
     _parse_date,
     _selected_with_counts,
+    _series_sort_key,
     _static_facet_counts,
     blurb_tag_line,
     paginate,
@@ -502,3 +503,24 @@ def test_blurb_tag_line_param_matches_the_downloads_filter_facet():
 
 def test_blurb_tag_line_empty_entry_has_no_tags():
     assert blurb_tag_line(WorkEntry(work_id="1")) == []
+
+
+def test_series_sort_key_orders_numerically_not_lexicographically():
+    entries = [
+        WorkEntry(work_id="1", series_index="10"),
+        WorkEntry(work_id="2", series_index="2"),
+        WorkEntry(work_id="3", series_index="1"),
+    ]
+    entries.sort(key=_series_sort_key)
+    assert [e.work_id for e in entries] == ["3", "2", "1"]
+
+
+def test_series_sort_key_puts_missing_or_non_numeric_index_last():
+    entries = [
+        WorkEntry(work_id="1", series_index=None),
+        WorkEntry(work_id="2", series_index="1"),
+        WorkEntry(work_id="3", series_index="not-a-number"),
+    ]
+    entries.sort(key=_series_sort_key)
+    assert entries[0].work_id == "2"
+    assert {entries[1].work_id, entries[2].work_id} == {"1", "3"}
