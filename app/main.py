@@ -360,6 +360,11 @@ EXCLUDE_FACETS = ("rating", "warning", "category", "fandom", "character", "relat
 EXCLUDE_STATIC_FACET_DEFS = {k: v for k, v in STATIC_FACET_DEFS.items() if k in EXCLUDE_FACETS}
 EXCLUDE_DYNAMIC_FACET_LABELS = {k: v for k, v in DYNAMIC_FACET_LABELS.items() if k in EXCLUDE_FACETS}
 
+# The three dynamic facets a tag can be fandom-scoped for -- Fandom itself
+# isn't scoped to another fandom by this mechanism, and Language has its
+# own small fixed-ish vocabulary that isn't tag-wrangling territory.
+FANDOM_SCOPED_FACETS = ("character", "relationship", "freeform")
+
 SORT_OPTIONS = {
     "title": lambda e: (e.title or "").lower(),
     "author": lambda e: (e.author or "").lower(),
@@ -431,7 +436,7 @@ def _get_autocompleter(facet: str) -> tuple[AutoComplete, dict[str, set[str]]]:
     return autocompleter, word_to_tags
 
 
-def _search_facet_tags(facet: str, q: str, limit: int = 20) -> list[str]:
+def _search_facet_tags(facet: str, q: str, limit: int = 20, active_fandoms: set[str] | None = None) -> list[str]:
     q = q.strip()
     if facet not in TAG_SEARCH_FACETS or len(q) < 2:
         return []
@@ -441,7 +446,30 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20) -> list[str]:
     for result in results:
         key = " ".join(result) if isinstance(result, list) else result
         matched.update(word_to_tags.get(key, ()))
+    if active_fandoms and facet in FANDOM_SCOPED_FACETS:
+        # Same "unscoped or scoped to a currently-included fandom" rule as
+        # the top-10 suggestions (_facet_suggestions) -- otherwise typing
+        # into "Find another..." would be the one way left to slip a
+        # different fandom's tag past the scoping.
+        scope = _build_fandom_scope(scanner.load_cached(DB_PATH).entries, db.get_tag_children(DB_PATH))
+        matched = {tag for tag in matched if not scope.get(tag) or scope[tag] in active_fandoms}
     return sorted(matched, key=str.lower)[:limit]
+
+
+def _build_fandom_scope(entries: list, children: dict[str, set[str]]) -> dict[str, str]:
+    """tag -> the one fandom it's scoped to, for every 'child' wrangling
+    whose parent is itself used as a fandom somewhere in the library (see
+    scanner.WorkEntry.fandoms). Used to keep a fandom-specific tag (e.g.
+    "The Doctor", wrangled as a child of the fandom "Doctor Who") out of
+    a *different* fandom's Character/Relationship/Additional-Tags
+    suggestions and "Find another..." search results -- a tag wrangled
+    under something that ISN'T used as a fandom (an ordinary same-category
+    subtag, or a consolidated parent that isn't itself a fandom) has no
+    scope here and stays universally suggestible, same as an unwrangled
+    tag like "Coffee Shops".
+    """
+    known_fandoms = {name for entry in entries for name in entry.fandoms}
+    return {child: parent for parent, kids in children.items() if parent in known_fandoms for child in kids}
 
 
 def _value_or_children_present(value: str, entry_values: set[str], children: dict[str, set[str]]) -> bool:
@@ -544,12 +572,29 @@ def _facet_suggestions(entries: list, filters: dict, name: str, mode: str = "fac
     selected, counted against entries matching every *other* active filter
     (so narrowing a different facet updates the suggestions, but selecting
     more values within this same facet/direction doesn't shrink its own list).
+
+    For the three fandom-scoped facets (see FANDOM_SCOPED_FACETS), a
+    candidate that's wrangled to a *different*, unselected fandom (per
+    filters["fandom_scope"]) is dropped from suggestions entirely -- e.g.
+    once Fandom "Harry Potter" is selected (Include), "The Doctor" (scoped
+    to "Doctor Who") never shows up as a suggested Character, while an
+    unscoped tag like "Coffee Shops" still does. This only looks at the
+    currently *included* fandom(s), regardless of whether these are
+    Include or Exclude suggestions being built -- both describe the same
+    "what fandom am I browsing" context.
     """
     selected = set(filters[mode][name])
+    active_fandoms = set(filters["facets"].get("fandom", ())) if name in FANDOM_SCOPED_FACETS else set()
+    scope = filters.get("fandom_scope", {})
     counts: Counter = Counter()
     for entry in entries:
         if _entry_matches(entry, filters, **_skip_kwargs(name, mode)):
-            counts.update(v for v in FACETS[name](entry) if v not in selected)
+            for v in FACETS[name](entry):
+                if v in selected:
+                    continue
+                if active_fandoms and scope.get(v) and scope[v] not in active_fandoms:
+                    continue
+                counts[v] += 1
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:top_n]
 
 
@@ -693,6 +738,7 @@ def dashboard(request: Request, page: int = 1):
     result = scanner.load_cached(DB_PATH)
     filters = _parse_filters(request)
     filters["children"] = db.get_tag_children(DB_PATH)
+    filters["fandom_scope"] = _build_fandom_scope(result.entries, filters["children"])
     # Facet suggestion/count computation needs the *whole* library, not the
     # already-filtered list below -- each facet's own counts are computed
     # by re-filtering result.entries excluding just that one facet (see
@@ -816,12 +862,16 @@ def admin(request: Request):
 
 
 @app.get("/tags/search")
-def tag_search(facet: str, q: str = ""):
+def tag_search(request: Request, facet: str, q: str = ""):
     """Typeahead endpoint backing the Downloads page's per-facet "Find
     another..." box -- see _search_facet_tags. Used to reach any of a
     library's 20,000+ tags, not just the top-10 suggestions already shown.
+    `fandom` (repeatable) is whatever Include-Fandom checkboxes are
+    currently checked client-side, passed through so results stay scoped
+    the same way the suggestion list already is.
     """
-    return JSONResponse(_search_facet_tags(facet, q))
+    active_fandoms = set(request.query_params.getlist("fandom"))
+    return JSONResponse(_search_facet_tags(facet, q, active_fandoms=active_fandoms))
 
 
 @app.get("/issues", response_class=HTMLResponse)

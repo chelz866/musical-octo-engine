@@ -14,6 +14,7 @@ from app.main import (
     _parse_date,
     _selected_with_counts,
     _add_virtual_parent_counts,
+    _build_fandom_scope,
     _filter_by_letter,
     _group_tag_rows_by_parent,
     _series_sort_key,
@@ -29,7 +30,8 @@ from app.scanner import WorkEntry
 
 
 def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=None,
-             date_from=None, date_to=None, bookmarked=False, unread=False, q="", sort="title", children=None):
+             date_from=None, date_to=None, bookmarked=False, unread=False, q="", sort="title", children=None,
+             fandom_scope=None):
     return {
         "facets": {name: [] for name in FACETS} | (facets or {}),
         "exclude": {name: [] for name in EXCLUDE_FACETS} | (exclude or {}),
@@ -40,6 +42,7 @@ def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=
         "date_to": date_to,
         "bookmarked": bookmarked,
         "unread": unread,
+        "fandom_scope": fandom_scope or {},
         "q": q,
         "sort": sort,
         "children": children or {},
@@ -334,6 +337,54 @@ def test_facet_suggestions_exclude_mode_reads_the_exclude_dict():
     filters = _filters(exclude={"character": ["Voldemort"]})
     suggestions = _facet_suggestions(entries, filters, "character", mode="exclude")
     assert suggestions == [("Umbridge", 1)]
+
+
+def test_build_fandom_scope_only_scopes_children_of_a_real_fandom():
+    entries = [WorkEntry(work_id="1", fandoms=["Doctor Who"])]
+    # "The Doctor" is wrangled under "Doctor Who" (a real fandom) --
+    # scoped. "Coffee Shops" is wrangled under "AUs" (never used as a
+    # fandom by any entry) -- not scoped, stays universal.
+    children = {"Doctor Who": {"The Doctor"}, "AUs": {"Coffee Shops"}}
+    scope = _build_fandom_scope(entries, children)
+    assert scope == {"The Doctor": "Doctor Who"}
+
+
+def test_facet_suggestions_drops_a_tag_scoped_to_a_different_fandom():
+    entries = [
+        WorkEntry(work_id="1", fandoms=["Harry Potter"], characters=["Hermione Granger"]),
+        WorkEntry(work_id="2", fandoms=["Doctor Who"], characters=["The Doctor"]),
+    ]
+    filters = _filters(facets={"fandom": ["Harry Potter"]}, fandom_scope={"The Doctor": "Doctor Who"})
+    suggestions = _facet_suggestions(entries, filters, "character")
+    assert suggestions == [("Hermione Granger", 1)]
+
+
+def test_facet_suggestions_keeps_a_tag_scoped_to_the_selected_fandom():
+    entries = [WorkEntry(work_id="1", fandoms=["Doctor Who"], characters=["The Doctor"])]
+    filters = _filters(facets={"fandom": ["Doctor Who"]}, fandom_scope={"The Doctor": "Doctor Who"})
+    suggestions = _facet_suggestions(entries, filters, "character")
+    assert suggestions == [("The Doctor", 1)]
+
+
+def test_facet_suggestions_keeps_an_unscoped_tag_regardless_of_selected_fandom():
+    entries = [WorkEntry(work_id="1", fandoms=["Harry Potter"], freeform_tags=["Coffee Shops"])]
+    filters = _filters(facets={"fandom": ["Harry Potter"]}, fandom_scope={"The Doctor": "Doctor Who"})
+    suggestions = _facet_suggestions(entries, filters, "freeform")
+    assert suggestions == [("Coffee Shops", 1)]
+
+
+def test_facet_suggestions_fandom_scope_is_a_no_op_when_no_fandom_is_selected():
+    entries = [WorkEntry(work_id="1", fandoms=["Doctor Who"], characters=["The Doctor"])]
+    filters = _filters(fandom_scope={"The Doctor": "Doctor Who"})
+    suggestions = _facet_suggestions(entries, filters, "character")
+    assert suggestions == [("The Doctor", 1)]
+
+
+def test_facet_suggestions_fandom_scope_does_not_apply_to_the_fandom_facet_itself():
+    entries = [WorkEntry(work_id="1", fandoms=["Doctor Who"])]
+    filters = _filters(facets={"fandom": ["Harry Potter"]}, fandom_scope={"Doctor Who": "Harry Potter"})
+    suggestions = _facet_suggestions(entries, filters, "fandom")
+    assert suggestions == [("Doctor Who", 1)]
 
 
 def test_selected_with_counts_exclude_mode():

@@ -81,13 +81,25 @@
 </form>
 
 <script>
+  var FANDOM_SCOPED_FACETS = ["character", "relationship", "freeform"];
+
+  function currentIncludedFandoms() {
+    return Array.from(document.querySelectorAll('input[type="checkbox"][name="fandom"]:checked')).map(function (cb) {
+      return cb.value;
+    });
+  }
+
   function onFacetSearch(input) {
     clearTimeout(input._debounce);
     var q = input.value.trim();
     var container = input.parentElement;
     if (q.length < 2) { hideSuggestions(container); return; }
     input._debounce = setTimeout(function () {
-      fetch("/tags/search?facet=" + encodeURIComponent(container.dataset.facet) + "&q=" + encodeURIComponent(q))
+      var url = "/tags/search?facet=" + encodeURIComponent(container.dataset.facet) + "&q=" + encodeURIComponent(q);
+      if (FANDOM_SCOPED_FACETS.indexOf(container.dataset.facet) !== -1) {
+        currentIncludedFandoms().forEach(function (name) { url += "&fandom=" + encodeURIComponent(name); });
+      }
+      fetch(url)
         .then(function (r) { return r.json(); })
         .then(function (matches) { renderSuggestions(container, matches); });
     }, 200);

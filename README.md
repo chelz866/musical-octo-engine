@@ -156,6 +156,14 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   Enter) checks it, same as any other checkbox. The free-text search box above also matches tag
   text, as a further fallback.
 
+  Once one or more Fandoms are checked (Include), the Character/Relationship/Additional Tags
+  suggestions and "Find another..." search both narrow to only tags that make sense for that
+  fandom: a tag with no fandom link at all (an unwrangled, universal trope like "Coffee Shops")
+  always stays available, and one wrangled as a child of the selected fandom(s) stays available too,
+  but a tag wrangled under a *different* fandom (e.g. "The Doctor" under "Doctor Who") disappears
+  from both while browsing Harry Potter -- see Tag wrangling under Classify Tags below for how that
+  fandom link gets set.
+
   **More Options**: Crossovers (include/exclude/only), a word-count range, and a downloaded-date
   range (`From`/`To`, compared against the same timestamp the "newest" sort uses). Sort-by covers
   title, author, word count, and date downloaded -- not hits/kudos/comments/bookmarks, since those
