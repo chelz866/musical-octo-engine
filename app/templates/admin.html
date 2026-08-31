@@ -9,6 +9,10 @@
       log: <code>{{ log_path }}</code>
       {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}
     </p>
+    <form method="post" action="/refresh" class="refresh-form">
+      <input type="hidden" name="next" value="{{ request.url.path }}">
+      <button type="submit">Refresh</button>
+    </form>
   </header>
 
   <section class="stats">

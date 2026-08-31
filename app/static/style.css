@@ -112,6 +112,10 @@ body {
   flex: 1;
 }
 
+.refresh-form {
+  margin-top: 0.75rem;
+}
+
 .refresh-form button {
   font-size: 0.85rem;
   padding: 0.3rem 0.8rem;
@@ -517,8 +521,21 @@ th {
   font-weight: 600;
 }
 
-.filter-panel form {
-  margin-top: 0.75rem;
+.filter-search {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.filter-apply {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
 }
 
 .filter-panel h3 {

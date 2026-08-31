@@ -29,10 +29,12 @@
 {% endmacro %}
 
 {% macro panel(filter_panel, has_active_filters) %}
-<details class="filter-panel" {% if has_active_filters %}open{% endif %}>
-  <summary>Search &amp; Filter</summary>
-  <form method="get" action="/">
-    <input type="search" name="q" value="{{ filter_panel.q }}" placeholder="Search title, author, summary, tags&hellip;" class="fandom-other">
+<form method="get" action="/">
+  <input type="search" name="q" value="{{ filter_panel.q }}" placeholder="Search title, author, summary, tags&hellip;" class="fandom-other filter-search">
+
+  <details class="filter-panel" {% if has_active_filters %}open{% endif %}>
+    <summary>Filter</summary>
+    <button type="submit" class="filter-apply">Search and Filter</button>
 
     <label class="filter-sort">Sort by:
       <select name="sort">
@@ -78,10 +80,10 @@
       <label><input type="date" name="date_to" value="{{ filter_panel.date_to if filter_panel.date_to else '' }}"></label>
     </div>
 
-    <button type="submit">Apply filters</button>
+    <button type="submit" class="filter-apply">Search and Filter</button>
     {% if has_active_filters %}<a href="/">Clear all</a>{% endif %}
-  </form>
-</details>
+  </details>
+</form>
 
 <script>
   function onFacetSearch(input) {

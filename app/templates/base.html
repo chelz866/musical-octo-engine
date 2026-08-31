@@ -37,10 +37,6 @@
       {% if last_refreshed %}last refreshed {{ last_refreshed[:16].replace("T", " ") }}
       {% else %}never refreshed{% endif %}
     </span>
-    <form method="post" action="/refresh" class="refresh-form">
-      <input type="hidden" name="next" value="{{ request.url.path }}">
-      <button type="submit">Refresh</button>
-    </form>
   </nav>
   <main>
     {% if refresh_error %}
