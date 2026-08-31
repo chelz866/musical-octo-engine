@@ -10,19 +10,29 @@
       to tell them apart from the file alone; relationship tags start out
       guessed from the "/" or "&amp;" convention between names, which can
       misfire on an ordinary tag like "Hurt/Comfort" -- reclassify those
-      here). Classifying one here applies to every work that has it, sorted
-      by how many works it affects.
+      here). Classifying one here applies to every work that has it.
     </p>
   </header>
 
   <nav class="tag-filter-tabs">
-    <a href="/tags/classify?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags/classify?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags/classify?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags/classify?filter=relationship" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags/classify?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags/classify?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags/classify?filter=all&sort={{ sort }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags/classify?filter=fandom&sort={{ sort }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags/classify?filter=character&sort={{ sort }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=relationship&sort={{ sort }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags/classify?filter=freeform&sort={{ sort }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags/classify?filter=unclassified&sort={{ sort }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
+
+  <form method="get" action="/tags/classify" id="sort-form" class="tag-sort-form">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <label class="hint" for="tag-sort">Sort:
+      <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
+        {% for value, label in sort_options.items() %}
+        <option value="{{ value }}" {% if value == sort %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
 
   <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
   <p class="hint">
@@ -34,6 +44,7 @@
   <form method="post" action="/tags/classify/set_selected" id="tag-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="page" value="{{ page }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
 
     <div class="tag-bulk-actions">
       <span class="hint" id="selected-count">0 selected</span>
@@ -80,6 +91,7 @@
       {% for tag, count, category in tags %}<input type="hidden" name="tags" value="{{ tag }}">{% endfor %}
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
       <button type="submit">Mark unclassified on this page as Freeform</button>
     </form>
     <form method="post" action="/tags/classify/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">

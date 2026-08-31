@@ -572,6 +572,10 @@ th {
   border-bottom-color: var(--muted);
 }
 
+.tag-sort-form {
+  margin: 0 0 1rem;
+}
+
 .tag-bulk-actions {
   display: flex;
   flex-wrap: wrap;

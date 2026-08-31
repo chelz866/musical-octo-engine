@@ -868,12 +868,37 @@ def set_work_fandom(
     return RedirectResponse(url=next or "/", status_code=303)
 
 
-def _tag_rows(result, filter: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
+DEFAULT_NAME_COUNT_SORT = "count_desc"
+NAME_COUNT_SORT_LABELS = {
+    "name_asc": "Name (A-Z)",
+    "name_desc": "Name (Z-A)",
+    "count_desc": "Most Works",
+    "count_asc": "Fewest Works",
+}
+
+
+def _sort_name_count_rows(rows: list[tuple], sort: str) -> list[tuple]:
+    """Sorts a list of (name, count, ...) tuples for any of the Tags/Browse/
+    Fandoms pages -- shared since they're all the same (name, count) shape
+    underneath. Name sorts have no tiebreak (names are unique, one row per
+    tag/fandom); count sorts always tiebreak ascending by name, regardless
+    of count direction, so equal-count rows land in a stable, predictable
+    order rather than flipping with the primary sort.
+    """
+    if sort == "name_desc":
+        return sorted(rows, key=lambda row: row[0].lower(), reverse=True)
+    if sort == "count_asc":
+        return sorted(rows, key=lambda row: (row[1], row[0].lower()))
+    if sort == "count_desc":
+        return sorted(rows, key=lambda row: (-row[1], row[0].lower()))
+    return sorted(rows, key=lambda row: row[0].lower())  # name_asc, and the default
+
+
+def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
-    tags is (tag, work_count, explicit_category_or_None), sorted by work
-    count desc then name. Shared by the admin classification page and the
-    read-only Browse page: same underlying data, one mutable (checkboxes/
-    bulk actions), one not.
+    tags is (tag, work_count, explicit_category_or_None). Shared by the
+    admin classification page and the read-only Browse page: same
+    underlying data, one mutable (checkboxes/bulk actions), one not.
     """
     counts: Counter = Counter()
     for entry in result.entries:
@@ -888,18 +913,18 @@ def _tag_rows(result, filter: str) -> tuple[list[tuple[str, int, str | None]], d
     tags = [(tag, count, explicit.get(tag)) for tag, count in counts.items()]
     if filter != "all":
         tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
-    tags.sort(key=lambda row: (-row[1], row[0].lower()))
+    tags = _sort_name_count_rows(tags, sort)
     return tags, bucket_counts, len(counts)
 
 
 @app.get("/tags", response_class=HTMLResponse)
-def tags_browse(request: Request, filter: str = "all", page: int = 1):
+def tags_browse(request: Request, filter: str = "all", page: int = 1, sort: str = DEFAULT_NAME_COUNT_SORT):
     """Read-only tag browsing under Browse -- anyone logged in can see
     this, unlike /tags/classify (admin-only, see the module-level
     ADMIN_PATH_PREFIXES) which actually changes the shared classification.
     """
     result = scanner.load_cached(DB_PATH)
-    tags, bucket_counts, total_tags = _tag_rows(result, filter)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags_browse.html",
@@ -911,15 +936,17 @@ def tags_browse(request: Request, filter: str = "all", page: int = 1):
             "total_pages": total_pages,
             "bucket_counts": bucket_counts,
             "total_tags": total_tags,
-            "pager_qs": f"&filter={quote(filter)}",
+            "sort": sort,
+            "sort_options": NAME_COUNT_SORT_LABELS,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
         },
     )
 
 
 @app.get("/tags/classify", response_class=HTMLResponse)
-def tags_classify_page(request: Request, filter: str = "all", page: int = 1):
+def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sort: str = DEFAULT_NAME_COUNT_SORT):
     result = scanner.load_cached(DB_PATH)
-    tags, bucket_counts, total_tags = _tag_rows(result, filter)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags.html",
@@ -931,7 +958,9 @@ def tags_classify_page(request: Request, filter: str = "all", page: int = 1):
             "total_pages": total_pages,
             "bucket_counts": bucket_counts,
             "total_tags": total_tags,
-            "pager_qs": f"&filter={quote(filter)}",
+            "sort": sort,
+            "sort_options": NAME_COUNT_SORT_LABELS,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
         },
     )
 
@@ -942,17 +971,27 @@ def set_selected_tags(
     category: str = Form(...),
     filter: str = Form("all"),
     page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
 ):
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
-    return RedirectResponse(url=f"/tags/classify?filter={quote(filter)}&page={page}", status_code=303)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
 
 
 @app.post("/tags/classify/mark_page_freeform")
-def mark_page_freeform(tags: list[str] = Form([]), filter: str = Form("all"), page: int = Form(1)):
+def mark_page_freeform(
+    tags: list[str] = Form([]),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
-    return RedirectResponse(url=f"/tags/classify?filter={quote(filter)}&page={page}", status_code=303)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
 
 
 @app.post("/tags/classify/mark_all_unclassified_freeform")
@@ -965,18 +1004,20 @@ def mark_all_unclassified_freeform():
 
 
 @app.get("/fandoms", response_class=HTMLResponse)
-def fandoms(request: Request):
+def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT):
     result = scanner.load_cached(DB_PATH)
     counts = Counter()
     for entry in result.entries:
         for name in entry.fandoms:
             counts[name] += 1
-    sorted_fandoms = sorted(counts.items(), key=lambda pair: pair[0].lower())
+    sorted_fandoms = _sort_name_count_rows(list(counts.items()), sort)
     return templates.TemplateResponse(
         "fandoms.html",
         {
             **_base_context(request),
             "fandoms": sorted_fandoms,
+            "sort": sort,
+            "sort_options": NAME_COUNT_SORT_LABELS,
         },
     )
 

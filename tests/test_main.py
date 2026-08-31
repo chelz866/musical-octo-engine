@@ -13,6 +13,7 @@ from app.main import (
     _parse_date,
     _selected_with_counts,
     _series_sort_key,
+    _sort_name_count_rows,
     _static_facet_counts,
     blurb_tag_line,
     paginate,
@@ -540,3 +541,28 @@ def test_series_sort_key_puts_missing_or_non_numeric_index_last():
     entries.sort(key=_series_sort_key)
     assert entries[0].work_id == "2"
     assert {entries[1].work_id, entries[2].work_id} == {"1", "3"}
+
+
+def test_sort_name_count_rows_name_asc_is_case_insensitive():
+    rows = [("zeta", 1), ("Alpha", 2), ("beta", 3)]
+    assert [r[0] for r in _sort_name_count_rows(rows, "name_asc")] == ["Alpha", "beta", "zeta"]
+
+
+def test_sort_name_count_rows_name_desc():
+    rows = [("zeta", 1), ("Alpha", 2), ("beta", 3)]
+    assert [r[0] for r in _sort_name_count_rows(rows, "name_desc")] == ["zeta", "beta", "Alpha"]
+
+
+def test_sort_name_count_rows_count_desc_tiebreaks_ascending_by_name():
+    rows = [("zeta", 5), ("alpha", 5), ("beta", 9)]
+    assert [r[0] for r in _sort_name_count_rows(rows, "count_desc")] == ["beta", "alpha", "zeta"]
+
+
+def test_sort_name_count_rows_count_asc_tiebreaks_ascending_by_name_too():
+    rows = [("zeta", 1), ("alpha", 1), ("beta", 9)]
+    assert [r[0] for r in _sort_name_count_rows(rows, "count_asc")] == ["alpha", "zeta", "beta"]
+
+
+def test_sort_name_count_rows_defaults_to_name_asc_for_unknown_sort():
+    rows = [("zeta", 1), ("alpha", 2)]
+    assert [r[0] for r in _sort_name_count_rows(rows, "nonsense")] == ["alpha", "zeta"]

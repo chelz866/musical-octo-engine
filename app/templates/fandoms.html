@@ -9,6 +9,16 @@
     </p>
   </header>
 
+  <form method="get" action="/fandoms" id="sort-form" class="tag-sort-form">
+    <label class="hint" for="fandom-sort">Sort:
+      <select name="sort" id="fandom-sort" onchange="document.getElementById('sort-form').submit()">
+        {% for value, label in sort_options.items() %}
+        <option value="{{ value }}" {% if value == sort %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
   <table>
     <thead>
       <tr>

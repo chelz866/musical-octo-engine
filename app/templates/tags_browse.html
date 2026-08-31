@@ -5,19 +5,29 @@
   <header>
     <h1>Tags</h1>
     <p class="paths">
-      Every tag found across your library, sorted by how many works have it. Click one to filter
-      Downloads to just those works.
+      Every tag found across your library. Click one to filter Downloads to just those works.
     </p>
   </header>
 
   <nav class="tag-filter-tabs">
-    <a href="/tags?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags?filter=relationship" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags?filter=all&sort={{ sort }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags?filter=fandom&sort={{ sort }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags?filter=character&sort={{ sort }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags?filter=relationship&sort={{ sort }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags?filter=freeform&sort={{ sort }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags?filter=unclassified&sort={{ sort }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
+
+  <form method="get" action="/tags" id="sort-form" class="tag-sort-form">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <label class="hint" for="tag-sort">Sort:
+      <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
+        {% for value, label in sort_options.items() %}
+        <option value="{{ value }}" {% if value == sort %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 

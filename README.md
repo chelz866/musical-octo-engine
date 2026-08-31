@@ -173,13 +173,15 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
+  A sort dropdown (Name A-Z/Z-A, Most/Fewest Works -- defaulting to Most Works) reorders the list.
 - **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
   downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
-- **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library,
-  sorted by how many works have it, with its Fandom/Character/Relationship/Freeform classification
-  shown read-only. Filter tabs at the top (Fandom/Character/Relationship/Freeform/Unclassified,
-  each with a count) narrow the list, and clicking a tag filters Downloads to just those works --
-  same idea as the Fandoms page, just for every tag instead of only fandoms. A tag with no explicit
+- **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library, with
+  its Fandom/Character/Relationship/Freeform classification shown read-only. Filter tabs at the top
+  (Fandom/Character/Relationship/Freeform/Unclassified, each with a count) narrow the list, a sort
+  dropdown (Name A-Z/Z-A, Most/Fewest Works) reorders it, and clicking a tag filters Downloads to
+  just those works -- same idea as the Fandoms page, just for every tag instead of only fandoms.
+  Sort and filter combine and both persist across pagination. A tag with no explicit
   classification falls back to a heuristic guess (see `app/epub_meta.py`): `_guess_fandoms` for
   Fandom, the "/" or "&" convention between names for Relationship, or Freeform otherwise --
   "Unclassified" specifically means no one has confirmed it either way yet. The relationship guess
@@ -190,10 +192,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   it in one action, instead of a per-work correction on each of them. A real library can easily
   have thousands of unique tags, so checking a box per tag and reading through a dropdown per row
   doesn't scale -- instead, each row has a checkbox ("Select all" in the header selects only the
-  rows currently visible, respecting both the filter tab and the on-page text search), and a bar
-  above the table applies one category to everything checked ("Set selected: Fandom/Character/
+  rows currently visible, respecting the filter tab, sort order, and the on-page text search), and
+  a bar above the table applies one category to everything checked ("Set selected: Fandom/Character/
   Relationship/Freeform") -- search for a name, select all, glance at the list, then set it in one
-  click. Since
+  click. The same sort dropdown as the read-only Tags page (Name A-Z/Z-A, Most/Fewest Works) is
+  available here too, and is preserved through every bulk action's redirect. Since
   AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
   this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
   to select anything.
