@@ -203,11 +203,19 @@ def blurb_tag_line(entry) -> list[dict]:
     AO3's own Warning/Relationship/Character/Freeform tag line, now that
     scanner._resolve_tag_categories actually distinguishes characters from
     freeform tags instead of lumping every non-fandom leftover together.
+
+    li_class/param use AO3's own real li-class-plus-a.tag markup convention
+    (see a real works-index page's `<li class='characters'><a class="tag"
+    href="/tags/.../works">`) rather than this app's own class names, so a
+    pasted AO3 skin's tag-category coloring (`.warnings .tag`, `.characters
+    .tag`, etc.) applies natively -- no selector translation needed for
+    this part. `param` doubles as the actual Downloads filter query param
+    for that category, so every tag here is also a working filter link.
     """
-    tags = [{"text": w, "class": "tag-warning"} for w in entry.warnings]
-    tags += [{"text": r, "class": "tag"} for r in entry.relationships]
-    tags += [{"text": c, "class": "tag-character"} for c in entry.characters]
-    tags += [{"text": t, "class": "tag"} for t in entry.freeform_tags]
+    tags = [{"text": w, "li_class": "warnings", "param": "warning"} for w in entry.warnings]
+    tags += [{"text": r, "li_class": "relationships", "param": "relationship"} for r in entry.relationships]
+    tags += [{"text": c, "li_class": "characters", "param": "character"} for c in entry.characters]
+    tags += [{"text": t, "li_class": "freeforms", "param": "freeform"} for t in entry.freeform_tags]
     return tags
 
 
@@ -215,29 +223,27 @@ templates.env.filters["blurb_icons"] = blurb_icons
 templates.env.filters["blurb_tag_line"] = blurb_tag_line
 
 
-# A pasted AO3 skin is written against AO3's own page structure, most of
-# which this app doesn't have -- but a fixed, known set of ids/classes show
-# up in nearly every skin (they're the ones AO3's own skin-writing guides
-# teach people to target), so mapping just those onto this app's closest
-# structural equivalent recovers most of a skin's overall look without a
-# general (and fragile) selector-translation system. Order doesn't matter --
-# every entry targets a distinct token.
+# base.html's own markup now reuses AO3's real ids/classes directly
+# (#header, #outer.wrapper, #inner.wrapper, #main, li.blurb, a.tag, dl.stats,
+# .warnings/.relationships/.characters/.freeforms, .primary/.navigation/
+# .actions/.dropdown on the nav) -- see a real AO3 works-index page's markup
+# -- so most of a pasted skin now applies with no translation at all. This
+# map only covers the handful of AO3 ids/classes that genuinely have no
+# equivalent here (this app has no personal dashboard, no homepage splash
+# module, no hits/kudos chart), as a best-effort fallback rather than a
+# hard no-op.
 _AO3_SELECTOR_MAP: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"(?<![\w.#-])#header(?![\w-])"), ".site-header, .topnav"),
-    (re.compile(r"(?<![\w.#-])#outer\.wrapper(?![\w-])"), "body"),
-    (re.compile(r"(?<![\w.#-])#inner\.wrapper(?![\w-])"), "main"),
     (re.compile(r"(?<![\w.#-])#dashboard(?![\w-])"), "main"),
     (re.compile(r"(?<![\w.#-])\.splash(?![\w-])"), ".blurb-list"),
     (re.compile(r"(?<![\w.#-])#stat_chart(?![\w-])"), ".blurb-ao3-stats"),
-    (re.compile(r"(?<![\w.#-])a\.tag(?![\w-])"), ".tag, .blurb-fandoms a"),
 ]
 
 
 def translate_ao3_skin_selectors(css: str) -> str:
-    """Rewrites known AO3 structural selectors onto this app's closest
-    equivalent element before the CSS is injected -- see _AO3_SELECTOR_MAP.
-    Selectors this app has no equivalent for (or that a skin doesn't use)
-    are left untouched and simply won't match anything, same as before.
+    """Rewrites the small set of AO3 selectors with no real equivalent here
+    onto this app's closest stand-in -- see _AO3_SELECTOR_MAP. Everything
+    else in a pasted skin either matches this app's markup directly now, or
+    has no equivalent at all and simply does nothing.
     """
     for pattern, replacement in _AO3_SELECTOR_MAP:
         css = pattern.sub(replacement, css)

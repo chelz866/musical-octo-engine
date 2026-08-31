@@ -13,6 +13,7 @@ from app.main import (
     _parse_date,
     _selected_with_counts,
     _static_facet_counts,
+    blurb_tag_line,
     paginate,
     sanitize_style_content,
     translate_ao3_skin_selectors,
@@ -436,27 +437,32 @@ def test_sanitize_style_content_leaves_ordinary_css_untouched():
     assert sanitize_style_content(css) == css
 
 
-def test_translate_ao3_skin_selectors_maps_known_structural_ids():
-    css = "#header { background: purple; } #dashboard { color: gold; }"
+def test_translate_ao3_skin_selectors_maps_known_fallback_ids():
+    # #dashboard/.splash/#stat_chart have no real equivalent on this app's
+    # pages, so they're the only selectors still rewritten.
+    css = "#dashboard { color: gold; } .splash { color: blue; } #stat_chart { color: red; }"
     result = translate_ao3_skin_selectors(css)
-    assert "#header" not in result
     assert "#dashboard" not in result
-    assert ".site-header, .topnav { background: purple; }" in result
+    assert ".splash" not in result
+    assert "#stat_chart" not in result
     assert "main { color: gold; }" in result
+    assert ".blurb-list { color: blue; }" in result
+    assert ".blurb-ao3-stats { color: red; }" in result
 
 
-def test_translate_ao3_skin_selectors_maps_compound_selectors():
-    css = "#outer.wrapper { background: black; } #inner.wrapper { padding: 0; } a.tag { color: gold; }"
-    result = translate_ao3_skin_selectors(css)
-    assert "body { background: black; }" in result
-    assert "main { padding: 0; }" in result
-    assert ".tag, .blurb-fandoms a { color: gold; }" in result
+def test_translate_ao3_skin_selectors_leaves_real_matches_untouched():
+    # base.html's own markup now reuses these AO3 ids/classes directly
+    # (#header, #outer.wrapper, #inner.wrapper, a.tag), so they should match
+    # natively -- rewriting them would be redundant, or worse, wrong (e.g.
+    # a.tag also matching .blurb-fandoms a even when a skin didn't intend that).
+    css = "#header { background: purple; } #outer.wrapper { background: black; } #inner.wrapper { padding: 0; } a.tag { color: gold; }"
+    assert translate_ao3_skin_selectors(css) == css
 
 
 def test_translate_ao3_skin_selectors_does_not_partial_match_lookalike_selectors():
-    # "#header-nav" and ".splashscreen" are distinct real-world selectors --
-    # a naive substring replace would corrupt them into nonsense.
-    css = "#header-nav { color: red; } .splashscreen { color: blue; }"
+    # "#dashboard-widget" and ".splashscreen" are distinct real-world
+    # selectors -- a naive substring replace would corrupt them into nonsense.
+    css = "#dashboard-widget { color: red; } .splashscreen { color: blue; }"
     result = translate_ao3_skin_selectors(css)
     assert result == css
 
@@ -464,3 +470,28 @@ def test_translate_ao3_skin_selectors_does_not_partial_match_lookalike_selectors
 def test_translate_ao3_skin_selectors_leaves_unmapped_selectors_untouched():
     css = "li.blurb { background: black; } table, th { border: 1px solid gold; }"
     assert translate_ao3_skin_selectors(css) == css
+
+
+def test_blurb_tag_line_orders_warnings_relationships_characters_freeforms():
+    entry = WorkEntry(
+        work_id="1",
+        warnings=["Graphic Depictions Of Violence"],
+        relationships=["Shane Hollander/Ilya Rozanov"],
+        characters=["Shane Hollander"],
+        freeform_tags=["Slow Burn"],
+    )
+    tags = blurb_tag_line(entry)
+    assert [t["li_class"] for t in tags] == ["warnings", "relationships", "characters", "freeforms"]
+
+
+def test_blurb_tag_line_param_matches_the_downloads_filter_facet():
+    # Each tag doubles as a working Downloads filter link -- param must be
+    # a real FACETS key so "/?{{ tag.param }}=..." actually filters.
+    entry = WorkEntry(work_id="1", characters=["Shane Hollander"], freeform_tags=["Slow Burn"])
+    tags = blurb_tag_line(entry)
+    for tag in tags:
+        assert tag["param"] in FACETS
+
+
+def test_blurb_tag_line_empty_entry_has_no_tags():
+    assert blurb_tag_line(WorkEntry(work_id="1")) == []

@@ -17,11 +17,11 @@
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 
-  <ul class="blurb-list">
+  <ul class="blurb-list work index group">
     {% for e in entries %}
     {% set icons = e | blurb_icons %}
     {% set tags = e | blurb_tag_line %}
-    <li class="blurb">
+    <li class="blurb work group">
       <div class="blurb-icons">
         <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
         <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
@@ -45,7 +45,7 @@
         </h4>
         <div class="blurb-fandoms">
           {%- if e.fandoms -%}
-            {% for f in e.fandoms %}<a href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
+            {% for f in e.fandoms %}<a class="tag" href="/?fandom={{ f | urlencode }}">{{ f }}</a>{% if not loop.last %}, {% endif %}{% endfor -%}
           {%- else -%}
             <span class="hint">no fandom guessed</span>
           {%- endif -%}
@@ -68,17 +68,19 @@
         </div>
         {% endif %}
         {% if tags %}
-        <p class="blurb-tags">
-          {% for tag in tags %}<span class="{{ tag.class }}">{{ tag.text }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
-        </p>
+        <ul class="blurb-tags tags commas">
+          {% for tag in tags %}
+          <li class="{{ tag.li_class }}">{% if tag.li_class == "warnings" %}<strong><a class="tag" href="/?{{ tag.param }}={{ tag.text | urlencode }}">{{ tag.text }}</a></strong>{% else %}<a class="tag" href="/?{{ tag.param }}={{ tag.text | urlencode }}">{{ tag.text }}</a>{% endif %}</li>
+          {% endfor %}
+        </ul>
         {% endif %}
         {% if e.summary %}<p class="blurb-summary">{{ e.summary }}</p>{% endif %}
         {% if e.language or e.word_count or e.chapters_have %}
-        <p class="blurb-ao3-stats">
-          {% if e.language %}Language: {{ e.language }}{% endif %}
-          {% if e.word_count %}{% if e.language %} &middot; {% endif %}Words: {{ e.word_count | format_number }}{% endif %}
-          {% if e.chapters_have %}{% if e.language or e.word_count %} &middot; {% endif %}Chapters: {{ e.chapters_have }}/{{ e.chapters_total if e.chapters_total is not none else "?" }}{% endif %}
-        </p>
+        <dl class="stats blurb-ao3-stats">
+          {% if e.language %}<dt class="language">Language:</dt><dd class="language">{{ e.language }}</dd>{% endif %}
+          {% if e.word_count %}<dt class="words">Words:</dt><dd class="words">{{ e.word_count | format_number }}</dd>{% endif %}
+          {% if e.chapters_have %}<dt class="chapters">Chapters:</dt><dd class="chapters">{{ e.chapters_have }}/{{ e.chapters_total if e.chapters_total is not none else "?" }}</dd>{% endif %}
+        </dl>
         {% endif %}
         <p class="blurb-footer">
           {{ e.size_bytes | human_size }}

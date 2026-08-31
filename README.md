@@ -82,15 +82,18 @@ on a timer -- they last until you log out. That's a deliberate simplification fo
 private-network deployment; if that's ever not the case for your setup, keep that in mind.
 
 **Themes**: the Account page has a "Custom CSS" box where you can paste your own stylesheet --
-including an AO3 skin you like. It only affects your own view. AO3 skins are written against
-AO3's actual page markup, which this app doesn't share, so a handful of the most common
-structural selectors (`#header`, `#outer.wrapper`/`#inner.wrapper`, `#dashboard`, `.splash`,
-`#stat_chart`, `a.tag`) are automatically rewritten onto this app's closest equivalent element
-(header/nav, page body, main content, the works list, the blurb stats line, tag links) before the
-CSS is applied -- see `translate_ao3_skin_selectors` in `app/main.py` for the exact mapping. Any
-other selector a skin uses either has to happen to already match this app's own markup (tables,
-form fields) or it simply does nothing. It's still a partial reskin, not pixel-for-pixel AO3, but
-covers most of what a typical skin actually relies on.
+including a real AO3 skin. It only affects your own view. Rather than guessing at AO3's markup,
+this app's own page structure reuses AO3's real ids and classes directly, based on an actual
+saved AO3 page: `#outer.wrapper` / `#header` / `#inner.wrapper` / `#main`, the nav's
+`.primary.navigation.actions` / `.dropdown` classes, `li.blurb`, and -- the part that matters most
+for how a skin actually looks -- tags render as real `<a class="tag">` links inside
+`<li class="warnings">` / `.relationships` / `.characters` / `.freeforms`, and stats as a real
+`dl.stats`. That means most AO3 skins apply directly, no translation needed, including the
+tag-category coloring and nav gradients most skins define. A small fallback map in
+`translate_ao3_skin_selectors` (`app/main.py`) still rewrites the few AO3 ids with no equivalent
+here at all (`#dashboard`, `.splash`, `#stat_chart` -- this app has no personal dashboard, homepage,
+or hits/kudos chart) onto the closest stand-in. Tag links double as real Downloads filters now too
+(clicking a character/relationship/freeform tag on a blurb filters by it, same as fandom already did).
 
 ## Pages
 
