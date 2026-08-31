@@ -11,13 +11,26 @@
     <a class="site-brand" href="/">Archive Of My Own</a>
   </header>
   <nav class="topnav">
+    {% set browse_paths = ['/fandoms', '/tags'] %}
+    {% set admin_paths = ['/issues', '/tracked', '/queue', '/admin'] %}
     <div class="topnav-links">
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Downloads</a>
-      <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
-      <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
-      <a href="/tags" class="{% if request.url.path == '/tags' %}active{% endif %}">Tags</a>
-      <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
-      <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Home</a>
+      <details class="nav-dropdown" name="nav-dropdown">
+        <summary class="{% if request.url.path in browse_paths %}active{% endif %}">Browse</summary>
+        <div class="nav-dropdown-menu">
+          <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
+          <a href="/tags" class="{% if request.url.path == '/tags' %}active{% endif %}">Tags</a>
+        </div>
+      </details>
+      <details class="nav-dropdown" name="nav-dropdown">
+        <summary class="{% if request.url.path in admin_paths %}active{% endif %}">Admin</summary>
+        <div class="nav-dropdown-menu">
+          <a href="/admin" class="{% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a>
+          <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
+          <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
+          <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+        </div>
+      </details>
     </div>
     <span class="nav-spacer"></span>
     <span class="hint">

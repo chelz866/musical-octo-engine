@@ -4,16 +4,6 @@
 {% import "_filters.html" as filters %}
 {% block title %}Archive Of My Own{% endblock %}
 {% block content %}
-  <header>
-    <h1>AO3 Downloads</h1>
-    <p class="paths">
-      downloads: <code>{{ download_dir }}</code>
-      &middot;
-      log: <code>{{ log_path }}</code>
-      {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}
-    </p>
-  </header>
-
   {{ filters.panel(filter_panel, active_chips | length > 0) }}
 
   {% if active_chips %}
@@ -24,29 +14,6 @@
     &middot; {{ total_filtered | format_number }} match{{ "es" if total_filtered != 1 else "" }}
   </p>
   {% endif %}
-
-  <section class="stats">
-    <div class="stat">
-      <div class="stat-value">{{ stats.total_on_disk }}</div>
-      <div class="stat-label">works on disk</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.total_size_bytes | human_size }}</div>
-      <div class="stat-label">total size</div>
-    </div>
-    <div class="stat {% if stats.missing_but_logged_success %}stat-alert{% endif %}">
-      <div class="stat-value">{{ stats.missing_but_logged_success }}</div>
-      <div class="stat-label">logged success, file missing</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.on_disk_no_log_entry }}</div>
-      <div class="stat-label">on disk, no log entry</div>
-    </div>
-    <div class="stat {% if stats.logged_failure_count %}stat-alert{% endif %}">
-      <div class="stat-value">{{ stats.logged_failure_count }}</div>
-      <div class="stat-label">logged failures</div>
-    </div>
-  </section>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 
@@ -114,7 +81,7 @@
     </li>
     {% else %}
     <li class="empty">
-      {% if last_refreshed %}No works found. Check the mounted downloads/log paths.
+      {% if last_refreshed %}No works found. Check the mounted downloads/log paths on the <a href="/admin">Admin Dashboard</a>.
       {% else %}No data yet &mdash; click Refresh above to scan your downloads folder.{% endif %}
     </li>
     {% endfor %}

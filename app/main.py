@@ -559,10 +559,6 @@ def dashboard(request: Request, page: int = 1):
         {
             **_base_context(request),
             "entries": page_entries,
-            "stats": result.stats,
-            "download_dir": DOWNLOAD_DIR,
-            "log_path": LOG_PATH,
-            "log_exists": os.path.isfile(LOG_PATH),
             "filter_panel": filter_panel,
             "active_chips": active_chips,
             "abs_links": _abs_links(),
@@ -570,6 +566,21 @@ def dashboard(request: Request, page: int = 1):
             "total_pages": total_pages,
             "total_filtered": len(entries),
             "pager_qs": pager_qs,
+        },
+    )
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin(request: Request):
+    result = scanner.load_cached(DB_PATH)
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            **_base_context(request),
+            "stats": result.stats,
+            "download_dir": DOWNLOAD_DIR,
+            "log_path": LOG_PATH,
+            "log_exists": os.path.isfile(LOG_PATH),
         },
     )
 

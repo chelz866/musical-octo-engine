@@ -57,13 +57,17 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
 
 ## Pages
 
-- **Downloads** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
-  completion icons, tags, summary, language/words/chapters), with stats up top, paginated 25 per
-  page. Chapter progress and completion status are real here, not guessed -- read straight from the
-  epub's own preface page (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:"
-  line into on every export. Word count comes from the same place; Audiobookshelf doesn't track it
-  (confirmed against a real schema export), so this only ever comes from the file itself, matched or
-  not.
+Nav is grouped into three: **Home** (Downloads -- the actual browsing/search surface), **Browse**
+(Fandoms/Tags -- reference lists you click through from), and **Admin** (Dashboard/Issues/Tracked
+Feeds/Queue -- maintenance and setup, not day-to-day browsing). Both Browse and Admin are
+dropdowns in the top nav.
+
+- **Home** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
+  completion icons, tags, summary, language/words/chapters), paginated 25 per page. Chapter
+  progress and completion status are real here, not guessed -- read straight from the epub's own
+  preface page (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:" line into on
+  every export. Word count comes from the same place; Audiobookshelf doesn't track it (confirmed
+  against a real schema export), so this only ever comes from the file itself, matched or not.
 
   A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
   Include/Exclude split: every facet (Rating/Warning/Category/Fandom/Character/Relationship/
@@ -100,6 +104,10 @@ matching volume line in `docker-compose.yml` to turn it on. Matching runs as par
   (`?rating=...&fandom=...&x_character=...` etc. -- Exclude params are `x_`-prefixed; the old
   `?fandom=...` links from the Fandom column and the Fandoms page still work unchanged, they're just
   one Include facet among several now).
+- **Admin Dashboard** (`/admin`) -- the mounted downloads/log paths, and the at-a-glance stats
+  (works on disk, total size, logged-success-but-missing, on-disk-no-log-entry, logged failures)
+  that used to sit at the top of the Downloads page -- moved here since they're a health check, not
+  something you need while browsing.
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
