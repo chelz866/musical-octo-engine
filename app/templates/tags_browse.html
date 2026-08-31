@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, parent_tag, depth, organize_by) %}
+{% macro render_tag_row(row, parent_tag, depth, organize_by, explicit_categories) %}
 <tr class="{% if depth > 0 %}tag-child-row{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td style="padding-left: {{ depth * 1.25 }}rem">
     {% if row.children %}
@@ -19,11 +19,14 @@
     {{ organize_by_options[organize_by] }}
     {% else %}
     {{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}
+    {% if row.category and row.tag not in explicit_categories %}
+    <span class="hint">(guessed)</span>
+    {% endif %}
     {% endif %}
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, row.tag, depth + 1, organize_by) }}
+{{ render_tag_row(child, row.tag, depth + 1, organize_by, explicit_categories) }}
 {% endfor %}
 {% endmacro %}
 {% block title %}Tags - Archive Of My Own{% endblock %}
@@ -83,7 +86,7 @@
     </thead>
     <tbody>
       {% for row in tags %}
-      {{ render_tag_row(row, none, 0, organize_by) }}
+      {{ render_tag_row(row, none, 0, organize_by, explicit_categories) }}
       {% else %}
       <tr>
         <td colspan="3" class="empty">

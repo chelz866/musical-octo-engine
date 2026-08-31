@@ -1059,9 +1059,28 @@ def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children
 
 def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
-    tags is (tag, work_count, explicit_category_or_None). Shared by the
-    admin classification page and the read-only Browse page: same
-    underlying data, one mutable (checkboxes/bulk actions), one not.
+    tags is (tag, work_count, category). Shared by the admin classification
+    page and the read-only Browse page: same underlying data, one mutable
+    (checkboxes/bulk actions), one not.
+
+    `category` is a tag's effective Fandom/Relationship bucket, not just
+    its explicit one: a heuristically guessed Fandom or Relationship
+    (scanner._resolve_tag_categories, folded into entry.fandoms/
+    entry.relationships) counts the same as an explicitly confirmed one,
+    since it's already being treated as real everywhere else in the app
+    (the per-row Fandom-assignment dropdown, Downloads filtering) --
+    showing it as "Unclassified" here instead would just be a different,
+    stale answer to the same question. Character has no such guess (it's
+    only ever explicit), and Freeform is the bare "nothing else matched"
+    fallback with no positive signal of its own, so both stay
+    explicit-classification-only -- that keeps "Unclassified" meaningful
+    as an actual review queue (what the bulk "mark as Freeform" actions
+    sweep) instead of shrinking to nothing now that every leftover tag
+    already defaults to Freeform internally. Callers wanting to tell a
+    guess apart from a confirmed choice (to show a "(guessed)" marker)
+    should cross-reference the tag against db.get_all_tag_categories
+    themselves -- a tag whose returned category isn't in that dict got it
+    from a guess.
     """
     counts: Counter = Counter()
     for entry in result.entries:
@@ -1072,11 +1091,23 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
     )
 
     explicit = db.get_all_tag_categories(DB_PATH)
+    guessed_fandoms = {f for e in result.entries for f in e.fandoms}
+    guessed_relationships = {r for e in result.entries for r in e.relationships}
+
+    def effective_category(tag: str) -> str | None:
+        if tag in explicit:
+            return explicit[tag]
+        if tag in guessed_fandoms:
+            return "fandom"
+        if tag in guessed_relationships:
+            return "relationship"
+        return None
+
     bucket_counts = {"fandom": 0, "character": 0, "relationship": 0, "freeform": 0, "unclassified": 0}
     for tag in counts:
-        bucket_counts[explicit.get(tag, "unclassified")] += 1
+        bucket_counts[effective_category(tag) or "unclassified"] += 1
 
-    tags = [(tag, count, explicit.get(tag)) for tag, count in counts.items()]
+    tags = [(tag, count, effective_category(tag)) for tag, count in counts.items()]
     if filter != "all":
         tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
     tags = _sort_name_count_rows(tags, sort)
@@ -1280,6 +1311,7 @@ def tags_browse(
             "letter_options": LETTER_FILTER_OPTIONS,
             "organize_by": organize_by,
             "organize_by_options": ORGANIZE_BY_LABELS,
+            "explicit_categories": db.get_all_tag_categories(DB_PATH),
             "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}&organize_by={quote(organize_by)}",
         },
     )
@@ -1312,6 +1344,7 @@ def tags_classify_page(
             "sort_options": NAME_COUNT_SORT_LABELS,
             "organize_by": organize_by,
             "organize_by_options": ORGANIZE_BY_LABELS,
+            "explicit_categories": db.get_all_tag_categories(DB_PATH),
             "wranglings": db.get_all_tag_wranglings(DB_PATH),
             "tag_fandoms": db.get_all_tag_fandoms(DB_PATH),
             "known_fandoms": _flatten_tag_options(sorted({f for e in result.entries for f in e.fandoms}), children_map),

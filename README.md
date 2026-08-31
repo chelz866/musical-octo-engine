@@ -198,12 +198,21 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   dropdown (Name A-Z/Z-A, Most/Fewest Works) reorders it, an A-Z/"#" letter strip narrows it further
   by first letter, and clicking a tag filters Downloads to just those works -- same idea as the
   Fandoms page, just for every tag instead of only fandoms. Filter, sort, and letter all combine and
-  persist across pagination. A tag with no explicit
-  classification falls back to a heuristic guess (see `app/epub_meta.py`): `_guess_fandoms` for
-  Fandom, the "/" or "&" convention between names for Relationship, or Freeform otherwise --
-  "Unclassified" specifically means no one has confirmed it either way yet. The relationship guess
-  can misfire on an ordinary tag that happens to use the same punctuation (e.g. "Hurt/Comfort") --
-  that's exactly what Classify Tags below is for fixing.
+  persist across pagination. A tag with no explicit classification falls back to a heuristic guess
+  (see `app/epub_meta.py`): `_guess_fandoms` for Fandom, or the "/" or "&" convention between names
+  for Relationship. The Fandom and Relationship tabs (and the Fandom-assignment dropdown on Classify
+  Tags below) show a heuristically guessed tag exactly like a confirmed one -- it's already being
+  treated as real everywhere else in the app (Downloads filtering, the fandom-assignment dropdown),
+  so hiding it under "Unclassified" until someone clicks a button would just be a stale, second
+  answer to the same question. A guessed one is marked "(guessed)" so it's clear nobody's actually
+  looked at it yet. Character has no such guess -- it's only ever explicit, since there's no reliable
+  way to tell a Character tag from a Fandom or a Freeform tag by pattern alone -- and Freeform is the
+  bare "nothing else matched" fallback with no positive signal of its own, so both stay
+  explicit-classification-only: "Unclassified" specifically means neither confirmed nor guessed,
+  keeping it a real review queue rather than shrinking to nothing now that every leftover tag already
+  defaults to Freeform internally. The relationship guess can misfire on an ordinary tag that happens
+  to use the same punctuation (e.g. "Hurt/Comfort") -- that's exactly what Classify Tags below is for
+  fixing.
 - **Classify Tags** (`/tags/classify`, under Admin) -- the mutable version of the page above, and
   the bulk tool for fixing that classification: classifying one tag here fixes every work that has
   it in one action, instead of a per-work correction on each of them. A real library can easily
