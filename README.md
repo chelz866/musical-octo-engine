@@ -175,7 +175,8 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
   A sort dropdown (Name A-Z/Z-A, Most/Fewest Works -- defaulting to Most Works) reorders the list,
   and an A-Z letter strip (plus "#" for names starting with anything else) jumps straight to fandoms
-  starting with that letter.
+  starting with that letter. A fandom wrangled as a child of another (set up on the admin Classify
+  Tags page) nests under its parent here too, collapsed behind the same &#9656; toggle as the Tags pages.
 - **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
   downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
 - **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library, with

@@ -959,9 +959,11 @@ def _group_tag_rows_by_parent(
 ) -> list[dict]:
     """Groups an already-filtered-and-sorted (tag, count, category) list
     into top-level rows with a nested `children` list -- see
-    db.get_tag_children -- so the Tags/Classify Tags tables can render a
-    child tag directly under its parent instead of wherever the page's own
-    sort order would otherwise place it. Pagination then paginates this
+    db.get_tag_children -- so the Tags/Classify Tags/Fandoms tables can
+    render a child tag directly under its parent instead of wherever the
+    page's own sort order would otherwise place it (Fandoms has no
+    per-tag category, so it passes `category=None` for every row).
+    Pagination then paginates this
     grouped list (one page slot per top-level row; a collapsed parent's
     children ride along "for free" since they're hidden by default), so a
     heavily-childed tag doesn't blow a page's row budget.
@@ -1137,8 +1139,9 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
     for entry in result.entries:
         for name in entry.fandoms:
             counts[name] += 1
-    sorted_fandoms = _sort_name_count_rows(list(counts.items()), sort)
+    sorted_fandoms = _sort_name_count_rows([(name, count, None) for name, count in counts.items()], sort)
     sorted_fandoms = _filter_by_letter(sorted_fandoms, letter)
+    sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, db.get_tag_children(DB_PATH))
     return templates.TemplateResponse(
         "fandoms.html",
         {
