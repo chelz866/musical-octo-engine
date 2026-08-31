@@ -287,16 +287,21 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   per-name-part, set individually in its own row).
 
   **Organize by:** (both this page and the read-only Tags page above) regroups the current listing
-  by association instead of the same-category hierarchy -- pick Fandom, Character, or Relationship
-  (mutually exclusive, "None" restores the normal same-category nesting) and every tag on the list
-  is nested under its resolved Fandom/linked Character(s)/linked Relationship(s) as a synthetic
-  parent row instead of its same-category parent. This is how you see, say, the Relationship tab
-  grouped by Fandom, or the Freeform tab grouped by the Characters each tag is linked to. A tag
-  with more than one association for the chosen dimension (a Freeform tag linked to two Characters)
-  appears once under each parent; a tag with none stays a standalone top-level row rather than
-  disappearing. On the read-only Tags page, clicking a synthetic parent heading filters Downloads by
-  that association directly (e.g. a Fandom heading links like the Fandoms page does), not by
-  whatever category the heading's own name happens to also be classified as.
+  by association instead of the same-category hierarchy -- pick Fandom, Character, Relationship, or
+  Freeform (mutually exclusive, "None" restores the normal same-category nesting) and every tag on
+  the list is nested under its resolved Fandom/linked Character(s)/Relationship(s)/Freeform tag(s) as
+  a synthetic parent row instead of its same-category parent. This is how you see, say, the
+  Relationship tab grouped by Fandom, or the Freeform tab grouped by the Characters each tag is
+  linked to -- Freeform is the reverse of that last one: it groups Character/Relationship/Fandom tags
+  under every Freeform tag that links back to them, since a Freeform tag has no "parent Freeform tag"
+  association of its own to organize its own tab by (only the same-category hierarchy already covers
+  that, under "None") -- organizing the Freeform tab by Freeform leaves everything standalone rather
+  than grouping by nothing. A tag with more than one association for the chosen dimension (a Freeform
+  tag linked to two Characters, or a Character linked from two different Freeform tags) appears once
+  under each parent; a tag with none stays a standalone top-level row rather than disappearing. On
+  the read-only Tags page, clicking a synthetic parent heading filters Downloads by that association
+  directly (e.g. a Fandom heading links like the Fandoms page does), not by whatever category the
+  heading's own name happens to also be classified as.
 
   Organizing by Fandom treats the "No Fandom (auto)" vs. explicit "No Fandom" distinction above the
   same way it treats a real one: a tag someone deliberately set to "No Fandom" (on itself or

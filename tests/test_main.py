@@ -863,20 +863,20 @@ def test_group_tag_rows_by_parent_preserves_sort_order_for_top_level_and_childre
 
 def test_association_parents_fandom_returns_the_single_resolved_fandom():
     parents = _association_parents(
-        "Hermione Granger", "fandom", {"Hermione Granger": "Harry Potter"}, {}, {}, {}, {}
+        "Hermione Granger", "fandom", {"Hermione Granger": "Harry Potter"}, {}, {}, {}, {}, {}, {}
     )
     assert parents == ["Harry Potter"]
 
 
 def test_association_parents_fandom_no_fandom_is_ungrouped():
-    parents = _association_parents("Random Character", "fandom", {}, {}, {}, {}, {})
+    parents = _association_parents("Random Character", "fandom", {}, {}, {}, {}, {}, {}, {})
     assert parents == []
 
 
 def test_association_parents_fandom_inherits_up_the_same_category_chain():
     parent_of = {"Anxious Shane Hollander": "Anxious Character"}
     tag_fandoms = {"Anxious Character": "No Fandom", "Anxious Shane Hollander": "Heated Rivalry"}
-    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}) == ["Heated Rivalry"]
+    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}, {}, {}) == ["Heated Rivalry"]
 
 
 def test_association_parents_fandom_explicit_no_fandom_gets_its_own_group():
@@ -884,36 +884,53 @@ def test_association_parents_fandom_explicit_no_fandom_gets_its_own_group():
     # classified either way yet (test_association_parents_fandom_no_fandom_is_ungrouped) --
     # groups under a "No Fandom" heading instead of disappearing.
     tag_fandoms = {"Coffee Shop AU": "No Fandom"}
-    assert _association_parents("Coffee Shop AU", "fandom", tag_fandoms, {}, {}, {}, {}) == ["No Fandom"]
+    assert _association_parents("Coffee Shop AU", "fandom", tag_fandoms, {}, {}, {}, {}, {}, {}) == ["No Fandom"]
 
 
 def test_association_parents_fandom_inherited_explicit_no_fandom_groups_too():
     parent_of = {"Anxious Shane Hollander": "Anxious Character"}
     tag_fandoms = {"Anxious Character": "No Fandom"}
-    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}) == ["No Fandom"]
+    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}, {}, {}) == ["No Fandom"]
 
 
 def test_association_parents_character_unions_relationship_and_freeform_links():
     relationship_characters = {"Harry/Draco": {0: "Harry Potter", 1: "Draco Malfoy"}}
     freeform_characters = {"Angst": {"Draco Malfoy", "Ron Weasley"}}
-    parents = _association_parents("Harry/Draco", "character", {}, {}, relationship_characters, {}, {})
+    parents = _association_parents("Harry/Draco", "character", {}, {}, relationship_characters, {}, {}, {}, {})
     assert parents == ["Draco Malfoy", "Harry Potter"]
-    parents = _association_parents("Angst", "character", {}, {}, {}, freeform_characters, {})
+    parents = _association_parents("Angst", "character", {}, {}, {}, freeform_characters, {}, {}, {})
     assert parents == ["Draco Malfoy", "Ron Weasley"]
 
 
 def test_association_parents_character_has_no_effect_on_unlinked_tag():
-    assert _association_parents("Fluff", "character", {}, {}, {}, {}, {}) == []
+    assert _association_parents("Fluff", "character", {}, {}, {}, {}, {}, {}, {}) == []
 
 
 def test_association_parents_relationship_returns_sorted_freeform_links():
     freeform_relationships = {"Angst": {"Harry/Draco", "Ron/Hermione"}}
-    parents = _association_parents("Angst", "relationship", {}, {}, {}, {}, freeform_relationships)
+    parents = _association_parents("Angst", "relationship", {}, {}, {}, {}, freeform_relationships, {}, {})
     assert parents == ["Harry/Draco", "Ron/Hermione"]
 
 
+def test_association_parents_freeform_returns_freeform_tags_linking_back_to_a_character():
+    character_freeform_tags = {"Draco Malfoy": {"Angst", "Whump"}}
+    parents = _association_parents("Draco Malfoy", "freeform", {}, {}, {}, {}, {}, character_freeform_tags, {})
+    assert parents == ["Angst", "Whump"]
+
+
+def test_association_parents_freeform_unions_character_and_relationship_reverse_links():
+    character_freeform_tags = {"Harry/Draco": {"Enemies to Lovers"}}
+    relationship_freeform_tags = {"Harry/Draco": {"Slow Burn"}}
+    parents = _association_parents("Harry/Draco", "freeform", {}, {}, {}, {}, {}, character_freeform_tags, relationship_freeform_tags)
+    assert parents == ["Enemies to Lovers", "Slow Burn"]
+
+
+def test_association_parents_freeform_has_no_effect_on_unlinked_tag():
+    assert _association_parents("Random Freeform", "freeform", {}, {}, {}, {}, {}, {}, {}) == []
+
+
 def test_association_parents_unknown_dimension_returns_nothing():
-    assert _association_parents("Angst", "nonsense", {}, {}, {}, {}, {}) == []
+    assert _association_parents("Angst", "nonsense", {}, {}, {}, {}, {}, {}, {}) == []
 
 
 def test_group_tag_rows_by_association_nests_tags_under_their_resolved_fandom():
@@ -955,6 +972,24 @@ def test_group_tag_rows_by_association_group_count_sums_its_members():
     grouped = _group_tag_rows_by_association(tags, "fandom", tag_fandoms, {}, {}, {}, {}, "count_desc")
     heading = next(r for r in grouped if r["children"])
     assert heading["count"] == 5
+
+
+def test_group_tag_rows_by_association_freeform_dimension_groups_characters_by_linking_freeform_tags():
+    # The reverse of "Freeform organized by Character": Character rows
+    # grouped under every Freeform tag that links to them.
+    tags = [
+        ("Draco Malfoy", 5, "character"),
+        ("Harry Potter", 3, "character"),
+        ("Ron Weasley", 2, "character"),
+    ]
+    freeform_characters = {"Angst": {"Draco Malfoy", "Harry Potter"}, "Fluff": {"Draco Malfoy"}}
+    grouped = _group_tag_rows_by_association(tags, "freeform", {}, {}, {}, freeform_characters, {}, "count_desc")
+    headings = {row["tag"]: row for row in grouped if row["children"]}
+    assert set(headings) == {"Angst", "Fluff"}
+    assert {c["tag"] for c in headings["Angst"]["children"]} == {"Draco Malfoy", "Harry Potter"}
+    assert {c["tag"] for c in headings["Fluff"]["children"]} == {"Draco Malfoy"}
+    # Ron Weasley has no Freeform link at all -- stays standalone.
+    assert any(row["tag"] == "Ron Weasley" and not row["children"] for row in grouped)
 
 
 def test_group_tag_rows_by_association_merges_groups_and_standalone_by_sort_order():

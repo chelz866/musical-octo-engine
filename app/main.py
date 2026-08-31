@@ -1182,8 +1182,8 @@ def _group_tag_rows_by_parent(
     return [to_row(row) for row in top_level]
 
 
-ORGANIZE_BY_OPTIONS = ("fandom", "character", "relationship")
-ORGANIZE_BY_LABELS = {"fandom": "Fandom", "character": "Character", "relationship": "Relationship"}
+ORGANIZE_BY_OPTIONS = ("fandom", "character", "relationship", "freeform")
+ORGANIZE_BY_LABELS = {"fandom": "Fandom", "character": "Character", "relationship": "Relationship", "freeform": "Freeform"}
 
 
 def _association_parents(
@@ -1194,17 +1194,32 @@ def _association_parents(
     relationship_characters: dict[str, dict[int, str]],
     freeform_characters: dict[str, set[str]],
     freeform_relationships: dict[str, set[str]],
+    character_freeform_tags: dict[str, set[str]],
+    relationship_freeform_tags: dict[str, set[str]],
 ) -> list[str]:
     """The "parent(s)" `tag` belongs to for the given Organize-by
     dimension -- used to regroup a Tags-page listing by an association
     (see db.tag_fandoms / relationship_characters / freeform_characters /
     freeform_relationships) instead of the same-category wrangling
     hierarchy. Fandom is always at most one value (see
-    scanner.resolve_tag_fandom_explicit); Character/Relationship can be
-    several (a Relationship's own per-name-part Characters plus, for a
-    Freeform tag, however many it's linked to) or none at all if `tag`
-    has no association for this dimension (e.g. organizing by
-    Relationship while looking at a Character tag).
+    scanner.resolve_tag_fandom_explicit); Character/Relationship/Freeform
+    can be several (a Relationship's own per-name-part Characters plus,
+    for a Freeform tag, however many it's linked to; or, for Freeform,
+    every Freeform tag that links back to this Character/Relationship)
+    or none at all if `tag` has no association for this dimension (e.g.
+    organizing by Relationship while looking at a Character tag).
+
+    Freeform is the reverse of Character/Relationship: a Freeform tag has
+    no "parent Freeform tag" of its own (there's no such association --
+    only the same-category hierarchy, which is what Organize-by "None"
+    already shows), so organizing the Freeform tab itself by Freeform
+    always leaves everything standalone. What it's for is organizing the
+    *other* tabs -- e.g. Character by Freeform groups each Character
+    under every Freeform tag that links to it, the mirror image of
+    Freeform-organized-by-Character. `character_freeform_tags`/
+    `relationship_freeform_tags` are that reverse index, precomputed once
+    by the caller (see _group_tag_rows_by_association) rather than
+    re-scanning every Freeform tag's links per tag here.
 
     A tag resolving to "No Fandom" is only grouped under a "No Fandom"
     heading when that's an *explicit* choice (on the tag itself or an
@@ -1222,6 +1237,9 @@ def _association_parents(
         return sorted(chars)
     if dimension == "relationship":
         return sorted(freeform_relationships.get(tag, set()))
+    if dimension == "freeform":
+        freeforms = character_freeform_tags.get(tag, set()) | relationship_freeform_tags.get(tag, set())
+        return sorted(freeforms)
     return []
 
 
@@ -1246,11 +1264,21 @@ def _group_tag_rows_by_association(
     merged into one list and sorted together by `sort`, same as any other
     Tags-page listing, rather than groups always coming first.
     """
+    character_freeform_tags: dict[str, set[str]] = defaultdict(set)
+    relationship_freeform_tags: dict[str, set[str]] = defaultdict(set)
+    for freeform_tag, chars in freeform_characters.items():
+        for character_tag in chars:
+            character_freeform_tags[character_tag].add(freeform_tag)
+    for freeform_tag, rels in freeform_relationships.items():
+        for relationship_tag in rels:
+            relationship_freeform_tags[relationship_tag].add(freeform_tag)
+
     groups: dict[str, list[tuple[str, int, str | None]]] = defaultdict(list)
     ungrouped: list[tuple[str, int, str | None]] = []
     for row in tags:
         parents = _association_parents(
-            row[0], dimension, tag_fandoms, parent_of, relationship_characters, freeform_characters, freeform_relationships
+            row[0], dimension, tag_fandoms, parent_of, relationship_characters, freeform_characters,
+            freeform_relationships, character_freeform_tags, relationship_freeform_tags,
         )
         if not parents:
             ungrouped.append(row)
@@ -1285,9 +1313,9 @@ def _group_tag_rows_by_association(
 
 def _grouped_tag_rows(tags: list[tuple[str, int, str | None]], organize_by: str, sort: str) -> list[dict]:
     """Chooses the same-category wrangling nesting (default) or an
-    Organize-by association grouping (fandom/character/relationship, see
-    _group_tag_rows_by_association), whichever the caller asked for --
-    shared by both Tags pages so they group identically.
+    Organize-by association grouping (fandom/character/relationship/
+    freeform, see _group_tag_rows_by_association), whichever the caller
+    asked for -- shared by both Tags pages so they group identically.
     """
     if organize_by in ORGANIZE_BY_OPTIONS:
         parent_of = scanner.child_parent_map(db.get_tag_children(DB_PATH))
