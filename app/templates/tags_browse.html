@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_pager.html" as pagination %}
+{% block title %}Tags - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Tags</h1>
+    <p class="paths">
+      Every tag found across your library, sorted by how many works have it. Click one to filter
+      Downloads to just those works.
+    </p>
+  </header>
+
+  <nav class="tag-filter-tabs">
+    <a href="/tags?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+  </nav>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
+
+  <table>
+    <thead>
+      <tr>
+        <th>Tag</th>
+        <th>Works</th>
+        <th>Category</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tag, count, category in tags %}
+      <tr>
+        <td><a href="/?{{ category or 'freeform' }}={{ tag | urlencode }}">{{ tag }}</a></td>
+        <td>{{ count }}</td>
+        <td>{{ category | title if category else "&mdash; Unclassified &mdash;" | safe }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3" class="empty">
+          {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {{ pagination.pager(page, total_pages, pager_qs) }}
+{% endblock %}

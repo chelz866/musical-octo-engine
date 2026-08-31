@@ -13,11 +13,11 @@
   </header>
 
   <nav class="tag-filter-tabs">
-    <a href="/tags?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags/classify?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags/classify?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags/classify?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags/classify?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
 
   <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
@@ -27,7 +27,7 @@
     a name, select-all, and double check before setting a category on just that handful.
   </p>
 
-  <form method="post" action="/tags/set_selected" id="tag-form">
+  <form method="post" action="/tags/classify/set_selected" id="tag-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="page" value="{{ page }}">
 
@@ -71,13 +71,13 @@
   </form>
 
   <div class="tag-bulk-actions">
-    <form method="post" action="/tags/mark_page_freeform">
+    <form method="post" action="/tags/classify/mark_page_freeform">
       {% for tag, count, category in tags %}<input type="hidden" name="tags" value="{{ tag }}">{% endfor %}
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <button type="submit">Mark unclassified on this page as Freeform</button>
     </form>
-    <form method="post" action="/tags/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
+    <form method="post" action="/tags/classify/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
       <button type="submit">Mark ALL unclassified tags as Freeform</button>
     </form>
   </div>

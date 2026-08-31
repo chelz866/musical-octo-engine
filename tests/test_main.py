@@ -19,7 +19,7 @@ from app.scanner import WorkEntry
 
 
 def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=None,
-             date_from=None, date_to=None, q="", sort="title"):
+             date_from=None, date_to=None, bookmarked=False, q="", sort="title"):
     return {
         "facets": {name: [] for name in FACETS} | (facets or {}),
         "exclude": {name: [] for name in EXCLUDE_FACETS} | (exclude or {}),
@@ -28,6 +28,7 @@ def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=
         "crossover": crossover,
         "date_from": date_from,
         "date_to": date_to,
+        "bookmarked": bookmarked,
         "q": q,
         "sort": sort,
     }
@@ -347,6 +348,21 @@ def test_active_chips_include_crossover_and_date_range():
     texts = [chip["text"] for chip in chips]
     assert "Crossovers only" in texts
     assert any(text.startswith("Downloaded on/after") for text in texts)
+
+
+def test_filter_query_string_includes_bookmarked():
+    qs = _filter_query_string(_filters(bookmarked=True))
+    assert "bookmarked=true" in qs
+
+
+def test_filter_query_string_drops_bookmarked():
+    qs = _filter_query_string(_filters(bookmarked=True), drop_key="bookmarked")
+    assert "bookmarked" not in qs
+
+
+def test_active_chips_includes_bookmarked_only():
+    chips = _active_chips(_filters(bookmarked=True))
+    assert any(chip["text"] == "Bookmarked only" for chip in chips)
 
 
 def _search(autocompleter, word_to_tags, q, limit=20):

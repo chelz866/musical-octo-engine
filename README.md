@@ -10,7 +10,7 @@ small local SQLite file for manual corrections and tracked feeds you add yoursel
 exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
 
 Everything is cached and only updated on request -- there's no background polling for the
-downloads folder/log. The **Refresh** button (top right of every page) re-scans the downloads
+downloads folder/log. The **Refresh** button (on the Admin Dashboard) re-scans the downloads
 folder/log only; it deliberately does not also touch tracked feeds, since walking a large
 downloads folder and hitting every tracked feed on every click was too much to bundle into one
 button. Tracked feeds have their own separate **Refresh feeds** button, on the Tracked Feeds and
@@ -55,18 +55,43 @@ It's entirely optional and off by default; set all of `ABS_DB_HOST_PATH`, `ABS_L
 matching volume line in `docker-compose.yml` to turn it on. Matching runs as part of the regular
 (manual) Refresh, reading Audiobookshelf's sqlite file read-only -- this app never writes to it.
 
+## Accounts, roles, and bookmarks
+
+Every page requires logging in. The first time the app starts, it seeds one admin account --
+username `admin`, password `admin` -- change that password immediately from the Account page
+(top right, next to Log Out) once you're in. There are two roles:
+
+- **Admin** -- everything, including the Admin Dashboard, Issues, Tracked Feeds, Queue, tag
+  classification (`/tags/classify`), and user management (`/admin/users`, to create additional
+  accounts or reset anyone's password).
+- **User** -- Home and Browse only (Downloads, Fandoms, the read-only Tags list). No Admin nav
+  item at all, and the per-work fandom-picker ("edit") is hidden too, since it's a tag
+  classification shortcut -- meant for sharing the dashboard with someone who should be able to
+  search/browse/bookmark but not touch the shared library's classification.
+
+**Bookmarks** are per-user: the star next to a work's title on Downloads toggles it, and "Show
+only bookmarked" (under More Options in the filter panel) narrows the list to just yours -- your
+bookmarks are invisible to other accounts and vice versa. Everything else (the library itself,
+tag classifications, tracked feeds) stays shared across every account, unchanged from before
+logins existed.
+
+Sessions are opaque server-side tokens (a `sessions` table, not a signed cookie) and don't expire
+on a timer -- they last until you log out. That's a deliberate simplification for a small,
+private-network deployment; if that's ever not the case for your setup, keep that in mind.
+
 ## Pages
 
 Nav is grouped into three: **Home** (Downloads -- the actual browsing/search surface), **Browse**
-(Fandoms/Tags -- reference lists you click through from), and **Admin** (Dashboard/Issues/Tracked
-Feeds/Queue -- maintenance and setup, not day-to-day browsing). Both Browse and Admin are
-dropdowns in the top nav.
+(Fandoms/Tags -- reference lists you click through from), and **Admin**, visible only to admin
+accounts (Dashboard/Issues/Tracked Feeds/Queue/Classify Tags/Users -- maintenance and setup, not
+day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 
 - **Home** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
-  completion icons, tags, summary, language/words/chapters), paginated 25 per page. Chapter
-  progress and completion status are real here, not guessed -- read straight from the epub's own
-  preface page (see `epub_meta.parse_epub_stats`), the same page AO3 embeds a "Stats:" line into on
-  every export. Word count comes from the same place; Audiobookshelf doesn't track it (confirmed
+  completion icons, tags, summary, language/words/chapters), a bookmark star per work (see
+  Accounts above), paginated 25 per page. Chapter progress and completion status are real here,
+  not guessed -- read straight from the epub's own preface page (see `epub_meta.parse_epub_stats`),
+  the same page AO3 embeds a "Stats:" line into on every export. Word count comes from the same
+  place; Audiobookshelf doesn't track it (confirmed
   against a real schema export), so this only ever comes from the file itself, matched or not.
 
   A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
@@ -112,21 +137,24 @@ dropdowns in the top nav.
   missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
   toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
-- **Tags** (`/tags`) -- every untyped tag across the whole library, sorted by how many works have
-  it, classified as Fandom, Character, or Freeform, paginated 100 per page. This is the bulk tool:
-  classifying one tag here fixes every work that has it in one action, instead of a per-work
-  correction on each of them. Filter tabs at the top (Fandom/Character/Freeform/Unclassified, each
-  with a count) narrow the list to what still needs review, and the on-page text search narrows
-  further -- a real library can easily have thousands of unique tags, so checking a box per tag and
-  reading through a dropdown per row doesn't scale. Instead, each row has a checkbox ("Select all"
-  in the header selects only the rows currently visible, respecting both the filter tab and the text
-  search), and a bar above the table applies one category to everything checked ("Set selected:
-  Fandom/Character/Freeform") -- search for a name, select all, glance at the list, then set it in
-  one click. Since AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark
-  unclassified on this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest
-  without needing to select anything. A tag with no explicit classification falls back to the same
-  heuristic guess used elsewhere (see `app/epub_meta.py`) for Fandom, or Freeform otherwise --
-  "Unclassified" specifically means no one has confirmed it either way yet.
+- **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library,
+  sorted by how many works have it, with its Fandom/Character/Freeform classification shown
+  read-only. Filter tabs at the top (Fandom/Character/Freeform/Unclassified, each with a count)
+  narrow the list, and clicking a tag filters Downloads to just those works -- same idea as the
+  Fandoms page, just for every tag instead of only fandoms. A tag with no explicit classification
+  falls back to the same heuristic guess used elsewhere (see `app/epub_meta.py`) for Fandom, or
+  Freeform otherwise -- "Unclassified" specifically means no one has confirmed it either way yet.
+- **Classify Tags** (`/tags/classify`, under Admin) -- the mutable version of the page above, and
+  the bulk tool for fixing that classification: classifying one tag here fixes every work that has
+  it in one action, instead of a per-work correction on each of them. A real library can easily
+  have thousands of unique tags, so checking a box per tag and reading through a dropdown per row
+  doesn't scale -- instead, each row has a checkbox ("Select all" in the header selects only the
+  rows currently visible, respecting both the filter tab and the on-page text search), and a bar
+  above the table applies one category to everything checked ("Set selected: Fandom/Character/
+  Freeform") -- search for a name, select all, glance at the list, then set it in one click. Since
+  AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
+  this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
+  to select anything.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
@@ -140,9 +168,10 @@ dropdowns in the top nav.
   the same status the Tracked Feeds page shows per feed; expected to grow.
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
-have the same checkbox picker under the Fandom column ("edit") as a shortcut scoped to one work's
-own tags, but saving it sets the same global classification the Tags page does -- checking "Torchwood"
-there marks it a fandom everywhere it appears, not just on that one row.
+have the same checkbox picker under the Fandom column ("edit", admin-only -- hidden entirely for a
+regular user, same restriction as the Classify Tags page itself) as a shortcut scoped to one work's
+own tags, but saving it sets the same global classification the Classify Tags page does -- checking
+"Torchwood" there marks it a fandom everywhere it appears, not just on that one row.
 
 ## Running
 

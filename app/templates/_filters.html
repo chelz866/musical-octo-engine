@@ -71,6 +71,7 @@
       <label>Downloaded: <input type="date" name="date_from" value="{{ filter_panel.date_from if filter_panel.date_from else '' }}"></label>
       &ndash;
       <label><input type="date" name="date_to" value="{{ filter_panel.date_to if filter_panel.date_to else '' }}"></label>
+      <label><input type="checkbox" name="bookmarked" value="true" {% if filter_panel.bookmarked %}checked{% endif %}> Show only bookmarked</label>
     </div>
 
     <button type="submit" class="filter-apply">Search and Filter</button>

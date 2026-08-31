@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Users - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Users</h1>
+  </header>
+
+  {% if error %}<p class="badge badge-warn">{{ error }}</p>{% endif %}
+
+  <table>
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Set new password</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>{{ u.role }}</td>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}/password" class="edit-form">
+            <input type="password" name="new_password" placeholder="New password" required minlength="4">
+            <button type="submit">Set</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>Add a user</h3>
+  <form method="post" action="/admin/users/create" class="stacked-form">
+    <label>Username
+      <input type="text" name="username" required>
+    </label>
+    <label>Initial password
+      <input type="password" name="password" required minlength="4">
+    </label>
+    <label>Role
+      <select name="role">
+        <option value="user" selected>User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
+    <button type="submit">Create User</button>
+  </form>
+{% endblock %}

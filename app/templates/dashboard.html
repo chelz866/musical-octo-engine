@@ -30,6 +30,11 @@
       </div>
       <div class="blurb-body">
         <h4 class="blurb-heading">
+          <form method="post" action="/works/{{ e.work_id }}/bookmark" class="bookmark-form">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
+            <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
+          </form>
           <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
             {{ e.title or "(unknown title)" }}
           </a>
@@ -45,7 +50,7 @@
             <span class="hint">no fandom guessed</span>
           {%- endif -%}
           {%- if e.series -%}, <span class="blurb-series">{{ e.series }}{% if e.series_index %} (#{{ e.series_index }}){% endif %} Series</span>{%- endif %}
-          {{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}
+          {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
         </div>
         {% if tags %}
         <p class="blurb-tags">

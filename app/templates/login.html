@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log In - Archive Of My Own</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="site-brand" href="/">Archive Of My Own</a>
+  </header>
+  <main class="login-main">
+    <form method="post" action="/login" class="stacked-form login-form">
+      <input type="hidden" name="next" value="{{ next }}">
+      {% if error %}<p class="badge badge-warn">{{ error }}</p>{% endif %}
+      <label>Username
+        <input type="text" name="username" required autofocus>
+      </label>
+      <label>Password
+        <input type="password" name="password" required>
+      </label>
+      <button type="submit">Log In</button>
+    </form>
+  </main>
+</body>
+</html>

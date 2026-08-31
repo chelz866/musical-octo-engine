@@ -8,11 +8,11 @@ from urllib.parse import quote
 
 from fast_autocomplete import AutoComplete
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import audiobookshelf, db, rss, scanner
+from . import audiobookshelf, auth, db, rss, scanner
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
@@ -55,6 +55,12 @@ async def _startup():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     db.init_db(DB_PATH)
 
+    if db.count_users(DB_PATH) == 0:
+        # First run: seed one admin account so there's always a way in.
+        # Username/password are both "admin" -- change it immediately via
+        # the Account page after the first login.
+        db.create_user(DB_PATH, "admin", auth.hash_password("admin"), "admin")
+
     for url, label in db.pop_legacy_tracked_feeds(DB_PATH):
         try:
             rss.add_tracked_feed(FEEDS_DB_PATH, url, label)
@@ -62,6 +68,37 @@ async def _startup():
             pass  # best-effort; the user can re-add manually if a URL is stale
 
     asyncio.create_task(_auto_refresh_loop())
+
+
+# Everything requires login except these. Within that, a fixed set of
+# path prefixes are admin-only: maintenance/setup pages a regular user
+# (e.g. a friend given access) should never see, plus tag classification
+# (the per-work fandom-picker POST included, matched by its own "/fandom"
+# suffix since it lives under the same "/works/{id}/..." prefix as the
+# bookmark toggle, which every logged-in user *should* be able to reach).
+PUBLIC_PATHS = {"/login"}
+ADMIN_PATH_PREFIXES = ("/admin", "/issues", "/tracked", "/queue", "/refresh", "/tags/classify")
+
+
+def _is_admin_only_path(path: str) -> bool:
+    return path.endswith("/fandom") or any(path.startswith(prefix) for prefix in ADMIN_PATH_PREFIXES)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if request.url.path in PUBLIC_PATHS or request.url.path.startswith("/static/"):
+        return await call_next(request)
+
+    token = request.cookies.get("session")
+    user = db.get_session_user(DB_PATH, token) if token else None
+    if user is None:
+        return RedirectResponse(f"/login?next={quote(request.url.path)}", status_code=303)
+
+    if _is_admin_only_path(request.url.path) and not user.is_admin:
+        return PlainTextResponse("Forbidden -- admin access required.", status_code=403)
+
+    request.state.user = user
+    return await call_next(request)
 
 
 def human_size(num_bytes: int | None) -> str:
@@ -181,6 +218,7 @@ templates.env.filters["blurb_tag_line"] = blurb_tag_line
 def _base_context(request: Request) -> dict:
     return {
         "request": request,
+        "user": request.state.user,
         "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
         "feeds_last_refreshed": db.get_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY),
         "refresh_error": request.query_params.get("refresh_error"),
@@ -386,6 +424,7 @@ def _parse_filters(request: Request) -> dict:
         "crossover": qp.get("crossover") if qp.get("crossover") in ("only", "exclude") else None,
         "date_from": _parse_date(qp.get("date_from")),
         "date_to": _parse_date(qp.get("date_to")),
+        "bookmarked": qp.get("bookmarked") == "true",
         "q": qp.get("q", "").strip(),
         "sort": qp.get("sort") or DEFAULT_SORT,
     }
@@ -456,6 +495,8 @@ def _filter_query_string(filters: dict, *, drop_key: str | None = None, drop_val
             parts.append(f"{key}={quote(str(filters[key]))}")
     if filters["crossover"] and drop_key != "crossover":
         parts.append(f"crossover={quote(filters['crossover'])}")
+    if filters["bookmarked"] and drop_key != "bookmarked":
+        parts.append("bookmarked=true")
     if filters["sort"] != DEFAULT_SORT and drop_key != "sort":
         parts.append(f"sort={quote(filters['sort'])}")
     return ("&" + "&".join(parts)) if parts else ""
@@ -494,6 +535,8 @@ def _active_chips(filters: dict) -> list[dict]:
         chips.append({"text": "Crossovers only", "remove_href": "/?" + _filter_query_string(filters, drop_key="crossover").lstrip("&")})
     elif filters["crossover"] == "exclude":
         chips.append({"text": "No crossovers", "remove_href": "/?" + _filter_query_string(filters, drop_key="crossover").lstrip("&")})
+    if filters["bookmarked"]:
+        chips.append({"text": "Bookmarked only", "remove_href": "/?" + _filter_query_string(filters, drop_key="bookmarked").lstrip("&")})
     return chips
 
 
@@ -505,6 +548,7 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
         "date_from": filters["date_from"],
         "date_to": filters["date_to"],
         "crossover": filters["crossover"],
+        "bookmarked": filters["bookmarked"],
         "sort": filters["sort"],
         "sort_options": SORT_LABELS,
         "searchable_facets": TAG_SEARCH_FACETS,
@@ -546,7 +590,11 @@ def dashboard(request: Request, page: int = 1):
     filter_panel = _build_filter_panel(result.entries, filters)
     active_chips = _active_chips(filters)
 
+    bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
+
     entries = [e for e in result.entries if _entry_matches(e, filters)]
+    if filters["bookmarked"]:
+        entries = [e for e in entries if e.work_id in bookmarked_ids]
     entries.sort(key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]))
 
     page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
@@ -558,6 +606,7 @@ def dashboard(request: Request, page: int = 1):
         {
             **_base_context(request),
             "entries": page_entries,
+            "bookmarked_ids": bookmarked_ids,
             "filter_panel": filter_panel,
             "active_chips": active_chips,
             "abs_links": _abs_links(),
@@ -567,6 +616,19 @@ def dashboard(request: Request, page: int = 1):
             "pager_qs": pager_qs,
         },
     )
+
+
+@app.post("/works/{work_id}/bookmark")
+def toggle_bookmark(request: Request, work_id: str, bookmarked: bool = Form(...), next: str = Form("/")):
+    """Bookmarking is per-user, not admin-gated -- any logged-in user can
+    mark works for themselves. Unlike the fandom-picker POST, this doesn't
+    touch the shared tag classification at all.
+    """
+    if bookmarked:
+        db.add_bookmark(DB_PATH, request.state.user.id, work_id, datetime.now().isoformat())
+    else:
+        db.remove_bookmark(DB_PATH, request.state.user.id, work_id)
+    return RedirectResponse(url=next or "/", status_code=303)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -651,9 +713,13 @@ def set_work_fandom(
     return RedirectResponse(url=next or "/", status_code=303)
 
 
-@app.get("/tags", response_class=HTMLResponse)
-def tags_page(request: Request, filter: str = "all", page: int = 1):
-    result = scanner.load_cached(DB_PATH)
+def _tag_rows(result, filter: str) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
+    """Returns (tags, bucket_counts, total_tags) for the given filter tab --
+    tags is (tag, work_count, explicit_category_or_None), sorted by work
+    count desc then name. Shared by the admin classification page and the
+    read-only Browse page: same underlying data, one mutable (checkboxes/
+    bulk actions), one not.
+    """
     counts: Counter = Counter()
     for entry in result.entries:
         for tag in entry.fandom_candidates:
@@ -668,7 +734,37 @@ def tags_page(request: Request, filter: str = "all", page: int = 1):
     if filter != "all":
         tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
     tags.sort(key=lambda row: (-row[1], row[0].lower()))
+    return tags, bucket_counts, len(counts)
 
+
+@app.get("/tags", response_class=HTMLResponse)
+def tags_browse(request: Request, filter: str = "all", page: int = 1):
+    """Read-only tag browsing under Browse -- anyone logged in can see
+    this, unlike /tags/classify (admin-only, see the module-level
+    ADMIN_PATH_PREFIXES) which actually changes the shared classification.
+    """
+    result = scanner.load_cached(DB_PATH)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter)
+    page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
+    return templates.TemplateResponse(
+        "tags_browse.html",
+        {
+            **_base_context(request),
+            "tags": page_tags,
+            "filter": filter,
+            "page": page,
+            "total_pages": total_pages,
+            "bucket_counts": bucket_counts,
+            "total_tags": total_tags,
+            "pager_qs": f"&filter={quote(filter)}",
+        },
+    )
+
+
+@app.get("/tags/classify", response_class=HTMLResponse)
+def tags_classify_page(request: Request, filter: str = "all", page: int = 1):
+    result = scanner.load_cached(DB_PATH)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags.html",
@@ -679,13 +775,13 @@ def tags_page(request: Request, filter: str = "all", page: int = 1):
             "page": page,
             "total_pages": total_pages,
             "bucket_counts": bucket_counts,
-            "total_tags": len(counts),
+            "total_tags": total_tags,
             "pager_qs": f"&filter={quote(filter)}",
         },
     )
 
 
-@app.post("/tags/set_selected")
+@app.post("/tags/classify/set_selected")
 def set_selected_tags(
     tags: list[str] = Form([]),
     category: str = Form(...),
@@ -694,23 +790,23 @@ def set_selected_tags(
 ):
     if category in ("fandom", "character", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
-    return RedirectResponse(url=f"/tags?filter={quote(filter)}&page={page}", status_code=303)
+    return RedirectResponse(url=f"/tags/classify?filter={quote(filter)}&page={page}", status_code=303)
 
 
-@app.post("/tags/mark_page_freeform")
+@app.post("/tags/classify/mark_page_freeform")
 def mark_page_freeform(tags: list[str] = Form([]), filter: str = Form("all"), page: int = Form(1)):
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
-    return RedirectResponse(url=f"/tags?filter={quote(filter)}&page={page}", status_code=303)
+    return RedirectResponse(url=f"/tags/classify?filter={quote(filter)}&page={page}", status_code=303)
 
 
-@app.post("/tags/mark_all_unclassified_freeform")
+@app.post("/tags/classify/mark_all_unclassified_freeform")
 def mark_all_unclassified_freeform():
     result = scanner.load_cached(DB_PATH)
     all_tags = {t for e in result.entries for t in e.fandom_candidates}
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit})
-    return RedirectResponse(url="/tags", status_code=303)
+    return RedirectResponse(url="/tags/classify", status_code=303)
 
 
 @app.get("/fandoms", response_class=HTMLResponse)
@@ -857,3 +953,87 @@ def refresh_feeds(next: str = Form("/tracked")):
         sep = "&" if "?" in redirect_url else "?"
         redirect_url += f"{sep}refresh_error={quote('; '.join(errors))}"
     return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/", error: str = ""):
+    return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": error})
+
+
+@app.post("/login")
+def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
+    credentials = db.get_user_credentials(DB_PATH, username.strip())
+    if not credentials or not auth.verify_password(password, credentials[1]):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "next": next, "error": "Invalid username or password."},
+            status_code=401,
+        )
+    user, _ = credentials
+    token = auth.generate_session_token()
+    db.create_session(DB_PATH, token, user.id, datetime.now().isoformat())
+    response = RedirectResponse(url=next or "/", status_code=303)
+    response.set_cookie("session", token, httponly=True, samesite="lax")
+    return response
+
+
+@app.post("/logout")
+def logout(request: Request):
+    token = request.cookies.get("session")
+    if token:
+        db.delete_session(DB_PATH, token)
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie("session")
+    return response
+
+
+@app.get("/account", response_class=HTMLResponse)
+def account_page(request: Request, error: str = "", saved: bool = False):
+    return templates.TemplateResponse(
+        "account.html",
+        {**_base_context(request), "error": error, "saved": saved},
+    )
+
+
+@app.post("/account/password")
+def change_own_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    user = request.state.user
+    credentials = db.get_user_credentials(DB_PATH, user.username)
+    if not credentials or not auth.verify_password(current_password, credentials[1]):
+        return RedirectResponse(url="/account?error=" + quote("Current password is incorrect."), status_code=303)
+    if new_password != confirm_password:
+        return RedirectResponse(url="/account?error=" + quote("New passwords don't match."), status_code=303)
+    if len(new_password) < 4:
+        return RedirectResponse(url="/account?error=" + quote("New password is too short."), status_code=303)
+    db.set_user_password(DB_PATH, user.id, auth.hash_password(new_password))
+    return RedirectResponse(url="/account?saved=true", status_code=303)
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(request: Request, error: str = ""):
+    return templates.TemplateResponse(
+        "admin_users.html",
+        {**_base_context(request), "users": db.list_users(DB_PATH), "error": error},
+    )
+
+
+@app.post("/admin/users/create")
+def admin_create_user(username: str = Form(...), password: str = Form(...), role: str = Form("user")):
+    username = username.strip()
+    if not username or db.get_user_credentials(DB_PATH, username):
+        return RedirectResponse(url="/admin/users?error=" + quote("That username is already taken."), status_code=303)
+    if role not in ("user", "admin"):
+        role = "user"
+    db.create_user(DB_PATH, username, auth.hash_password(password), role)
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/password")
+def admin_set_user_password(user_id: int, new_password: str = Form(...)):
+    db.set_user_password(DB_PATH, user_id, auth.hash_password(new_password))
+    return RedirectResponse(url="/admin/users", status_code=303)

@@ -1,7 +1,8 @@
 """Small local SQLite store for the only persistent state this app keeps
 itself: per-work manual overrides (title/author), issue dismissals, a
-global tag -> category classification, the works_cache snapshot, and a
-key/value meta table (currently just last-refreshed-at).
+global tag -> category classification, the works_cache snapshot, a
+key/value meta table (currently just last-refreshed-at), and now users/
+sessions/bookmarks for the login system.
 
 Tracked feeds themselves are no longer stored here -- see app/rss.py,
 which uses the `reader` library and its own separate SQLite file for that
@@ -12,6 +13,10 @@ one tag (e.g. marking "Torchwood" as a fandom) retroactively fixes every
 work that has that tag, instead of requiring a correction on each of what
 could be thousands of individual works. See scanner._resolve_tag_categories.
 
+Users/sessions/bookmarks are the one place this file departs from "global,
+shared data": bookmarks are scoped per user_id, everything else in this
+module stays shared across every account, same as before login existed.
+
 Everything else is computed live from the filesystem/log/feed on each
 request -- this is deliberately the minimum needed to make those pages useful.
 """
@@ -19,6 +24,8 @@ request -- this is deliberately the minimum needed to make those pages useful.
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+
+from .auth import User
 
 
 @dataclass
@@ -81,6 +88,35 @@ def init_db(path: str) -> None:
             CREATE TABLE IF NOT EXISTS abs_matches (
                 work_id TEXT PRIMARY KEY,
                 item_id TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user'
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                work_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, work_id)
             )
             """
         )
@@ -270,3 +306,96 @@ def set_meta(path: str, key: str, value: str) -> None:
             """,
             (key, value),
         )
+
+
+def count_users(path: str) -> int:
+    with _connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+
+def create_user(path: str, username: str, password_hash: str, role: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            (username, password_hash, role),
+        )
+
+
+def list_users(path: str) -> list[User]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT id, username, role FROM users ORDER BY username").fetchall()
+    return [User(id=row[0], username=row[1], role=row[2]) for row in rows]
+
+
+def get_user_by_id(path: str, user_id: int) -> User | None:
+    with _connect(path) as conn:
+        row = conn.execute("SELECT id, username, role FROM users WHERE id = ?", (user_id,)).fetchone()
+    return User(id=row[0], username=row[1], role=row[2]) if row else None
+
+
+def get_user_credentials(path: str, username: str) -> tuple[User, str] | None:
+    """Returns (User, password_hash) for login verification -- the only
+    place a password hash leaves this module. Every other lookup here
+    returns a plain User instead.
+    """
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT id, username, password_hash, role FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+    if not row:
+        return None
+    return User(id=row[0], username=row[1], role=row[3]), row[2]
+
+
+def set_user_password(path: str, user_id: int, password_hash: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+
+
+def create_session(path: str, token: str, user_id: int, created_at: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+            (token, user_id, created_at),
+        )
+
+
+def get_session_user(path: str, token: str) -> User | None:
+    with _connect(path) as conn:
+        row = conn.execute(
+            """
+            SELECT users.id, users.username, users.role
+            FROM sessions JOIN users ON sessions.user_id = users.id
+            WHERE sessions.token = ?
+            """,
+            (token,),
+        ).fetchone()
+    return User(id=row[0], username=row[1], role=row[2]) if row else None
+
+
+def delete_session(path: str, token: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+def add_bookmark(path: str, user_id: int, work_id: str, created_at: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO bookmarks (user_id, work_id, created_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id, work_id) DO NOTHING
+            """,
+            (user_id, work_id, created_at),
+        )
+
+
+def remove_bookmark(path: str, user_id: int, work_id: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM bookmarks WHERE user_id = ? AND work_id = ?", (user_id, work_id))
+
+
+def get_bookmarked_work_ids(path: str, user_id: int) -> set[str]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id FROM bookmarks WHERE user_id = ?", (user_id,)).fetchall()
+    return {row[0] for row in rows}

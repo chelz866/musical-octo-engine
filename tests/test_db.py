@@ -298,3 +298,127 @@ def test_meta_get_and_set():
 
         db.set_meta(path, "last_refreshed_at", "2026-01-02T00:00:00")
         assert db.get_meta(path, "last_refreshed_at") == "2026-01-02T00:00:00"
+
+
+def test_count_users_and_create_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.count_users(path) == 0
+
+        db.create_user(path, "admin", "hashed", "admin")
+        assert db.count_users(path) == 1
+
+        users = db.list_users(path)
+        assert len(users) == 1
+        assert users[0].username == "admin"
+        assert users[0].role == "admin"
+        assert users[0].is_admin is True
+
+
+def test_get_user_credentials_round_trip_and_missing_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed-pw", "admin")
+
+        result = db.get_user_credentials(path, "admin")
+        assert result is not None
+        user, password_hash = result
+        assert user.username == "admin"
+        assert password_hash == "hashed-pw"
+
+        assert db.get_user_credentials(path, "does-not-exist") is None
+
+
+def test_get_user_by_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "friend", "hashed", "user")
+        created = db.list_users(path)[0]
+
+        fetched = db.get_user_by_id(path, created.id)
+        assert fetched.username == "friend"
+        assert fetched.is_admin is False
+
+        assert db.get_user_by_id(path, 9999) is None
+
+
+def test_set_user_password_updates_hash():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "old-hash", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.set_user_password(path, user_id, "new-hash")
+
+        _, password_hash = db.get_user_credentials(path, "admin")
+        assert password_hash == "new-hash"
+
+
+def test_session_create_get_and_delete():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.create_session(path, "tok123", user_id, "2026-01-01T00:00:00")
+        user = db.get_session_user(path, "tok123")
+        assert user is not None
+        assert user.username == "admin"
+
+        db.delete_session(path, "tok123")
+        assert db.get_session_user(path, "tok123") is None
+
+
+def test_get_session_user_unknown_token_returns_none():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.get_session_user(path, "does-not-exist") is None
+
+
+def test_bookmark_add_remove_and_get_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        assert db.get_bookmarked_work_ids(path, user_id) == set()
+
+        db.add_bookmark(path, user_id, "123", "2026-01-01T00:00:00")
+        db.add_bookmark(path, user_id, "456", "2026-01-01T00:00:00")
+        assert db.get_bookmarked_work_ids(path, user_id) == {"123", "456"}
+
+        db.remove_bookmark(path, user_id, "123")
+        assert db.get_bookmarked_work_ids(path, user_id) == {"456"}
+
+
+def test_add_bookmark_is_idempotent():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.add_bookmark(path, user_id, "123", "2026-01-01T00:00:00")
+        db.add_bookmark(path, user_id, "123", "2026-01-02T00:00:00")  # should not raise or duplicate
+        assert db.get_bookmarked_work_ids(path, user_id) == {"123"}
+
+
+def test_bookmarks_are_scoped_per_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        db.create_user(path, "friend", "hashed", "user")
+        admin_id = db.get_user_credentials(path, "admin")[0].id
+        friend_id = db.get_user_credentials(path, "friend")[0].id
+
+        db.add_bookmark(path, admin_id, "123", "2026-01-01T00:00:00")
+        assert db.get_bookmarked_work_ids(path, admin_id) == {"123"}
+        assert db.get_bookmarked_work_ids(path, friend_id) == set()
