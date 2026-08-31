@@ -447,6 +447,12 @@ th {
   padding: 0;
   font-size: 0.8rem;
   line-height: 1.6;
+  /* Clearfix: some skins float their tag pills (a.tag/li) for a grid-like
+     layout. Without this, a floated child collapses this container's
+     height to zero and the next element (the summary) flows up beside
+     the floats instead of starting below them -- this contains any float
+     a skin applies here, regardless of what that skin's CSS looks like. */
+  overflow: hidden;
 }
 
 .blurb-tags li {
