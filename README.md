@@ -247,10 +247,14 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   selected" trio below) lists its options depth-first through the same-category hierarchy above
   rather than one flat alphabetical list -- a parent tag is immediately followed by its own children,
   each indented one level further, so a same-category family stays visually grouped even inside a
-  plain `<select>`. "No Fandom" is a real, explicit choice, not just
-  "unset" -- a same-category child with no Fandom of its own inherits the nearest ancestor's
-  explicit choice (a real Fandom or an explicit "No Fandom," whichever is closer), defaulting to
-  "No Fandom" only if nothing in the whole chain has ever set one. Once a Character/Relationship/
+  plain `<select>`. The dropdown separates "No Fandom (auto)" -- nobody's set anything on this tag
+  or any of its same-category ancestors, so it defaults to none -- from a plain "No Fandom," a real,
+  explicit choice that's saved just like picking an actual Fandom (an explicit "for real, no fandom,"
+  not a placeholder for "undecided"). A same-category child with no Fandom of its own inherits the
+  nearest ancestor's explicit choice (a real Fandom or an explicit "No Fandom," whichever is closer),
+  falling back to "No Fandom (auto)" only if nothing in the whole chain has ever set one; picking
+  "No Fandom (auto)" back on a tag clears its own explicit choice, reverting it to that inheritance.
+  Once a Character/Relationship/
   Freeform tag resolves to a real Fandom, every work using that tag counts as belonging to that
   Fandom for Downloads filtering and the Fandoms page, even when the epub's own raw tags never
   mention it directly -- and the Character/Relationship/Additional-Tags suggestions and "Find
@@ -275,6 +279,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   disappearing. On the read-only Tags page, clicking a synthetic parent heading filters Downloads by
   that association directly (e.g. a Fandom heading links like the Fandoms page does), not by
   whatever category the heading's own name happens to also be classified as.
+
+  Organizing by Fandom treats the "No Fandom (auto)" vs. explicit "No Fandom" distinction above the
+  same way it treats a real one: a tag someone deliberately set to "No Fandom" (on itself or
+  inherited from an ancestor's explicit choice) gets grouped under its own "No Fandom" heading right
+  alongside the real Fandom headings, while a tag nobody's classified either way yet stays a
+  standalone top-level row instead of being swept into that heading -- so "grouped under No Fandom"
+  only ever means someone confirmed there really is none, not "still undecided."
 - **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
   into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
   sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is

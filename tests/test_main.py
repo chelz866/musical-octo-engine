@@ -879,6 +879,20 @@ def test_association_parents_fandom_inherits_up_the_same_category_chain():
     assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}) == ["Heated Rivalry"]
 
 
+def test_association_parents_fandom_explicit_no_fandom_gets_its_own_group():
+    # A real, deliberate "No Fandom" choice -- distinct from a tag nobody's
+    # classified either way yet (test_association_parents_fandom_no_fandom_is_ungrouped) --
+    # groups under a "No Fandom" heading instead of disappearing.
+    tag_fandoms = {"Coffee Shop AU": "No Fandom"}
+    assert _association_parents("Coffee Shop AU", "fandom", tag_fandoms, {}, {}, {}, {}) == ["No Fandom"]
+
+
+def test_association_parents_fandom_inherited_explicit_no_fandom_groups_too():
+    parent_of = {"Anxious Shane Hollander": "Anxious Character"}
+    tag_fandoms = {"Anxious Character": "No Fandom"}
+    assert _association_parents("Anxious Shane Hollander", "fandom", tag_fandoms, parent_of, {}, {}, {}) == ["No Fandom"]
+
+
 def test_association_parents_character_unions_relationship_and_freeform_links():
     relationship_characters = {"Harry/Draco": {0: "Harry Potter", 1: "Draco Malfoy"}}
     freeform_characters = {"Angst": {"Draco Malfoy", "Ron Weasley"}}

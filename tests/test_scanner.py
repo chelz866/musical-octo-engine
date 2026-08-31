@@ -13,6 +13,7 @@ from app.scanner import (
     load_cached,
     refresh_cache,
     resolve_tag_fandom,
+    resolve_tag_fandom_explicit,
     scan,
 )
 
@@ -653,6 +654,26 @@ def test_resolve_tag_fandom_walks_multiple_levels():
     parent_of = {"Ron Weasley (Auror, Injured)": "Ron Weasley (Auror)", "Ron Weasley (Auror)": "Ron Weasley"}
     explicit = {"Ron Weasley": "Harry Potter"}
     assert resolve_tag_fandom("Ron Weasley (Auror, Injured)", parent_of, explicit) == "Harry Potter"
+
+
+def test_resolve_tag_fandom_explicit_true_when_own_association_set():
+    assert resolve_tag_fandom_explicit("The Doctor", {}, {"The Doctor": "Doctor Who"}) == ("Doctor Who", True)
+
+
+def test_resolve_tag_fandom_explicit_false_when_never_set_anywhere():
+    assert resolve_tag_fandom_explicit("Coffee Shops", {}, {}) == ("No Fandom", False)
+
+
+def test_resolve_tag_fandom_explicit_true_for_a_real_no_fandom_choice():
+    # "for real for real no fandom" -- someone deliberately chose No Fandom,
+    # distinct from a tag nobody's classified either way yet.
+    assert resolve_tag_fandom_explicit("Anxious Character", {}, {"Anxious Character": "No Fandom"}) == ("No Fandom", True)
+
+
+def test_resolve_tag_fandom_explicit_true_when_inherited_no_fandom_choice():
+    parent_of = {"Anxious Shane Hollander": "Anxious Character"}
+    explicit = {"Anxious Character": "No Fandom"}
+    assert resolve_tag_fandom_explicit("Anxious Shane Hollander", parent_of, explicit) == ("No Fandom", True)
 
 
 def test_resolve_associated_fandoms_gathers_from_all_three_lists_deduped():

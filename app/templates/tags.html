@@ -28,7 +28,8 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <select name="fandom" onchange="this.form.submit()">
-        <option value="No Fandom" {% if tag_fandoms.get(row.tag, "No Fandom") == "No Fandom" %}selected{% endif %}>No Fandom</option>
+        <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
+        <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
         {% for f, d in known_fandoms %}
         <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ f }}</option>
         {% endfor %}

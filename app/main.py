@@ -1147,15 +1147,23 @@ def _association_parents(
     (see db.tag_fandoms / relationship_characters / freeform_characters /
     freeform_relationships) instead of the same-category wrangling
     hierarchy. Fandom is always at most one value (see
-    scanner.resolve_tag_fandom); Character/Relationship can be several
-    (a Relationship's own per-name-part Characters plus, for a Freeform
-    tag, however many it's linked to) or none at all if `tag` has no
-    association for this dimension (e.g. organizing by Relationship while
-    looking at a Character tag).
+    scanner.resolve_tag_fandom_explicit); Character/Relationship can be
+    several (a Relationship's own per-name-part Characters plus, for a
+    Freeform tag, however many it's linked to) or none at all if `tag`
+    has no association for this dimension (e.g. organizing by
+    Relationship while looking at a Character tag).
+
+    A tag resolving to "No Fandom" is only grouped under a "No Fandom"
+    heading when that's an *explicit* choice (on the tag itself or an
+    ancestor) -- a tag nobody's classified either way yet stays
+    standalone instead of being swept into that heading alongside tags
+    someone deliberately marked as having none.
     """
     if dimension == "fandom":
-        fandom = scanner.resolve_tag_fandom(tag, parent_of, tag_fandoms)
-        return [] if fandom == "No Fandom" else [fandom]
+        fandom, is_explicit = scanner.resolve_tag_fandom_explicit(tag, parent_of, tag_fandoms)
+        if fandom == "No Fandom":
+            return ["No Fandom"] if is_explicit else []
+        return [fandom]
     if dimension == "character":
         chars = set(relationship_characters.get(tag, {}).values()) | freeform_characters.get(tag, set())
         return sorted(chars)
@@ -1450,17 +1458,22 @@ def _relationship_name_parts(relationship_tag: str) -> list[str]:
 @app.post("/tags/classify/set_fandom")
 def set_tag_fandom_route(
     tag: str = Form(...),
-    fandom: str = Form(...),
+    fandom: str = Form(""),
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
 ):
     """Sets tag's own Fandom association -- 'No Fandom' is a real,
     explicit choice (it stops inheritance from an ancestor same-category
-    tag), not the same as never setting anything. See
-    scanner.resolve_tag_fandom.
+    tag), not the same as never setting anything. An empty `fandom`
+    (the dropdown's "No Fandom (auto)" option) instead clears any
+    explicit association, reverting the tag back to inheriting from its
+    same-category parent chain. See scanner.resolve_tag_fandom_explicit.
     """
-    db.set_tag_fandom(DB_PATH, tag, fandom)
+    if fandom:
+        db.set_tag_fandom(DB_PATH, tag, fandom)
+    else:
+        db.remove_tag_fandom(DB_PATH, tag)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
     )

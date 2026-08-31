@@ -253,7 +253,9 @@ def child_parent_map(children: dict[str, set[str]]) -> dict[str, str]:
     return {child: parent for parent, kids in children.items() for child in kids}
 
 
-def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]) -> str:
+def resolve_tag_fandom_explicit(
+    tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]
+) -> tuple[str, bool]:
     """Walks `tag`'s own same-category 'child' chain (parent_of, from
     child_parent_map/db.get_tag_children) looking for the nearest
     ancestor -- including `tag` itself -- with an explicit Fandom
@@ -262,17 +264,32 @@ def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: di
     name would; only a tag with no explicit row anywhere in its own chain
     falls back to the 'No Fandom' default. Safe against a cycle even
     though db.set_tag_wrangling already refuses to create one.
+
+    Returns (resolved fandom, whether an explicit choice -- on `tag`
+    itself or an ancestor -- produced it, as opposed to the "No Fandom"
+    default kicking in because nothing in the whole chain has ever set
+    one). Callers that only need the resolved value can ignore the second
+    element; a caller that needs to tell a real "No Fandom" decision
+    apart from a tag nobody's classified yet (e.g. the Organize-by-Fandom
+    grouping) needs both.
     """
     current = tag
     seen: set[str] = set()
     while current is not None:
         if current in explicit_fandoms:
-            return explicit_fandoms[current]
+            return explicit_fandoms[current], True
         if current in seen:
             break
         seen.add(current)
         current = parent_of.get(current)
-    return "No Fandom"
+    return "No Fandom", False
+
+
+def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]) -> str:
+    """The resolved Fandom only -- see resolve_tag_fandom_explicit for the
+    full (value, is_explicit) result.
+    """
+    return resolve_tag_fandom_explicit(tag, parent_of, explicit_fandoms)[0]
 
 
 def _resolve_associated_fandoms(
