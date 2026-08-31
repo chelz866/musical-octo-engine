@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Tag Wrangling - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Tag Wrangling</h1>
+    <p class="paths">
+      Every tag currently wrangled on <a href="/tags/classify">Classify Tags</a> -- "Merged into"
+      (a synonym, folded into a canonical tag everywhere) or "Child of" (a same-category parent/
+      child link). A merged tag has no row of its own on Classify Tags anymore, so this is the only
+      place to find and undo it.
+    </p>
+  </header>
+
+  <input type="search" id="wrangling-filter" placeholder="Filter by tag or target&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterWranglings(this.value)">
+
+  <table class="tag-table">
+    <thead>
+      <tr>
+        <th>Tag</th>
+        <th>Relation</th>
+        <th>Target</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tag, (relation, target) in wranglings.items() %}
+      <tr class="wrangling-row" data-search="{{ (tag ~ ' ' ~ target) | lower }}">
+        <td>{{ tag }}</td>
+        <td>{{ "Merged into" if relation == "synonym" else "Child of" }}</td>
+        <td>{{ target }}</td>
+        <td>
+          <form method="post" action="/tags/classify/unwrangle" style="display:inline">
+            <input type="hidden" name="tag" value="{{ tag }}">
+            <button type="submit">Undo</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="empty">No tags wrangled yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    function filterWranglings(query) {
+      query = query.toLowerCase();
+      document.querySelectorAll(".wrangling-row").forEach(function (row) {
+        row.style.display = row.dataset.search.includes(query) ? "" : "none";
+      });
+    }
+  </script>
+{% endblock %}

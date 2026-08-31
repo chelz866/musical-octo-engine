@@ -1258,17 +1258,28 @@ def wrangle_tags(
     )
 
 
-@app.post("/tags/classify/unwrangle")
-def unwrangle_tag(
-    tag: str = Form(...),
-    filter: str = Form("all"),
-    page: int = Form(1),
-    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
-):
-    db.remove_tag_wrangling(DB_PATH, tag)
-    return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+@app.get("/tags/classify/wranglings", response_class=HTMLResponse)
+def tag_wranglings_page(request: Request):
+    """The full same-category wrangling list (Merged into / Child of),
+    split out from the bottom of Classify Tags onto its own page once a
+    real library's wrangling list got long enough to be its own scroll --
+    the per-tag Fandom/Character/Relationship association controls stay on
+    Classify Tags itself, since they need the row's own count/category
+    context to make sense.
+    """
+    return templates.TemplateResponse(
+        "tag_wranglings.html",
+        {
+            **_base_context(request),
+            "wranglings": db.get_all_tag_wranglings(DB_PATH),
+        },
     )
+
+
+@app.post("/tags/classify/unwrangle")
+def unwrangle_tag(tag: str = Form(...)):
+    db.remove_tag_wrangling(DB_PATH, tag)
+    return RedirectResponse(url="/tags/classify/wranglings", status_code=303)
 
 
 def _relationship_name_parts(relationship_tag: str) -> list[str]:

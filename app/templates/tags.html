@@ -254,43 +254,11 @@
     </form>
   </div>
 
-  <h2>Wrangled Tags</h2>
-  <p class="hint">
-    A merged (synonym) tag no longer appears in the table above as its own row -- undo it here to
-    bring it back as a separate tag.
+  <p class="paths">
+    A merged (synonym) tag no longer appears in the table above as its own row -- see
+    <a href="/tags/classify/wranglings">Tag Wrangling</a> (under Admin) for the full list of every
+    "Merged into"/"Child of" relation and to undo one.
   </p>
-  <table class="tag-table">
-    <thead>
-      <tr>
-        <th>Tag</th>
-        <th>Relation</th>
-        <th>Target</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for tag, (relation, target) in wranglings.items() %}
-      <tr>
-        <td>{{ tag }}</td>
-        <td>{{ "Merged into" if relation == "synonym" else "Child of" }}</td>
-        <td>{{ target }}</td>
-        <td>
-          <form method="post" action="/tags/classify/unwrangle" style="display:inline">
-            <input type="hidden" name="tag" value="{{ tag }}">
-            <input type="hidden" name="filter" value="{{ filter }}">
-            <input type="hidden" name="page" value="{{ page }}">
-            <input type="hidden" name="sort" value="{{ sort }}">
-            <button type="submit">Undo</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="4" class="empty">No tags wrangled yet.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 
   <script>
     function filterTags(query) {

@@ -221,8 +221,8 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   **Same-category hierarchy** ("Merge selected into &rarr;" / "Make selected children of &rarr;")
   -- "Merge selected into" folds every checked tag into one canonical tag everywhere (display,
   Tags-page counts, classification), category-blind since two spellings of the same tag aren't a
-  category question; it stops appearing here as its own row (undo it from the "Wrangled Tags" list
-  at the bottom of the page). "Make selected children of" keeps each checked tag as itself but
+  category question; it stops appearing here as its own row (undo it from the **Tag Wrangling**
+  page under Admin -- see below). "Make selected children of" keeps each checked tag as itself but
   *requires* the parent to share the same category -- a Fandom's parent must be a Fandom, a
   Character's a Character, a Relationship's a Relationship, a Freeform tag's a Freeform tag; a tag
   of a different category is silently skipped. Filtering or excluding Downloads by the parent also
@@ -259,6 +259,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   to every checked tag in one action -- Fandom to every selected Character/Relationship/Freeform
   tag, Character/Relationship only to selected Freeform tags (a Relationship's Characters stay
   per-name-part, set individually in its own row).
+- **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
+  into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
+  sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is
+  also the only place to undo a merge, since a merged tag no longer has a row of its own on Classify
+  Tags to undo it from. The per-tag Fandom/Character/Relationship association controls stay on
+  Classify Tags itself, since they need the row's own count/category context.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
