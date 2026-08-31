@@ -3,13 +3,13 @@
 {% set icons = e | blurb_icons %}
 {% set tags = e | blurb_tag_line %}
 <li class="blurb work group">
-  <div class="blurb-icons">
-    <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
-    <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
-    <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
-    <span class="req-tag completion-{{ icons.completion_class }}" title="{{ icons.completion_label }}">{{ icons.completion_symbol }}</span>
-  </div>
-  <div class="blurb-body">
+  <div class="blurb-header header module">
+    <div class="blurb-icons">
+      <span class="req-tag rating-{{ icons.rating_class }}" title="Rating: {{ icons.rating_label }}">{{ icons.rating_symbol }}</span>
+      <span class="req-tag category-{{ icons.category_class }}" title="Category: {{ icons.category_label }}">{{ icons.category_symbol }}</span>
+      <span class="req-tag warning-{{ icons.warning_class }}" title="{{ icons.warning_label }}">{{ icons.warning_symbol }}</span>
+      <span class="req-tag completion-{{ icons.completion_class }}" title="{{ icons.completion_label }}">{{ icons.completion_symbol }}</span>
+    </div>
     <h4 class="blurb-heading">
       <form method="post" action="/works/{{ e.work_id }}/bookmark" class="bookmark-form">
         <input type="hidden" name="next" value="{{ request.url }}">
@@ -32,6 +32,8 @@
       {%- endif -%}
       {% if user.is_admin %}{{ picker.fandom_picker(e.work_id, e.fandom_candidates, e.fandoms, request.url.path) }}{% endif %}
     </div>
+  </div>
+  <div class="blurb-body">
     {% if e.work_id in bookmarked_ids %}
     <div class="bookmark-note-block">
       {% if bookmark_notes.get(e.work_id) %}

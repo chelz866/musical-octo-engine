@@ -345,8 +345,6 @@ th {
 }
 
 .blurb {
-  display: flex;
-  gap: 1rem;
   padding: 1.1rem;
   border-bottom: 1px solid var(--border);
   border-radius: 6px;
@@ -357,12 +355,24 @@ th {
   margin-bottom: 0;
 }
 
+.blurb-header {
+  /* Like AO3's own header.module: the icon grid floats left of the title
+     and fandom line, so their text wraps around it -- but only for the
+     icons' own height. A block formatting context here (rather than on
+     .blurb-body) is what makes that height correctly enclosed, so the
+     next section (tags, summary, stats, footer) always starts back at
+     the card's full left edge instead of staying indented for the whole
+     card's height the way a two-column flex layout would force. */
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
 .blurb-icons {
   display: grid;
   grid-template-columns: repeat(2, 1.8rem);
   gap: 2px;
-  flex-shrink: 0;
-  height: fit-content;
+  float: left;
+  margin-right: 1rem;
 }
 
 .req-tag {
@@ -405,17 +415,14 @@ th {
 .completion-wip { background: #a02128; }
 
 .blurb-body {
-  min-width: 0;
-  flex: 1;
   overflow-wrap: break-word;
   /* A column flex container, not just a block -- CSS float has no effect
      at all on flex items (per spec), so if a skin floats one of these
-     direct children (fandoms, tags, summary, whatever) to build its own
-     layout, that float is simply ignored here and every child still
-     stacks full-width, one per line, exactly like an unstyled block would.
-     A block formatting context (overflow:hidden/flow-root) doesn't cover
-     this case -- it only stops floats from escaping to elements *outside*
-     the container, not from affecting normal-flow siblings inside it. */
+     direct children (tags, summary, whatever) to build its own layout,
+     that float is simply ignored here and every child still stacks
+     full-width, one per line, exactly like an unstyled block would. This
+     section is a sibling of .blurb-header (not nested inside it), so it's
+     always full-width regardless of the icon float above it. */
   display: flex;
   flex-direction: column;
 }
