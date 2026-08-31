@@ -954,6 +954,43 @@ def _tag_rows(result, filter: str, sort: str) -> tuple[list[tuple[str, int, str 
     return tags, bucket_counts, len(counts)
 
 
+def _group_tag_rows_by_parent(
+    tags: list[tuple[str, int, str | None]], children_map: dict[str, set[str]]
+) -> list[dict]:
+    """Groups an already-filtered-and-sorted (tag, count, category) list
+    into top-level rows with a nested `children` list -- see
+    db.get_tag_children -- so the Tags/Classify Tags tables can render a
+    child tag directly under its parent instead of wherever the page's own
+    sort order would otherwise place it. Pagination then paginates this
+    grouped list (one page slot per top-level row; a collapsed parent's
+    children ride along "for free" since they're hidden by default), so a
+    heavily-childed tag doesn't blow a page's row budget.
+
+    A child is only nested when its parent is also present in `tags` (the
+    same filtered set) -- e.g. the current filter tab excludes the parent's
+    category. Otherwise it falls back to its own top-level row instead of
+    silently disappearing. Children keep the relative order they already
+    have in `tags` (whatever sort is active), not a separate re-sort.
+    """
+    by_tag = {tag: (tag, count, category) for tag, count, category in tags}
+    parent_of = {child: parent for parent, children in children_map.items() for child in children}
+
+    children_by_parent: dict[str, list[tuple[str, int, str | None]]] = defaultdict(list)
+    top_level: list[tuple[str, int, str | None]] = []
+    for row in tags:
+        tag = row[0]
+        parent = parent_of.get(tag)
+        if parent is not None and parent in by_tag:
+            children_by_parent[parent].append(row)
+        else:
+            top_level.append(row)
+
+    return [
+        {"tag": tag, "count": count, "category": category, "children": children_by_parent.get(tag, [])}
+        for tag, count, category in top_level
+    ]
+
+
 @app.get("/tags", response_class=HTMLResponse)
 def tags_browse(
     request: Request,
@@ -969,6 +1006,7 @@ def tags_browse(
     result = scanner.load_cached(DB_PATH)
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
     tags = _filter_by_letter(tags, letter)
+    tags = _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags_browse.html",
@@ -993,6 +1031,7 @@ def tags_browse(
 def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sort: str = DEFAULT_NAME_COUNT_SORT):
     result = scanner.load_cached(DB_PATH)
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
+    tags = _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     return templates.TemplateResponse(
         "tags.html",

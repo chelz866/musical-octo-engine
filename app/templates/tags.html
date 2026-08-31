@@ -80,18 +80,32 @@
         </tr>
       </thead>
       <tbody>
-        {% for tag, count, category in tags %}
-        <tr class="tag-row" data-tag="{{ tag | lower }}">
-          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ tag }}" onchange="updateSelectedCount()"></td>
-          <td>{{ tag }}</td>
-          <td>{{ count }}</td>
+        {% for row in tags %}
+        {% set outer_loop = loop %}
+        <tr class="tag-row" data-tag="{{ row.tag | lower }}">
+          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" onchange="updateSelectedCount()"></td>
           <td>
-            {{ category | title if category else "&mdash; Unclassified &mdash;" | safe }}
-            {% if tag in wranglings and wranglings[tag][0] == "child" %}
-            <span class="hint">(child of {{ wranglings[tag][1] }})</span>
+            {% if row.children %}
+            <button type="button" class="tag-toggle" data-group="g{{ outer_loop.index0 }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
+            {% endif %}
+            {{ row.tag }}
+          </td>
+          <td>{{ row.count }}</td>
+          <td>
+            {{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}
+            {% if row.tag in wranglings and wranglings[row.tag][0] == "child" %}
+            <span class="hint">(child of {{ wranglings[row.tag][1] }})</span>
             {% endif %}
           </td>
         </tr>
+        {% for child_tag, child_count, child_category in row.children %}
+        <tr class="tag-row tag-child-row" data-tag="{{ child_tag | lower }}" data-group="g{{ outer_loop.index0 }}" hidden>
+          <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ child_tag }}" onchange="updateSelectedCount()"></td>
+          <td class="tag-child-name">&#8627; {{ child_tag }}</td>
+          <td>{{ child_count }}</td>
+          <td>{{ child_category | title if child_category else "&mdash; Unclassified &mdash;" | safe }}</td>
+        </tr>
+        {% endfor %}
         {% else %}
         <tr>
           <td colspan="4" class="empty">
@@ -107,7 +121,10 @@
 
   <div class="tag-bulk-actions">
     <form method="post" action="/tags/classify/mark_page_freeform">
-      {% for tag, count, category in tags %}<input type="hidden" name="tags" value="{{ tag }}">{% endfor %}
+      {% for row in tags %}
+      <input type="hidden" name="tags" value="{{ row.tag }}">
+      {% for child_tag, child_count, child_category in row.children %}<input type="hidden" name="tags" value="{{ child_tag }}">{% endfor %}
+      {% endfor %}
       <input type="hidden" name="filter" value="{{ filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
@@ -160,13 +177,18 @@
     function filterTags(query) {
       query = query.toLowerCase();
       document.querySelectorAll(".tag-row").forEach(function (row) {
-        row.style.display = row.dataset.tag.includes(query) ? "" : "none";
+        var matches = row.dataset.tag.includes(query);
+        row.style.display = matches ? "" : "none";
+        if (matches && query && row.classList.contains("tag-child-row") && row.hidden) {
+          var toggle = document.querySelector('.tag-toggle[data-group="' + row.dataset.group + '"]');
+          if (toggle) { toggleChildren(toggle); }
+        }
       });
     }
 
     function visibleCheckboxes() {
       return Array.from(document.querySelectorAll(".tag-row")).filter(function (row) {
-        return row.style.display !== "none";
+        return row.style.display !== "none" && !row.hidden;
       }).map(function (row) {
         return row.querySelector(".tag-checkbox");
       });
@@ -177,6 +199,15 @@
         checkbox.checked = selectAllBox.checked;
       });
       updateSelectedCount();
+    }
+
+    function toggleChildren(button) {
+      var expanded = button.getAttribute("aria-expanded") === "true";
+      button.setAttribute("aria-expanded", String(!expanded));
+      button.textContent = expanded ? "▸" : "▾";
+      document.querySelectorAll('.tag-child-row[data-group="' + button.dataset.group + '"]').forEach(function (row) {
+        row.hidden = expanded;
+      });
     }
 
     function updateSelectedCount() {

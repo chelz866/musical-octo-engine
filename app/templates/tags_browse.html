@@ -47,12 +47,25 @@
       </tr>
     </thead>
     <tbody>
-      {% for tag, count, category in tags %}
+      {% for row in tags %}
+      {% set outer_loop = loop %}
       <tr>
-        <td><a href="/?{{ category or 'freeform' }}={{ tag | urlencode }}">{{ tag }}</a></td>
-        <td>{{ count }}</td>
-        <td>{{ category | title if category else "&mdash; Unclassified &mdash;" | safe }}</td>
+        <td>
+          {% if row.children %}
+          <button type="button" class="tag-toggle" data-group="g{{ outer_loop.index0 }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
+          {% endif %}
+          <a href="/?{{ row.category or 'freeform' }}={{ row.tag | urlencode }}">{{ row.tag }}</a>
+        </td>
+        <td>{{ row.count }}</td>
+        <td>{{ row.category | title if row.category else "&mdash; Unclassified &mdash;" | safe }}</td>
       </tr>
+      {% for child_tag, child_count, child_category in row.children %}
+      <tr class="tag-child-row" data-group="g{{ outer_loop.index0 }}" hidden>
+        <td class="tag-child-name">&#8627; <a href="/?{{ child_category or 'freeform' }}={{ child_tag | urlencode }}">{{ child_tag }}</a></td>
+        <td>{{ child_count }}</td>
+        <td>{{ child_category | title if child_category else "&mdash; Unclassified &mdash;" | safe }}</td>
+      </tr>
+      {% endfor %}
       {% else %}
       <tr>
         <td colspan="3" class="empty">
@@ -64,4 +77,15 @@
   </table>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
+
+  <script>
+    function toggleChildren(button) {
+      var expanded = button.getAttribute("aria-expanded") === "true";
+      button.setAttribute("aria-expanded", String(!expanded));
+      button.textContent = expanded ? "▸" : "▾";
+      document.querySelectorAll('.tag-child-row[data-group="' + button.dataset.group + '"]').forEach(function (row) {
+        row.hidden = expanded;
+      });
+    }
+  </script>
 {% endblock %}

@@ -13,6 +13,7 @@ from app.main import (
     _parse_date,
     _selected_with_counts,
     _filter_by_letter,
+    _group_tag_rows_by_parent,
     _series_sort_key,
     _value_or_children_present,
     _sort_name_count_rows,
@@ -620,3 +621,42 @@ def test_filter_by_letter_all_is_a_no_op():
 def test_filter_by_letter_hash_catches_non_alphabetic_starts():
     rows = [("apple", 1), ("100 Ways", 2), ("(Working Title)", 3)]
     assert [r[0] for r in _filter_by_letter(rows, "#")] == ["100 Ways", "(Working Title)"]
+
+
+def test_group_tag_rows_by_parent_nests_child_under_parent():
+    tags = [("Alternate Reality", 5, "freeform"), ("Alternate Reality - Canon Divergence", 2, "freeform")]
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    grouped = _group_tag_rows_by_parent(tags, children)
+    assert [row["tag"] for row in grouped] == ["Alternate Reality"]
+    assert grouped[0]["children"] == [("Alternate Reality - Canon Divergence", 2, "freeform")]
+
+
+def test_group_tag_rows_by_parent_leaves_childless_tags_alone():
+    tags = [("Angst", 3, None), ("Fluff", 2, None)]
+    grouped = _group_tag_rows_by_parent(tags, {})
+    assert [row["tag"] for row in grouped] == ["Angst", "Fluff"]
+    assert all(row["children"] == [] for row in grouped)
+
+
+def test_group_tag_rows_by_parent_orphans_child_when_parent_filtered_out():
+    # The parent didn't survive the current filter tab -- the child falls
+    # back to its own top-level row instead of disappearing.
+    tags = [("Alternate Reality - Canon Divergence", 2, "freeform")]
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    grouped = _group_tag_rows_by_parent(tags, children)
+    assert [row["tag"] for row in grouped] == ["Alternate Reality - Canon Divergence"]
+    assert grouped[0]["children"] == []
+
+
+def test_group_tag_rows_by_parent_preserves_sort_order_for_top_level_and_children():
+    tags = [
+        ("Alternate Reality", 5, "freeform"),
+        ("Alternate Reality - Canon Divergence", 2, "freeform"),
+        ("Alternate Reality - Fantasy", 4, "freeform"),
+        ("Angst", 3, None),
+    ]
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"}}
+    grouped = _group_tag_rows_by_parent(tags, children)
+    assert [row["tag"] for row in grouped] == ["Alternate Reality", "Angst"]
+    # Children ride along in the same relative order they had in `tags`.
+    assert [c[0] for c in grouped[0]["children"]] == ["Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"]

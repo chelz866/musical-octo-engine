@@ -214,6 +214,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   Reality" also surfaces a work tagged only "Alternate Reality - Canon Divergence", the same way
   real AO3 wrangling works. A tag can't be wrangled into a target that's itself already wrangled, or
   wrangled away once other tags already point to it -- both are refused to keep the mapping flat.
+
+  A parent with children shows a small &#9656; toggle and renders them indented directly
+  underneath, collapsed by default so a heavily-childed tag doesn't make the table any taller than
+  usual -- the same nesting shows on the read-only Tags page too. Searching this page's text filter
+  for a child's name auto-expands its parent to reveal it.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when
