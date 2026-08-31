@@ -21,6 +21,10 @@ body {
   padding: 1rem 2rem 0;
 }
 
+.site-header h1 {
+  margin: 0;
+}
+
 .site-brand {
   display: inline-block;
   font-family: Georgia, "Times New Roman", serif;

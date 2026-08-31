@@ -10,7 +10,9 @@
 <body>
 <div id="outer" class="wrapper">
   <header id="header" class="site-header region">
-    <a class="site-brand heading" href="/">Archive Of My Own</a>
+    <h1 class="heading">
+      <a class="site-brand" href="/">Archive Of My Own</a>
+    </h1>
     <nav class="topnav" aria-label="Site">
       {% set browse_paths = ['/fandoms', '/tags'] %}
       {% set is_admin_section = request.url.path.startswith('/admin') or request.url.path in ['/issues', '/tracked', '/queue'] %}
