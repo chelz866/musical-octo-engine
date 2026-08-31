@@ -252,6 +252,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   mention it directly -- and the Character/Relationship/Additional-Tags suggestions and "Find
   another..." search on Downloads narrow to that Fandom the same way (see the Search & Filter
   section above).
+
+  Setting the same association on many tags at once doesn't need a visit to each row: a Fandom/
+  Character/Relationship dropdown trio plus "Apply to selected" (next to the other bulk-action
+  buttons) applies whichever of the three you picked (each defaults to "don't change"/"don't add")
+  to every checked tag in one action -- Fandom to every selected Character/Relationship/Freeform
+  tag, Character/Relationship only to selected Freeform tags (a Relationship's Characters stay
+  per-name-part, set individually in its own row).
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

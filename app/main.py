@@ -1384,6 +1384,44 @@ def remove_freeform_relationship_route(
     )
 
 
+@app.post("/tags/classify/apply_associations")
+def apply_associations(
+    tags: list[str] = Form([]),
+    fandom: str = Form(""),
+    character: str = Form(""),
+    relationship: str = Form(""),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    """Bulk-applies whichever of Fandom/Character/Relationship were picked
+    (each blank means "don't touch that one") to every checked tag, so
+    setting the same Fandom on a dozen Characters -- or adding the same
+    Character to a dozen Freeform tags -- doesn't need a visit to each
+    row's own per-row control. Fandom only applies to a selected tag whose
+    effective category is character/relationship/freeform (see
+    _effective_tag_category); Character/Relationship association only
+    applies to selected tags that are freeform, since a Relationship's
+    Characters are per-name-part slots with no sensible bulk target.
+    """
+    fandom = fandom.strip()
+    character = character.strip()
+    relationship = relationship.strip()
+    if fandom or character or relationship:
+        entries = scanner.load_cached(DB_PATH).entries
+        for tag in tags:
+            category = _effective_tag_category(entries, tag)
+            if fandom and category in ("character", "relationship", "freeform"):
+                db.set_tag_fandom(DB_PATH, tag, fandom)
+            if character and category == "freeform":
+                db.add_freeform_character(DB_PATH, tag, character)
+            if relationship and category == "freeform":
+                db.add_freeform_relationship(DB_PATH, tag, relationship)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
 @app.post("/tags/classify/set_selected")
 def set_selected_tags(
     tags: list[str] = Form([]),

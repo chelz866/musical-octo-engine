@@ -180,6 +180,34 @@
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="synonym" disabled>Merge selected into &rarr;</button>
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="child" disabled>Make selected children of &rarr;</button>
     </div>
+
+    <div class="tag-bulk-actions">
+      <select name="fandom">
+        <option value="">Fandom: don't change</option>
+        <option value="No Fandom">No Fandom</option>
+        {% for f in known_fandoms %}
+        <option value="{{ f }}">{{ f }}</option>
+        {% endfor %}
+      </select>
+      <select name="character">
+        <option value="">Character: don't add</option>
+        {% for c in known_characters %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+      <select name="relationship">
+        <option value="">Relationship: don't add</option>
+        {% for r in known_relationships %}
+        <option value="{{ r }}">{{ r }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" formaction="/tags/classify/apply_associations" disabled>Apply to selected</button>
+    </div>
+    <p class="hint">
+      Fandom applies to every selected Character/Relationship/Freeform tag. Character/Relationship
+      only add to selected Freeform tags -- a Relationship's Characters are per-name-part slots, set
+      individually in its own row below.
+    </p>
   </form>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
