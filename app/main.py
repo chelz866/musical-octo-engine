@@ -215,6 +215,38 @@ templates.env.filters["blurb_icons"] = blurb_icons
 templates.env.filters["blurb_tag_line"] = blurb_tag_line
 
 
+# A pasted AO3 skin is written against AO3's own page structure, most of
+# which this app doesn't have -- but a fixed, known set of ids/classes show
+# up in nearly every skin (they're the ones AO3's own skin-writing guides
+# teach people to target), so mapping just those onto this app's closest
+# structural equivalent recovers most of a skin's overall look without a
+# general (and fragile) selector-translation system. Order doesn't matter --
+# every entry targets a distinct token.
+_AO3_SELECTOR_MAP: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"(?<![\w.#-])#header(?![\w-])"), ".site-header, .topnav"),
+    (re.compile(r"(?<![\w.#-])#outer\.wrapper(?![\w-])"), "body"),
+    (re.compile(r"(?<![\w.#-])#inner\.wrapper(?![\w-])"), "main"),
+    (re.compile(r"(?<![\w.#-])#dashboard(?![\w-])"), "main"),
+    (re.compile(r"(?<![\w.#-])\.splash(?![\w-])"), ".blurb-list"),
+    (re.compile(r"(?<![\w.#-])#stat_chart(?![\w-])"), ".blurb-ao3-stats"),
+    (re.compile(r"(?<![\w.#-])a\.tag(?![\w-])"), ".tag, .blurb-fandoms a"),
+]
+
+
+def translate_ao3_skin_selectors(css: str) -> str:
+    """Rewrites known AO3 structural selectors onto this app's closest
+    equivalent element before the CSS is injected -- see _AO3_SELECTOR_MAP.
+    Selectors this app has no equivalent for (or that a skin doesn't use)
+    are left untouched and simply won't match anything, same as before.
+    """
+    for pattern, replacement in _AO3_SELECTOR_MAP:
+        css = pattern.sub(replacement, css)
+    return css
+
+
+templates.env.filters["translate_ao3_skin_selectors"] = translate_ao3_skin_selectors
+
+
 def sanitize_style_content(css: str) -> str:
     """<style> content is raw CSS text per the HTML spec, not HTML -- the
     browser doesn't decode entities inside it, it just scans for the
@@ -1023,11 +1055,11 @@ def account_page(request: Request, error: str = "", saved: str = ""):
 
 @app.post("/account/theme")
 def save_theme(request: Request, theme_css: str = Form("")):
-    """Raw CSS, applied only to this user's own page loads (see base.html
-    and sanitize_style_content) -- pasting a real AO3 skin will style
-    whatever happens to share a selector with this app's own markup
-    (tag pills, tables, form fields) and silently no-op on AO3-specific
-    ids like #header/#dashboard that don't exist here.
+    """Raw CSS, applied only to this user's own page loads (see base.html,
+    translate_ao3_skin_selectors, and sanitize_style_content). A handful of
+    common AO3 skin selectors (#header, #dashboard, .splash, etc.) are
+    rewritten onto this app's closest equivalent element; anything else a
+    skin targets that has no equivalent here silently no-ops.
     """
     db.set_user_theme_css(DB_PATH, request.state.user.id, theme_css)
     return RedirectResponse(url="/account?saved=theme", status_code=303)

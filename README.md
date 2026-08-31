@@ -83,11 +83,14 @@ private-network deployment; if that's ever not the case for your setup, keep tha
 
 **Themes**: the Account page has a "Custom CSS" box where you can paste your own stylesheet --
 including an AO3 skin you like. It only affects your own view. AO3 skins are written against
-AO3's actual page markup (ids like `#header`, `#dashboard`, `.splash`), which doesn't exist on
-this app's pages, so those rules simply do nothing here; but any selector a skin happens to share
-with this app's own markup (tag pills, blurb cards, tables, form fields) will visibly apply. In
-other words: pasting a real AO3 skin gives a partial, not full, reskin -- there's no
-selector-translation layer, by design.
+AO3's actual page markup, which this app doesn't share, so a handful of the most common
+structural selectors (`#header`, `#outer.wrapper`/`#inner.wrapper`, `#dashboard`, `.splash`,
+`#stat_chart`, `a.tag`) are automatically rewritten onto this app's closest equivalent element
+(header/nav, page body, main content, the works list, the blurb stats line, tag links) before the
+CSS is applied -- see `translate_ao3_skin_selectors` in `app/main.py` for the exact mapping. Any
+other selector a skin uses either has to happen to already match this app's own markup (tables,
+form fields) or it simply does nothing. It's still a partial reskin, not pixel-for-pixel AO3, but
+covers most of what a typical skin actually relies on.
 
 ## Pages
 

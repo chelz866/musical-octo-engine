@@ -15,6 +15,7 @@ from app.main import (
     _static_facet_counts,
     paginate,
     sanitize_style_content,
+    translate_ao3_skin_selectors,
 )
 from app.scanner import WorkEntry
 
@@ -433,3 +434,33 @@ def test_sanitize_style_content_is_case_insensitive():
 def test_sanitize_style_content_leaves_ordinary_css_untouched():
     css = "div > p { color: red; } a.tag { font-weight: bold; }"
     assert sanitize_style_content(css) == css
+
+
+def test_translate_ao3_skin_selectors_maps_known_structural_ids():
+    css = "#header { background: purple; } #dashboard { color: gold; }"
+    result = translate_ao3_skin_selectors(css)
+    assert "#header" not in result
+    assert "#dashboard" not in result
+    assert ".site-header, .topnav { background: purple; }" in result
+    assert "main { color: gold; }" in result
+
+
+def test_translate_ao3_skin_selectors_maps_compound_selectors():
+    css = "#outer.wrapper { background: black; } #inner.wrapper { padding: 0; } a.tag { color: gold; }"
+    result = translate_ao3_skin_selectors(css)
+    assert "body { background: black; }" in result
+    assert "main { padding: 0; }" in result
+    assert ".tag, .blurb-fandoms a { color: gold; }" in result
+
+
+def test_translate_ao3_skin_selectors_does_not_partial_match_lookalike_selectors():
+    # "#header-nav" and ".splashscreen" are distinct real-world selectors --
+    # a naive substring replace would corrupt them into nonsense.
+    css = "#header-nav { color: red; } .splashscreen { color: blue; }"
+    result = translate_ao3_skin_selectors(css)
+    assert result == css
+
+
+def test_translate_ao3_skin_selectors_leaves_unmapped_selectors_untouched():
+    css = "li.blurb { background: black; } table, th { border: 1px solid gold; }"
+    assert translate_ao3_skin_selectors(css) == css

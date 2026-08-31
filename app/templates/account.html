@@ -26,10 +26,11 @@
   {% if saved == "theme" %}<p class="badge badge-ok">Theme saved.</p>{% endif %}
   <p class="paths">
     Paste custom CSS here to restyle your own view of this app. AO3 skins are written against
-    AO3's own page markup, so ids like <code>#header</code> or <code>#dashboard</code> won't
-    match anything here and will simply do nothing -- but generic selectors a skin happens to
-    share with this app (tags, tables, form fields) will still apply. Only you see this; it has
-    no effect on anyone else's account.
+    AO3's own page markup -- common structural selectors like <code>#header</code>,
+    <code>#dashboard</code>, and <code>.splash</code> are automatically mapped onto this app's
+    closest equivalent (header/nav, main content, the works list), so most skins carry over
+    reasonably well. Anything a skin targets with no equivalent here (or a selector outside that
+    known set) simply does nothing. Only you see this; it has no effect on anyone else's account.
   </p>
   <form method="post" action="/account/theme" class="stacked-form theme-form">
     <label>Custom CSS

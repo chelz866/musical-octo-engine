@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Archive Of My Own{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
-  {% if theme_css %}<style>{{ theme_css | sanitize_style_content | safe }}</style>{% endif %}
+  {% if theme_css %}<style>{{ theme_css | translate_ao3_skin_selectors | sanitize_style_content | safe }}</style>{% endif %}
 </head>
 <body>
   <header class="site-header">
