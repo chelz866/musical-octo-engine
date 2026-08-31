@@ -228,12 +228,16 @@ templates.env.filters["blurb_tag_line"] = blurb_tag_line
 # .warnings/.relationships/.characters/.freeforms, .primary/.navigation/
 # .actions/.dropdown on the nav) -- see a real AO3 works-index page's markup
 # -- so most of a pasted skin now applies with no translation at all. This
-# map only covers the handful of AO3 ids/classes that genuinely have no
-# equivalent here (this app has no personal dashboard, no homepage splash
-# module, no hits/kudos chart), as a best-effort fallback rather than a
-# hard no-op.
+# map only covers AO3 ids/classes with no equivalent here where redirecting
+# them onto a stand-in element is still a reasonable approximation.
+#
+# #dashboard was deliberately dropped from this map after live-testing a
+# real skin: it's AO3's small personal-dashboard widget, with its own
+# background/border rules (e.g. a gold gradient fill) that make sense on a
+# little summary box but not when redirected onto the *entire* main content
+# area -- every blurb ended up painted solid gold instead of just bordered,
+# which is a worse result than leaving #dashboard rules to simply no-op.
 _AO3_SELECTOR_MAP: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"(?<![\w.#-])#dashboard(?![\w-])"), "main"),
     (re.compile(r"(?<![\w.#-])\.splash(?![\w-])"), ".blurb-list"),
     (re.compile(r"(?<![\w.#-])#stat_chart(?![\w-])"), ".blurb-ao3-stats"),
 ]

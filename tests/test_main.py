@@ -438,16 +438,23 @@ def test_sanitize_style_content_leaves_ordinary_css_untouched():
 
 
 def test_translate_ao3_skin_selectors_maps_known_fallback_ids():
-    # #dashboard/.splash/#stat_chart have no real equivalent on this app's
-    # pages, so they're the only selectors still rewritten.
-    css = "#dashboard { color: gold; } .splash { color: blue; } #stat_chart { color: red; }"
+    # .splash/#stat_chart have no real equivalent on this app's pages, so
+    # they're rewritten onto a stand-in.
+    css = ".splash { color: blue; } #stat_chart { color: red; }"
     result = translate_ao3_skin_selectors(css)
-    assert "#dashboard" not in result
     assert ".splash" not in result
     assert "#stat_chart" not in result
-    assert "main { color: gold; }" in result
     assert ".blurb-list { color: blue; }" in result
     assert ".blurb-ao3-stats { color: red; }" in result
+
+
+def test_translate_ao3_skin_selectors_leaves_dashboard_unmapped():
+    # #dashboard was deliberately dropped from the map -- live-testing a
+    # real skin showed redirecting its gold-fill background rule onto the
+    # entire main content area painted every blurb solid gold instead of
+    # just bordered. Left alone, it correctly no-ops instead.
+    css = "#dashboard { background: gold; }"
+    assert translate_ao3_skin_selectors(css) == css
 
 
 def test_translate_ao3_skin_selectors_leaves_real_matches_untouched():
@@ -460,9 +467,9 @@ def test_translate_ao3_skin_selectors_leaves_real_matches_untouched():
 
 
 def test_translate_ao3_skin_selectors_does_not_partial_match_lookalike_selectors():
-    # "#dashboard-widget" and ".splashscreen" are distinct real-world
-    # selectors -- a naive substring replace would corrupt them into nonsense.
-    css = "#dashboard-widget { color: red; } .splashscreen { color: blue; }"
+    # ".splashscreen" is a distinct real-world selector -- a naive substring
+    # replace would corrupt it into nonsense.
+    css = ".splashscreen { color: blue; }"
     result = translate_ao3_skin_selectors(css)
     assert result == css
 

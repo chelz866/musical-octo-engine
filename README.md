@@ -90,9 +90,13 @@ for how a skin actually looks -- tags render as real `<a class="tag">` links ins
 `<li class="warnings">` / `.relationships` / `.characters` / `.freeforms`, and stats as a real
 `dl.stats`. That means most AO3 skins apply directly, no translation needed, including the
 tag-category coloring and nav gradients most skins define. A small fallback map in
-`translate_ao3_skin_selectors` (`app/main.py`) still rewrites the few AO3 ids with no equivalent
-here at all (`#dashboard`, `.splash`, `#stat_chart` -- this app has no personal dashboard, homepage,
-or hits/kudos chart) onto the closest stand-in. Tag links double as real Downloads filters now too
+`translate_ao3_skin_selectors` (`app/main.py`) rewrites a couple of AO3 selectors with no
+equivalent here (`.splash`, `#stat_chart` -- this app has no homepage module or hits/kudos chart)
+onto the closest stand-in. `#dashboard` (AO3's small personal-dashboard widget) is deliberately
+left unmapped rather than redirected onto the main content area -- an earlier attempt at that
+painted every work blurb solid gold instead of just giving it AO3's actual bordered look, since
+`#dashboard`'s own background rule was never meant to cover that much surface. Tag links double as
+real Downloads filters now too
 (clicking a character/relationship/freeform tag on a blurb filters by it, same as fandom already did).
 
 ## Pages
