@@ -4,7 +4,7 @@
   <form method="post" action="/works/{{ work_id }}/fandom">
     <input type="hidden" name="next" value="{{ next_path }}">
     <p class="hint">Applies to every work with the same tag (see the Tags page for bulk editing).</p>
-    {% for cand in candidates %}
+    {% for cand in candidates if "/" not in cand and "&" not in cand %}
     <label class="fandom-option">
       <input type="checkbox" name="fandoms" value="{{ cand }}" {% if cand in selected %}checked{% endif %}>
       {{ cand }}

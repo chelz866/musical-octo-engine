@@ -8,10 +8,11 @@ Tracked feeds themselves are no longer stored here -- see app/rss.py,
 which uses the `reader` library and its own separate SQLite file for that
 (feed URLs, per-feed auto-refresh flag, and entries all live there now).
 
-Fandom/Character/Freeform is classified per *tag*, not per work: correcting
-one tag (e.g. marking "Torchwood" as a fandom) retroactively fixes every
-work that has that tag, instead of requiring a correction on each of what
-could be thousands of individual works. See scanner._resolve_tag_categories.
+Fandom/Character/Relationship/Freeform is classified per *tag*, not per
+work: correcting one tag (e.g. marking "Torchwood" as a fandom) retroactively
+fixes every work that has that tag, instead of requiring a correction on
+each of what could be thousands of individual works. See
+scanner._resolve_tag_categories.
 
 Users/sessions/bookmarks are the one place this file departs from "global,
 shared data": bookmarks are scoped per user_id, everything else in this
@@ -240,9 +241,9 @@ def set_title_author(path: str, work_id: str, title: str | None, author: str | N
 
 
 def get_all_tag_categories(path: str) -> dict[str, str]:
-    """tag -> 'fandom' | 'character' | 'freeform'. A tag with no row at all
-    is simply absent from the dict -- it's unclassified, see
-    scanner._resolve_tag_categories for how that falls back.
+    """tag -> 'fandom' | 'character' | 'relationship' | 'freeform'. A tag
+    with no row at all is simply absent from the dict -- it's unclassified,
+    see scanner._resolve_tag_categories for how that falls back.
     """
     with _connect(path) as conn:
         rows = conn.execute("SELECT tag, category FROM tag_flags WHERE category IS NOT NULL").fetchall()
@@ -250,11 +251,11 @@ def get_all_tag_categories(path: str) -> dict[str, str]:
 
 
 def set_tag_categories(path: str, categories: dict[str, str]) -> None:
-    """Bulk-sets tag -> category ('fandom'/'character'/'freeform'). Explicitly
-    classifying a tag applies everywhere that tag appears, across every work
-    -- this is the mechanism for correcting classification at scale instead
-    of per work. is_fandom is kept in sync purely because the column is
-    still NOT NULL; nothing reads it anymore.
+    """Bulk-sets tag -> category ('fandom'/'character'/'relationship'/'freeform').
+    Explicitly classifying a tag applies everywhere that tag appears, across
+    every work -- this is the mechanism for correcting classification at
+    scale instead of per work. is_fandom is kept in sync purely because the
+    column is still NOT NULL; nothing reads it anymore.
     """
     with _connect(path) as conn:
         conn.executemany(

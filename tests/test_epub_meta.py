@@ -4,7 +4,7 @@ import zipfile
 
 import pytest
 
-from app.epub_meta import EpubParseError, parse_epub_metadata, parse_epub_stats
+from app.epub_meta import EpubParseError, looks_like_relationship, parse_epub_metadata, parse_epub_stats
 
 CONTAINER_XML = """<?xml version="1.0"?>
 <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
@@ -115,10 +115,14 @@ def test_basic_metadata_and_rating_warning():
     assert meta.rating == "Mature"
     assert meta.warnings == ["Choose Not To Use Archive Warnings"]
     assert meta.categories == ["M/M"]
-    assert meta.relationships == []
 
 
-def test_relationship_detected_and_not_confused_with_category():
+def test_relationship_shaped_tag_is_a_fandom_candidate_not_a_category():
+    # Relationships are no longer hard-classified here -- they flow into
+    # fandom_candidates like everything else, to be resolved (with a
+    # "/"/"&" guess as the default, always overridable) by
+    # scanner._resolve_tag_categories instead. See test_scanner.py for the
+    # actual relationship-guess behavior.
     with tempfile.TemporaryDirectory() as tmp:
         path = _build_epub(
             tmp,
@@ -133,9 +137,9 @@ def test_relationship_detected_and_not_confused_with_category():
         )
         meta = parse_epub_metadata(path)
 
-    assert meta.relationships == ["Jack Harkness/Ianto Jones"]
     assert meta.categories == ["Multi"]
     assert "Jack Harkness/Ianto Jones" not in meta.categories
+    assert "Jack Harkness/Ianto Jones" in meta.fandom_candidates
 
 
 def test_series_metadata_parsed():
@@ -176,6 +180,30 @@ def test_fandom_guess_stops_at_character_shaped_tag():
         meta = parse_epub_metadata(path)
 
     assert meta.fandoms == ["Gattaca (1997)"]
+
+
+def test_fandom_guess_stops_at_relationship_shaped_tag():
+    # A relationship tag right after the fandom(s) shouldn't get swallowed
+    # into the fandom guess just because it isn't "character-shaped" --
+    # looks_like_relationship has to stop the walk too.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = _build_epub(
+            tmp,
+            title="Bluebird",
+            author="Basingstoke",
+            subjects=["Fanworks", "Torchwood", "Jack Harkness/Ianto Jones", "Angst"],
+        )
+        meta = parse_epub_metadata(path)
+
+    assert meta.fandoms == ["Torchwood"]
+    assert meta.fandom_candidates == ["Torchwood", "Jack Harkness/Ianto Jones", "Angst"]
+
+
+def test_looks_like_relationship_matches_slash_and_ampersand():
+    assert looks_like_relationship("Jack Harkness/Ianto Jones") is True
+    assert looks_like_relationship("Steve Harrington & The Party") is True
+    assert looks_like_relationship("Angst") is False
+    assert looks_like_relationship("Fluff") is False
 
 
 def test_fandom_guess_handles_multiple_fandoms_and_many_characters():
@@ -224,13 +252,13 @@ def test_fandom_guess_keeps_first_item_even_if_name_shaped():
     assert meta.rating is None
     assert meta.warnings == []
     assert meta.categories == []
-    assert meta.relationships == []
 
 
 def test_fandom_candidates_include_every_leftover_tag_not_just_the_guess():
-    # Bluebird's guess stops at the first character-shaped tag, but the full
-    # candidate list (for manual correction) should still include everything
-    # left over, characters and freeform tags included.
+    # Bluebird's guess stops at the first character- or relationship-shaped
+    # tag, but the full candidate list (for manual correction) should still
+    # include everything left over -- relationships, characters, and
+    # freeform tags included.
     with tempfile.TemporaryDirectory() as tmp:
         path = _build_epub(
             tmp,
@@ -250,7 +278,9 @@ def test_fandom_candidates_include_every_leftover_tag_not_just_the_guess():
         meta = parse_epub_metadata(path)
 
     assert meta.fandoms == ["Torchwood", "Addams Family (1991)"]
-    assert meta.fandom_candidates == ["Torchwood", "Addams Family (1991)", "Ianto Jones", "Crossover"]
+    assert meta.fandom_candidates == [
+        "Torchwood", "Addams Family (1991)", "Jack Harkness/Ianto Jones", "Ianto Jones", "Crossover",
+    ]
 
 
 def test_bad_zip_raises_parse_error():

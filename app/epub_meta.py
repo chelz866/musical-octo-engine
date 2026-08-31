@@ -2,18 +2,23 @@
 
 AO3's epub export embeds title/author/tags in content.opf as flat, untyped
 dc:subject entries. Rating, Warnings, and Category come from small fixed AO3
-vocabularies and can be exact-matched reliably. Relationships are guessable
-via the "/" or "&" convention AO3 uses between character names.
+vocabularies and can be exact-matched reliably.
 
-Fandom, Character, and Freeform tags have no type label and their relative
-order isn't consistent across works, so there's no fully reliable way to
-split them. `_guess_fandoms` uses a best-effort heuristic instead: take the
-leading run of leftover subjects, stopping at the first one that "looks
-like a character name" (2-4 Title Case words, no digits or parentheses).
-The first leftover subject is always kept even if it looks name-shaped,
+Fandom, Relationship, Character, and Freeform tags have no type label and
+their relative order isn't consistent across works, so there's no fully
+reliable way to split them -- everything left over becomes a
+`fandom_candidate` instead, and app/scanner.py's _resolve_tag_categories
+resolves each one into a real category, always overridable via the Tags
+page. Two guesses feed that resolution as defaults, not final answers:
+`_guess_fandoms` takes the leading run of leftover subjects, stopping at the
+first one that "looks like a character name" (2-4 Title Case words, no
+digits or parentheses) or a relationship (see `looks_like_relationship`) --
+the first leftover subject is always kept even if it looks name-shaped,
 since a short fandom name (e.g. "The Authority") can otherwise be wrongly
-excluded when it's the only leftover subject. This is deliberately a guess,
-not a reliable classification -- callers should present it as such.
+excluded when it's the only leftover subject. `looks_like_relationship`
+guesses from the "/" or "&" convention AO3 uses between character names --
+deliberately just a guess, not a reliable classification, since plenty of
+ordinary Additional Tags use the same punctuation (e.g. "Hurt/Comfort").
 """
 
 import posixpath
@@ -60,10 +65,23 @@ def _looks_character_shaped(subject: str) -> bool:
     return bool(_CHARACTER_SHAPED_RE.match(subject))
 
 
+def looks_like_relationship(subject: str) -> bool:
+    """The "/" or "&" convention AO3 uses between character names in a
+    relationship tag -- a guess, not a reliable classification, since plenty
+    of ordinary Additional Tags use the same punctuation (e.g. "Hurt/Comfort",
+    "Fix-It/Episode Related", "Friends & Family"). Used both to keep
+    _guess_fandoms from swallowing a relationship tag into the fandom guess,
+    and in scanner._resolve_tag_categories as the default guess for an
+    unclassified candidate tag -- always overridable there via the Tags page,
+    exactly like the fandom/character/freeform guesses already are.
+    """
+    return "/" in subject or "&" in subject
+
+
 def _guess_fandoms(leftover_subjects: list[str]) -> list[str]:
     fandoms = []
     for i, subject in enumerate(leftover_subjects):
-        if i > 0 and _looks_character_shaped(subject):
+        if i > 0 and (_looks_character_shaped(subject) or looks_like_relationship(subject)):
             break
         fandoms.append(subject)
     return fandoms
@@ -84,7 +102,6 @@ class EpubMetadata:
     rating: str | None = None
     warnings: list[str] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
-    relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
     fandom_candidates: list[str] = field(default_factory=list)  # every untyped tag, for manual correction
 
@@ -101,20 +118,31 @@ class SubjectClassification:
     rating: str | None = None
     warnings: list[str] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
-    relationships: list[str] = field(default_factory=list)
     fandoms: list[str] = field(default_factory=list)
     fandom_candidates: list[str] = field(default_factory=list)
 
 
 def classify_subjects(subjects: list[str]) -> SubjectClassification:
-    """Buckets a flat list of AO3 tag strings into rating/warnings/category/
-    relationships/fandom, purely by content -- independent of where the list
-    came from. Originally written for an epub's own `dc:subject` entries, but
-    Audiobookshelf's own library scan stores the identical tag list (it reads
-    the same embedded epub metadata) in its `books.genres` column, so this
-    also runs directly against that when a work has an Audiobookshelf match
-    (see app/audiobookshelf.py) -- confirmed against a real export to bucket
+    """Buckets a flat list of AO3 tag strings into rating/warnings/category,
+    purely by content -- independent of where the list came from. Originally
+    written for an epub's own `dc:subject` entries, but Audiobookshelf's own
+    library scan stores the identical tag list (it reads the same embedded
+    epub metadata) in its `books.genres` column, so this also runs directly
+    against that when a work has an Audiobookshelf match (see
+    app/audiobookshelf.py) -- confirmed against a real export to bucket
     identically either way.
+
+    Fandom, Relationship, Character, and Freeform tags have no type label
+    and their relative order isn't consistent across works, so none of them
+    get a hard classification here -- everything left over becomes a
+    `fandom_candidate`, resolved into one of those four buckets later by
+    scanner._resolve_tag_categories (an explicit Tags-page classification
+    wins; otherwise it falls back to a guess: _guess_fandoms for fandom,
+    looks_like_relationship for relationship, else freeform). Relationships
+    used to be hard-classified right here via the same "/"/"&" convention,
+    but that had no way to fix a false positive like "Hurt/Comfort" being
+    swept in as a relationship -- moving it into the same
+    guess-with-override pipeline as everything else fixes that.
     """
     result = SubjectClassification()
     leftover_subjects = []
@@ -128,8 +156,6 @@ def classify_subjects(subjects: list[str]) -> SubjectClassification:
             result.warnings.append(subject)
         elif subject in CATEGORIES:
             result.categories.append(subject)
-        elif "/" in subject or "&" in subject:
-            result.relationships.append(subject)
         else:
             leftover_subjects.append(subject)
 
@@ -198,7 +224,6 @@ def parse_epub_metadata(path: str) -> EpubMetadata:
     meta.rating = classification.rating
     meta.warnings = classification.warnings
     meta.categories = classification.categories
-    meta.relationships = classification.relationships
     meta.fandoms = classification.fandoms
     meta.fandom_candidates = classification.fandom_candidates
 

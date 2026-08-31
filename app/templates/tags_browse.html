@@ -14,6 +14,7 @@
     <a href="/tags?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
     <a href="/tags?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
     <a href="/tags?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags?filter=relationship" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
     <a href="/tags?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
     <a href="/tags?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>

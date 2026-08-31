@@ -313,11 +313,12 @@ def test_tag_flag_overrides_heuristic_guess_for_one_work():
 
 def test_resolve_tag_categories_explicit_classification_wins():
     entry = WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Ianto Jones", "Angst"], fandoms=["Torchwood"])
-    fandoms, characters, freeform = _resolve_tag_categories(
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(
         entry, {"Ianto Jones": "character", "Angst": "freeform"},
     )
     assert fandoms == ["Torchwood"]
     assert characters == ["Ianto Jones"]
+    assert relationships == []
     assert freeform == ["Angst"]
 
 
@@ -326,17 +327,19 @@ def test_resolve_tag_categories_unclassified_falls_back_to_heuristic_guess():
     # and has no explicit tag_categories entry -- it should still resolve
     # as fandom, not silently drop to freeform.
     entry = WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Ianto Jones"], fandoms=["Torchwood"])
-    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {})
     assert fandoms == ["Torchwood"]
     assert characters == []
+    assert relationships == []
     assert freeform == ["Ianto Jones"]
 
 
 def test_resolve_tag_categories_unclassified_non_guessed_defaults_to_freeform():
     entry = WorkEntry(work_id="1", fandom_candidates=["Angst", "Fluff"], fandoms=[])
-    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {})
     assert fandoms == []
     assert characters == []
+    assert relationships == []
     assert freeform == ["Angst", "Fluff"]
 
 
@@ -344,17 +347,49 @@ def test_resolve_tag_categories_explicit_character_overrides_fandom_guess():
     # Even if the heuristic guessed this tag as a fandom, an explicit
     # 'character' classification must win.
     entry = WorkEntry(work_id="1", fandom_candidates=["The Authority"], fandoms=["The Authority"])
-    fandoms, characters, freeform = _resolve_tag_categories(entry, {"The Authority": "character"})
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {"The Authority": "character"})
     assert fandoms == []
     assert characters == ["The Authority"]
+    assert relationships == []
     assert freeform == []
 
 
 def test_resolve_tag_categories_no_candidates_returns_existing_fandoms_only():
     entry = WorkEntry(work_id="1", fandom_candidates=[], fandoms=["Torchwood"])
-    fandoms, characters, freeform = _resolve_tag_categories(entry, {})
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {})
     assert fandoms == ["Torchwood"]
     assert characters == []
+    assert relationships == []
+    assert freeform == []
+
+
+def test_resolve_tag_categories_unclassified_relationship_shaped_tag_defaults_to_relationship():
+    # Not explicitly classified, not a guessed fandom, but "/" between two
+    # names -- the heuristic default is relationship, same as the fandom
+    # guess already gets a heuristic default.
+    entry = WorkEntry(work_id="1", fandom_candidates=["Torchwood", "Ianto Jones/Jack Harkness"], fandoms=["Torchwood"])
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {})
+    assert fandoms == ["Torchwood"]
+    assert relationships == ["Ianto Jones/Jack Harkness"]
+    assert freeform == []
+
+
+def test_resolve_tag_categories_explicit_freeform_fixes_a_mis_guessed_relationship():
+    # "Hurt/Comfort" looks relationship-shaped (it has a "/") but isn't one
+    # -- this is exactly the false positive an explicit classification has
+    # to be able to fix.
+    entry = WorkEntry(work_id="1", fandom_candidates=["Hurt/Comfort"], fandoms=[])
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(entry, {"Hurt/Comfort": "freeform"})
+    assert relationships == []
+    assert freeform == ["Hurt/Comfort"]
+
+
+def test_resolve_tag_categories_explicit_relationship_classification():
+    entry = WorkEntry(work_id="1", fandom_candidates=["Established Relationship"], fandoms=[])
+    fandoms, characters, relationships, freeform = _resolve_tag_categories(
+        entry, {"Established Relationship": "relationship"},
+    )
+    assert relationships == ["Established Relationship"]
     assert freeform == []
 
 
@@ -432,10 +467,12 @@ def test_abs_match_handles_a_real_20_plus_tag_work_without_choking():
         "Joyce Byers & Steve Harrington",
         'Steve Harrington & Jim "Chief" Hopper',
     ]
-    # 19 leftover character/freeform tags -- the fandom-guessing heuristic
-    # still correctly picks out just the one real fandom name among them
+    # 23 leftover relationship/character/freeform tags (the 4 "&"-joined
+    # relationships now included, since they're no longer pulled out early)
+    # -- the fandom-guessing heuristic still correctly picks out just the
+    # one real fandom name among them.
     assert entry.fandoms == ["Stranger Things (TV 2016)"]
-    assert len(entry.fandom_candidates) == 19
+    assert len(entry.fandom_candidates) == 23
     assert entry.summary == "Steve didn't want them to know. He didn't want them to know why he couldn't drive"
 
 

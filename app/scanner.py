@@ -20,7 +20,7 @@ from datetime import datetime
 
 from . import db
 from .audiobookshelf import AbsBookMatch
-from .epub_meta import EpubParseError, classify_subjects, parse_epub_metadata, parse_epub_stats
+from .epub_meta import EpubParseError, classify_subjects, looks_like_relationship, parse_epub_metadata, parse_epub_stats
 from .log_reader import LogRecord, parse_log
 
 FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
@@ -108,7 +108,6 @@ def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = 
                 entry.rating = classification.rating
                 entry.warnings = classification.warnings
                 entry.categories = classification.categories
-                entry.relationships = classification.relationships
                 entry.fandoms = classification.fandoms
                 entry.fandom_candidates = classification.fandom_candidates
                 entry.series = abs_match.series
@@ -121,7 +120,6 @@ def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = 
                     entry.rating = meta.rating
                     entry.warnings = meta.warnings
                     entry.categories = meta.categories
-                    entry.relationships = meta.relationships
                     entry.fandoms = meta.fandoms
                     entry.fandom_candidates = meta.fandom_candidates
                     entry.series = meta.series
@@ -184,29 +182,40 @@ def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, Abs
 
 def _resolve_tag_categories(
     entry: WorkEntry, tag_categories: dict[str, str]
-) -> tuple[list[str], list[str], list[str]]:
-    """Each candidate tag resolves to fandom/character/freeform: an explicit
-    global classification (from the Tags page or the per-work picker -- see
-    db.set_tag_categories) wins; an unclassified tag falls back to this
-    work's own heuristic fandom guess (entry.fandoms, from
-    epub_meta._guess_fandoms), and anything that's neither explicitly
-    classified nor guessed-fandom defaults to freeform -- the same "not
-    fandom" bucket every other leftover tag already fell into before
-    categories existed, just labeled now instead of lumped together.
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Each candidate tag resolves to fandom/character/relationship/freeform:
+    an explicit global classification (from the Tags page or the per-work
+    picker -- see db.set_tag_categories) wins; an unclassified tag falls
+    back to a heuristic guess -- this work's own guessed fandom
+    (entry.fandoms, from epub_meta._guess_fandoms), then
+    epub_meta.looks_like_relationship's "/"/"&" convention -- and anything
+    neither explicitly classified nor guessed defaults to freeform. This is
+    also where a mis-guessed relationship (e.g. "Hurt/Comfort", which looks
+    like one but isn't) actually gets fixed: reclassify the tag as freeform
+    on the Tags page and every work with it picks that up immediately.
     """
     if not entry.fandom_candidates:
-        return entry.fandoms, [], []
+        return entry.fandoms, [], [], []
     guessed_fandoms = set(entry.fandoms)
-    fandoms, characters, freeform = [], [], []
+    fandoms, characters, relationships, freeform = [], [], [], []
     for tag in entry.fandom_candidates:
-        category = tag_categories.get(tag) or ("fandom" if tag in guessed_fandoms else "freeform")
+        category = tag_categories.get(tag)
+        if not category:
+            if tag in guessed_fandoms:
+                category = "fandom"
+            elif looks_like_relationship(tag):
+                category = "relationship"
+            else:
+                category = "freeform"
         if category == "fandom":
             fandoms.append(tag)
         elif category == "character":
             characters.append(tag)
+        elif category == "relationship":
+            relationships.append(tag)
         else:
             freeform.append(tag)
-    return fandoms, characters, freeform
+    return fandoms, characters, relationships, freeform
 
 
 def _finalize(
@@ -225,7 +234,7 @@ def _finalize(
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
 
-        entry.fandoms, entry.characters, entry.freeform_tags = _resolve_tag_categories(entry, tag_categories)
+        entry.fandoms, entry.characters, entry.relationships, entry.freeform_tags = _resolve_tag_categories(entry, tag_categories)
 
         override = overrides.get(work_id)
         if override:

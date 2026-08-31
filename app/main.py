@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import audiobookshelf, auth, db, rss, scanner
+from .epub_meta import looks_like_relationship
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
@@ -841,16 +842,24 @@ def set_work_fandom(
     work's own candidate tags plus whatever the user typed in "other" --
     it looks like a per-work edit, but the effect applies to every work
     that shares the same tag, since classification is per tag, not per work.
-    Unchecking a candidate here marks it Freeform, not Character -- this
-    widget is a quick per-work fandom shortcut, not the full 3-way tool
-    (see the Tags page for Character classification).
+    Unchecking a candidate here marks it Freeform, not Character or
+    Relationship -- this widget is a quick per-work fandom shortcut, not
+    the full 4-way tool (see the Tags page for those). Relationship-shaped
+    candidates aren't even shown as checkboxes here (see _fandom_picker.html)
+    but are still present in `candidates`, so they're explicitly skipped
+    when defaulting the rest to Freeform -- otherwise saving this form would
+    silently overwrite every relationship tag on the work to Freeform.
     """
     by_id = {e.work_id: e for e in scanner.load_cached(DB_PATH).entries}
     entry = by_id.get(work_id)
     candidates = entry.fandom_candidates if entry else []
 
     checked = set(fandoms)
-    categories = {tag: ("fandom" if tag in checked else "freeform") for tag in candidates}
+    categories = {
+        tag: ("fandom" if tag in checked else "freeform")
+        for tag in candidates
+        if tag in checked or not looks_like_relationship(tag)
+    }
     for extra in (f.strip() for f in other_fandoms.split(",")):
         if extra:
             categories[extra] = "fandom"
@@ -872,7 +881,7 @@ def _tag_rows(result, filter: str) -> tuple[list[tuple[str, int, str | None]], d
             counts[tag] += 1
 
     explicit = db.get_all_tag_categories(DB_PATH)
-    bucket_counts = {"fandom": 0, "character": 0, "freeform": 0, "unclassified": 0}
+    bucket_counts = {"fandom": 0, "character": 0, "relationship": 0, "freeform": 0, "unclassified": 0}
     for tag in counts:
         bucket_counts[explicit.get(tag, "unclassified")] += 1
 
@@ -934,7 +943,7 @@ def set_selected_tags(
     filter: str = Form("all"),
     page: int = Form(1),
 ):
-    if category in ("fandom", "character", "freeform") and tags:
+    if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
     return RedirectResponse(url=f"/tags/classify?filter={quote(filter)}&page={page}", status_code=303)
 

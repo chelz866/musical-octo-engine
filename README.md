@@ -176,12 +176,15 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 - **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
   downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
 - **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library,
-  sorted by how many works have it, with its Fandom/Character/Freeform classification shown
-  read-only. Filter tabs at the top (Fandom/Character/Freeform/Unclassified, each with a count)
-  narrow the list, and clicking a tag filters Downloads to just those works -- same idea as the
-  Fandoms page, just for every tag instead of only fandoms. A tag with no explicit classification
-  falls back to the same heuristic guess used elsewhere (see `app/epub_meta.py`) for Fandom, or
-  Freeform otherwise -- "Unclassified" specifically means no one has confirmed it either way yet.
+  sorted by how many works have it, with its Fandom/Character/Relationship/Freeform classification
+  shown read-only. Filter tabs at the top (Fandom/Character/Relationship/Freeform/Unclassified,
+  each with a count) narrow the list, and clicking a tag filters Downloads to just those works --
+  same idea as the Fandoms page, just for every tag instead of only fandoms. A tag with no explicit
+  classification falls back to a heuristic guess (see `app/epub_meta.py`): `_guess_fandoms` for
+  Fandom, the "/" or "&" convention between names for Relationship, or Freeform otherwise --
+  "Unclassified" specifically means no one has confirmed it either way yet. The relationship guess
+  can misfire on an ordinary tag that happens to use the same punctuation (e.g. "Hurt/Comfort") --
+  that's exactly what Classify Tags below is for fixing.
 - **Classify Tags** (`/tags/classify`, under Admin) -- the mutable version of the page above, and
   the bulk tool for fixing that classification: classifying one tag here fixes every work that has
   it in one action, instead of a per-work correction on each of them. A real library can easily
@@ -189,7 +192,8 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   doesn't scale -- instead, each row has a checkbox ("Select all" in the header selects only the
   rows currently visible, respecting both the filter tab and the on-page text search), and a bar
   above the table applies one category to everything checked ("Set selected: Fandom/Character/
-  Freeform") -- search for a name, select all, glance at the list, then set it in one click. Since
+  Relationship/Freeform") -- search for a name, select all, glance at the list, then set it in one
+  click. Since
   AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
   this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
   to select anything.

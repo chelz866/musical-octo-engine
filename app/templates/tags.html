@@ -5,10 +5,13 @@
   <header>
     <h1>Tags</h1>
     <p class="paths">
-      Every untyped tag found across your library (fandom, character, and
-      freeform tags all mixed together -- there's no way to tell them apart
-      from the file alone). Classifying one here applies to every work that
-      has it, sorted by how many works it affects.
+      Every untyped tag found across your library (fandom, character,
+      relationship, and freeform tags all mixed together -- there's no way
+      to tell them apart from the file alone; relationship tags start out
+      guessed from the "/" or "&amp;" convention between names, which can
+      misfire on an ordinary tag like "Hurt/Comfort" -- reclassify those
+      here). Classifying one here applies to every work that has it, sorted
+      by how many works it affects.
     </p>
   </header>
 
@@ -16,6 +19,7 @@
     <a href="/tags/classify?filter=all" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
     <a href="/tags/classify?filter=fandom" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
     <a href="/tags/classify?filter=character" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=relationship" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
     <a href="/tags/classify?filter=freeform" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
     <a href="/tags/classify?filter=unclassified" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
@@ -35,6 +39,7 @@
       <span class="hint" id="selected-count">0 selected</span>
       <button type="submit" name="category" value="fandom" disabled>Set selected: Fandom</button>
       <button type="submit" name="category" value="character" disabled>Set selected: Character</button>
+      <button type="submit" name="category" value="relationship" disabled>Set selected: Relationship</button>
       <button type="submit" name="category" value="freeform" disabled>Set selected: Freeform</button>
     </div>
 
