@@ -444,6 +444,19 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20) -> list[str]:
     return sorted(matched, key=str.lower)[:limit]
 
 
+def _value_or_children_present(value: str, entry_values: set[str], children: dict[str, set[str]]) -> bool:
+    """True if `value` itself is one of entry_values, or if entry_values
+    contains any tag wrangled as a 'child' of `value` (see
+    db.get_tag_children) -- a child keeps its own name/category, but
+    filtering by its parent should match it too, same as real AO3
+    wrangling (searching "Alternate Reality" also surfaces works only
+    tagged with "Alternate Reality - Canon Divergence").
+    """
+    if value in entry_values:
+        return True
+    return bool(children.get(value)) and not entry_values.isdisjoint(children[value])
+
+
 def _entry_matches(entry, filters: dict, skip_include: str | None = None, skip_exclude: str | None = None) -> bool:
     """Include is AND across facets AND within a facet's selected values
     (matches real AO3: checking both "M/M" and "F/F" means only works with
@@ -453,16 +466,24 @@ def _entry_matches(entry, filters: dict, skip_include: str | None = None, skip_e
     used to build that facet's own suggestion/count list from what
     everything *else* currently matches; they're independent since a facet
     can have both an active Include and an active Exclude at once.
+
+    `filters["children"]` (parent tag -> set of child tags, absent/empty
+    when there's no wrangling) expands each selected value to also match a
+    work tagged with one of that value's children -- see
+    _value_or_children_present.
     """
+    children = filters.get("children") or {}
     for name, values in filters["facets"].items():
         if name == skip_include or not values:
             continue
-        if not set(values) <= set(FACETS[name](entry)):
+        entry_values = set(FACETS[name](entry))
+        if not all(_value_or_children_present(v, entry_values, children) for v in values):
             return False
     for name, values in filters["exclude"].items():
         if name == skip_exclude or not values:
             continue
-        if set(FACETS[name](entry)) & set(values):
+        entry_values = set(FACETS[name](entry))
+        if any(_value_or_children_present(v, entry_values, children) for v in values):
             return False
     if filters["word_min"] is not None and (entry.word_count or 0) < filters["word_min"]:
         return False
@@ -671,6 +692,7 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
 def dashboard(request: Request, page: int = 1):
     result = scanner.load_cached(DB_PATH)
     filters = _parse_filters(request)
+    filters["children"] = db.get_tag_children(DB_PATH)
     # Facet suggestion/count computation needs the *whole* library, not the
     # already-filtered list below -- each facet's own counts are computed
     # by re-filtering result.entries excluding just that one facet (see
@@ -984,8 +1006,50 @@ def tags_classify_page(request: Request, filter: str = "all", page: int = 1, sor
             "total_tags": total_tags,
             "sort": sort,
             "sort_options": NAME_COUNT_SORT_LABELS,
+            "wranglings": db.get_all_tag_wranglings(DB_PATH),
             "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}",
         },
+    )
+
+
+@app.post("/tags/classify/wrangle")
+def wrangle_tags(
+    tags: list[str] = Form([]),
+    relation: str = Form(...),
+    target: str = Form(""),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    """Bulk-wrangles every checked tag to `target`, either as a 'synonym'
+    (merged into target everywhere) or a 'child' (kept separate, but
+    matched whenever target is filtered on -- see db.set_tag_wrangling).
+    Each tag is wrangled independently, so one tag failing the single-level
+    guard (e.g. it's already someone's synonym target) doesn't block the
+    rest of the batch.
+    """
+    target = target.strip()
+    if relation in ("synonym", "child") and target:
+        for tag in tags:
+            try:
+                db.set_tag_wrangling(DB_PATH, tag, relation, target)
+            except ValueError:
+                pass
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
+    )
+
+
+@app.post("/tags/classify/unwrangle")
+def unwrangle_tag(
+    tag: str = Form(...),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+):
+    db.remove_tag_wrangling(DB_PATH, tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}", status_code=303
     )
 
 

@@ -203,6 +203,17 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
   this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
   to select anything.
+
+  This page also does AO3-style tag wrangling, single-level (a tag points directly at its
+  canonical/parent tag, not through a chain): "Merge selected into &rarr;" folds every checked tag
+  into one canonical tag everywhere -- display, Tags-page counts, and classification -- so it stops
+  appearing here as its own row (undo it from the "Wrangled Tags" list at the bottom of the page,
+  since a merged tag has no row of its own to undo it from). "Make selected children of &rarr;"
+  keeps each checked tag as itself (its own row, its own category) but makes filtering or excluding
+  Downloads by the parent also match works only tagged with the child -- e.g. searching "Alternate
+  Reality" also surfaces a work tagged only "Alternate Reality - Canon Divergence", the same way
+  real AO3 wrangling works. A tag can't be wrangled into a target that's itself already wrangled, or
+  wrangled away once other tags already point to it -- both are refused to keep the mapping flat.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

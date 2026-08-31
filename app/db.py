@@ -14,6 +14,12 @@ fixes every work that has that tag, instead of requiring a correction on
 each of what could be thousands of individual works. See
 scanner._resolve_tag_categories.
 
+tag_wranglings is AO3-style tag wrangling, also global and single-level:
+a 'synonym' row merges one tag's spelling into a canonical tag everywhere
+(display, counts, classification), while a 'child' row keeps a tag's own
+identity but makes filtering by its parent also match it (e.g. "Alternate
+Reality - Canon Divergence" as a child of "Alternate Reality").
+
 Users/sessions/bookmarks are the one place this file departs from "global,
 shared data": bookmarks are scoped per user_id, everything else in this
 module stays shared across every account, same as before login existed.
@@ -23,6 +29,7 @@ request -- this is deliberately the minimum needed to make those pages useful.
 """
 
 import sqlite3
+from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -89,6 +96,15 @@ def init_db(path: str) -> None:
             CREATE TABLE IF NOT EXISTS abs_matches (
                 work_id TEXT PRIMARY KEY,
                 item_id TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tag_wranglings (
+                tag TEXT PRIMARY KEY,
+                relation TEXT NOT NULL CHECK (relation IN ('synonym', 'child')),
+                target TEXT NOT NULL
             )
             """
         )
@@ -265,6 +281,77 @@ def set_tag_categories(path: str, categories: dict[str, str]) -> None:
             """,
             [(tag, int(category == "fandom"), category) for tag, category in categories.items()],
         )
+
+
+def get_tag_synonyms(path: str) -> dict[str, str]:
+    """tag -> canonical target, for relation='synonym' rows only. See
+    scanner._resolve_tag_categories, which folds a synonym's tag into its
+    target's name (and, since classification is looked up by name,
+    effectively its category too) at read time, before a work's tags are
+    ever counted or classified -- the merge is never baked into the
+    on-disk works_cache, so retargeting a synonym later takes effect on
+    the next page load, the same way correcting a tag's category already
+    does today.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT tag, target FROM tag_wranglings WHERE relation = 'synonym'").fetchall()
+    return dict(rows)
+
+
+def get_tag_children(path: str) -> dict[str, set[str]]:
+    """parent tag -> set of its child tags (relation='child' rows only). A
+    child keeps its own name and category everywhere -- this map only
+    powers Downloads filter expansion, where selecting or excluding the
+    parent also matches works tagged with any of its children instead of
+    only the parent tag itself. See main._entry_matches.
+    """
+    children: dict[str, set[str]] = defaultdict(set)
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT tag, target FROM tag_wranglings WHERE relation = 'child'").fetchall()
+    for tag, target in rows:
+        children[target].add(tag)
+    return dict(children)
+
+
+def get_all_tag_wranglings(path: str) -> dict[str, tuple[str, str]]:
+    """tag -> (relation, target) for every wrangled tag -- for the Classify
+    Tags admin page to show current state and offer to undo it.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT tag, relation, target FROM tag_wranglings").fetchall()
+    return {tag: (relation, target) for tag, relation, target in rows}
+
+
+def set_tag_wrangling(path: str, tag: str, relation: str, target: str) -> None:
+    """Points `tag` at `target` as either a 'synonym' (merges tag into
+    target everywhere -- display, counts, and classification) or a
+    'child' (tag keeps its own identity, but filtering by target also
+    matches works tagged with `tag`). Deliberately single-level, like AO3's
+    own wrangling: refuses to wrangle a tag into a target that is itself
+    already wrangled somewhere else, and refuses to wrangle a tag that
+    already has other tags pointing to it -- either would form a chain
+    (A -> B -> C) instead of the flat tag -> canonical-or-parent shape
+    every other part of this feature assumes.
+    """
+    if tag == target:
+        raise ValueError("a tag can't be wrangled into itself")
+    with _connect(path) as conn:
+        if conn.execute("SELECT 1 FROM tag_wranglings WHERE tag = ?", (target,)).fetchone():
+            raise ValueError(f"{target!r} is itself already wrangled -- point at its target instead")
+        if conn.execute("SELECT 1 FROM tag_wranglings WHERE target = ?", (tag,)).fetchone():
+            raise ValueError(f"other tags already point to {tag!r} -- wrangle those to {target!r} directly instead")
+        conn.execute(
+            """
+            INSERT INTO tag_wranglings (tag, relation, target) VALUES (?, ?, ?)
+            ON CONFLICT(tag) DO UPDATE SET relation = excluded.relation, target = excluded.target
+            """,
+            (tag, relation, target),
+        )
+
+
+def remove_tag_wrangling(path: str, tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM tag_wranglings WHERE tag = ?", (tag,))
 
 
 def set_dismissed(path: str, work_id: str, dismissed: bool) -> None:

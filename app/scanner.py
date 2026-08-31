@@ -181,24 +181,49 @@ def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, Abs
 
 
 def _resolve_tag_categories(
-    entry: WorkEntry, tag_categories: dict[str, str]
-) -> tuple[list[str], list[str], list[str], list[str]]:
-    """Each candidate tag resolves to fandom/character/relationship/freeform:
-    an explicit global classification (from the Tags page or the per-work
-    picker -- see db.set_tag_categories) wins; an unclassified tag falls
-    back to a heuristic guess -- this work's own guessed fandom
-    (entry.fandoms, from epub_meta._guess_fandoms), then
-    epub_meta.looks_like_relationship's "/"/"&" convention -- and anything
-    neither explicitly classified nor guessed defaults to freeform. This is
-    also where a mis-guessed relationship (e.g. "Hurt/Comfort", which looks
-    like one but isn't) actually gets fixed: reclassify the tag as freeform
-    on the Tags page and every work with it picks that up immediately.
+    entry: WorkEntry, tag_categories: dict[str, str], tag_synonyms: dict[str, str]
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+    """Returns (fandom_candidates, fandoms, characters, relationships,
+    freeform), all resolved from entry.fandom_candidates.
+
+    Synonyms are resolved first: two spellings of the same tag (e.g. "MCU"
+    and "Marvel Cinematic Universe", see db.get_tag_synonyms) collapse into
+    one canonical name, with duplicates within a single work's candidate
+    list merged away -- the returned fandom_candidates is this canonicalized
+    list, which every downstream consumer (Tags page counts, the per-work
+    fandom picker, classification below) should use instead of the raw one.
+
+    Each canonical candidate tag then resolves to fandom/character/
+    relationship/freeform: an explicit global classification (from the Tags
+    page or the per-work picker -- see db.set_tag_categories) wins; an
+    unclassified tag falls back to a heuristic guess -- this work's own
+    guessed fandom (entry.fandoms, from epub_meta._guess_fandoms, itself
+    canonicalized the same way), then epub_meta.looks_like_relationship's
+    "/"/"&" convention -- and anything neither explicitly classified nor
+    guessed defaults to freeform. This is also where a mis-guessed
+    relationship (e.g. "Hurt/Comfort", which looks like one but isn't)
+    actually gets fixed: reclassify the tag as freeform on the Tags page
+    and every work with it picks that up immediately.
+
+    A 'child' tag wrangling (see db.get_tag_children) isn't handled here --
+    a child keeps its own name and classification; only Downloads filter
+    matching treats it specially, expanding a selected parent value to also
+    match works tagged with any of its children (see main._entry_matches).
     """
     if not entry.fandom_candidates:
-        return entry.fandoms, [], [], []
-    guessed_fandoms = set(entry.fandoms)
-    fandoms, characters, relationships, freeform = [], [], [], []
+        return entry.fandom_candidates, entry.fandoms, [], [], []
+
+    canonical_candidates: list[str] = []
+    seen: set[str] = set()
     for tag in entry.fandom_candidates:
+        canonical = tag_synonyms.get(tag, tag)
+        if canonical not in seen:
+            seen.add(canonical)
+            canonical_candidates.append(canonical)
+
+    guessed_fandoms = {tag_synonyms.get(tag, tag) for tag in entry.fandoms}
+    fandoms, characters, relationships, freeform = [], [], [], []
+    for tag in canonical_candidates:
         category = tag_categories.get(tag)
         if not category:
             if tag in guessed_fandoms:
@@ -215,13 +240,14 @@ def _resolve_tag_categories(
             relationships.append(tag)
         else:
             freeform.append(tag)
-    return fandoms, characters, relationships, freeform
+    return canonical_candidates, fandoms, characters, relationships, freeform
 
 
 def _finalize(
     entries: list[WorkEntry],
     overrides: dict[str, db.Override],
     tag_categories: dict[str, str],
+    tag_synonyms: dict[str, str],
 ) -> ScanResult:
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
@@ -234,7 +260,13 @@ def _finalize(
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
 
-        entry.fandoms, entry.characters, entry.relationships, entry.freeform_tags = _resolve_tag_categories(entry, tag_categories)
+        (
+            entry.fandom_candidates,
+            entry.fandoms,
+            entry.characters,
+            entry.relationships,
+            entry.freeform_tags,
+        ) = _resolve_tag_categories(entry, tag_categories, tag_synonyms)
 
         override = overrides.get(work_id)
         if override:
@@ -269,7 +301,8 @@ def scan(
 ) -> ScanResult:
     overrides = db.get_all_overrides(db_path) if db_path else {}
     tag_categories = db.get_all_tag_categories(db_path) if db_path else {}
-    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories)
+    tag_synonyms = db.get_tag_synonyms(db_path) if db_path else {}
+    return _finalize(scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories, tag_synonyms)
 
 
 def refresh_cache(
@@ -280,13 +313,13 @@ def refresh_cache(
 ) -> ScanResult:
     entries = scan_raw(download_dir, log_path, abs_matches)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path))
 
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
     entries = [_row_to_entry(row) for row in rows]
-    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path))
+    return _finalize(entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path))
 
 
 def _join(values: list[str]) -> str | None:

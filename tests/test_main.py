@@ -14,6 +14,7 @@ from app.main import (
     _selected_with_counts,
     _filter_by_letter,
     _series_sort_key,
+    _value_or_children_present,
     _sort_name_count_rows,
     _static_facet_counts,
     blurb_tag_line,
@@ -25,7 +26,7 @@ from app.scanner import WorkEntry
 
 
 def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=None,
-             date_from=None, date_to=None, bookmarked=False, unread=False, q="", sort="title"):
+             date_from=None, date_to=None, bookmarked=False, unread=False, q="", sort="title", children=None):
     return {
         "facets": {name: [] for name in FACETS} | (facets or {}),
         "exclude": {name: [] for name in EXCLUDE_FACETS} | (exclude or {}),
@@ -38,6 +39,7 @@ def _filters(facets=None, exclude=None, word_min=None, word_max=None, crossover=
         "unread": unread,
         "q": q,
         "sort": sort,
+        "children": children or {},
     }
 
 
@@ -160,6 +162,42 @@ def test_entry_matches_skip_include_and_skip_exclude_are_independent():
     assert _entry_matches(entry, filters, skip_include="fandom") is False  # exclude still applies
     assert _entry_matches(entry, filters, skip_exclude="fandom") is False  # include still applies
     assert _entry_matches(entry, filters, skip_include="fandom", skip_exclude="fandom") is True
+
+
+def test_value_or_children_present_matches_the_value_itself():
+    assert _value_or_children_present("Alternate Reality", {"Alternate Reality"}, {}) is True
+
+
+def test_value_or_children_present_matches_a_child_tag():
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    assert _value_or_children_present("Alternate Reality", {"Alternate Reality - Canon Divergence"}, children) is True
+
+
+def test_value_or_children_present_false_when_neither_present():
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    assert _value_or_children_present("Alternate Reality", {"Fluff"}, children) is False
+
+
+def test_entry_matches_include_expands_parent_to_match_child_tag():
+    # Selecting "Alternate Reality" (the parent) should also match a work
+    # only tagged with one of its children -- AO3-style tag wrangling.
+    entry = WorkEntry(work_id="1", freeform_tags=["Alternate Reality - Canon Divergence"])
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    filters = _filters(facets={"freeform": ["Alternate Reality"]}, children=children)
+    assert _entry_matches(entry, filters) is True
+
+
+def test_entry_matches_exclude_expands_parent_to_drop_child_tag():
+    entry = WorkEntry(work_id="1", freeform_tags=["Alternate Reality - Canon Divergence"])
+    children = {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+    filters = _filters(exclude={"freeform": ["Alternate Reality"]}, children=children)
+    assert _entry_matches(entry, filters) is False
+
+
+def test_entry_matches_children_absent_is_a_no_op():
+    entry = WorkEntry(work_id="1", freeform_tags=["Fluff"])
+    filters = _filters(facets={"freeform": ["Alternate Reality"]})
+    assert _entry_matches(entry, filters) is False
 
 
 def test_entry_matches_crossover_only():

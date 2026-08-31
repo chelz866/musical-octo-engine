@@ -93,6 +93,92 @@ def test_get_all_tag_categories_empty_by_default():
         assert db.get_all_tag_categories(path) == {}
 
 
+def test_set_tag_wrangling_synonym_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "MCU", "synonym", "Marvel Cinematic Universe")
+
+        assert db.get_tag_synonyms(path) == {"MCU": "Marvel Cinematic Universe"}
+        assert db.get_tag_children(path) == {}
+        assert db.get_all_tag_wranglings(path) == {"MCU": ("synonym", "Marvel Cinematic Universe")}
+
+
+def test_set_tag_wrangling_child_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "Alternate Reality - Canon Divergence", "child", "Alternate Reality")
+        db.set_tag_wrangling(path, "Alternate Reality - Fantasy", "child", "Alternate Reality")
+
+        assert db.get_tag_children(path) == {
+            "Alternate Reality": {"Alternate Reality - Canon Divergence", "Alternate Reality - Fantasy"},
+        }
+        assert db.get_tag_synonyms(path) == {}
+
+
+def test_set_tag_wrangling_overwrites_existing_relation_for_same_tag():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "MCU", "child", "Marvel Cinematic Universe")
+        db.set_tag_wrangling(path, "MCU", "synonym", "Marvel Cinematic Universe")
+
+        assert db.get_all_tag_wranglings(path) == {"MCU": ("synonym", "Marvel Cinematic Universe")}
+
+
+def test_set_tag_wrangling_rejects_self_wrangle():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        try:
+            db.set_tag_wrangling(path, "MCU", "synonym", "MCU")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+        assert db.get_all_tag_wranglings(path) == {}
+
+
+def test_set_tag_wrangling_rejects_chaining_into_an_already_wrangled_target():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "B", "synonym", "C")
+        try:
+            db.set_tag_wrangling(path, "A", "synonym", "B")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+        assert "A" not in db.get_all_tag_wranglings(path)
+
+
+def test_set_tag_wrangling_rejects_wrangling_a_tag_that_already_has_followers():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "A", "synonym", "B")
+        try:
+            db.set_tag_wrangling(path, "B", "synonym", "C")
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+        assert "B" not in db.get_all_tag_wranglings(path)
+
+
+def test_remove_tag_wrangling():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "MCU", "synonym", "Marvel Cinematic Universe")
+        db.remove_tag_wrangling(path, "MCU")
+
+        assert db.get_all_tag_wranglings(path) == {}
+        # Removing frees it up to be wrangled again without the "already
+        # has followers" guard firing on stale data.
+        db.set_tag_wrangling(path, "MCU", "synonym", "Marvel Cinematic Universe")
+        assert db.get_all_tag_wranglings(path) == {"MCU": ("synonym", "Marvel Cinematic Universe")}
+
+
 def test_init_db_migrates_legacy_is_fandom_to_category():
     import sqlite3
 
