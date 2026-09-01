@@ -8,7 +8,7 @@ LINES = [
     {"link": "https://archiveofourown.org/users/someone/bookmarks", "message": "starting page", "level": "debug", "timestamp": "06/12/2026, 20:05:48"},
     {"link": "https://archiveofourown.org/works/7773", "title": ["7773 The Business - Basingstoke"], "workskin": False, "success": True, "timestamp": "06/13/2026, 17:42:22"},
     {"error": "Cloudflare challenge or error page detected", "success": False, "timestamp": "07/05/2026, 20:49:58"},
-    {"link": "https://archiveofourown.org/works/9999", "title": ["9999 Some Fic - Some Author"], "success": False, "timestamp": "06/13/2026, 18:00:00"},
+    {"link": "https://archiveofourown.org/works/9999", "title": ["9999 Some Fic - Some Author"], "success": False, "error": "Work is only available to registered users of the Archive.", "timestamp": "06/13/2026, 18:00:00"},
     # duplicate id, later in file -> should win over an earlier record for the same id
     {"link": "https://archiveofourown.org/works/7773", "title": ["7773 The Business (revised) - Basingstoke"], "success": True, "timestamp": "06/14/2026, 09:00:00"},
 ]
@@ -37,6 +37,7 @@ def test_parses_title_and_author():
     assert rec.title == "Some Fic"
     assert rec.author == "Some Author"
     assert rec.success is False
+    assert rec.error == "Work is only available to registered users of the Archive."
 
 
 def test_later_line_wins_for_duplicate_id():
@@ -47,3 +48,4 @@ def test_later_line_wins_for_duplicate_id():
     assert rec.title == "The Business (revised)"
     assert rec.timestamp == "06/14/2026, 09:00:00"
     assert rec.success is True
+    assert rec.error is None

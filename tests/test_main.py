@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import datetime
 
+from app import main as main_module
 from app.main import (
     EXCLUDE_FACETS,
     FACETS,
@@ -28,6 +29,7 @@ from app.main import (
     _sort_name_count_rows,
     _static_facet_counts,
     blurb_tag_line,
+    local_time,
     paginate,
     sanitize_style_content,
     translate_ao3_skin_selectors,
@@ -273,6 +275,42 @@ def test_parse_manual_links_dedupes_by_work_id_keeping_first_occurrence():
 
 def test_parse_manual_links_returns_empty_list_for_no_matches():
     assert _parse_manual_links("nothing useful here") == []
+
+
+def test_local_time_returns_empty_string_for_none_or_blank():
+    assert local_time(None, "America/New_York") == ""
+    assert local_time("", "America/New_York") == ""
+
+
+def test_local_time_returns_server_time_unchanged_when_no_zone_chosen():
+    assert local_time(datetime(2026, 1, 15, 12, 0), None) == "2026-01-15 12:00"
+
+
+def test_local_time_accepts_an_iso_string_as_well_as_a_datetime():
+    assert local_time("2026-01-15T12:00:00", None) == "2026-01-15 12:00"
+
+
+def test_local_time_falls_back_to_server_time_for_an_unresolvable_zone_name():
+    assert local_time(datetime(2026, 1, 15, 12, 0), "Not/AZone") == "2026-01-15 12:00"
+
+
+def test_local_time_accepts_a_custom_format():
+    assert local_time(datetime(2026, 1, 15, 12, 30), None, "%Y-%m-%d") == "2026-01-15"
+
+
+def test_local_time_converts_from_server_zone_honoring_winter_and_summer_dst():
+    # SERVER_TZ_NAME defaults to "UTC" unless a TZ env var overrides it --
+    # pinned here so the test doesn't depend on whatever's ambient.
+    original = main_module.SERVER_TZ_NAME
+    main_module.SERVER_TZ_NAME = "UTC"
+    try:
+        # Noon EST (winter, UTC-5) and noon EDT (summer, UTC-4) are
+        # different UTC instants -- a fixed-offset conversion would get
+        # one of these two wrong, which is exactly what ZoneInfo avoids.
+        assert local_time(datetime(2026, 1, 15, 17, 0), "America/New_York") == "2026-01-15 12:00"
+        assert local_time(datetime(2026, 7, 15, 16, 0), "America/New_York") == "2026-07-15 12:00"
+    finally:
+        main_module.SERVER_TZ_NAME = original
 
 
 def test_entry_matches_word_count_bounds_are_inclusive():

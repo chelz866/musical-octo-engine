@@ -78,7 +78,7 @@
           </td>
           <td>{{ item.entry.author or "—" }}</td>
           <td>{{ item.entry.chapters_have }}/{{ item.entry.chapters_total if item.entry.chapters_total is not none else "?" }}</td>
-          <td>{{ item.last_updated.strftime("%Y-%m-%d") if item.last_updated else "—" }}</td>
+          <td>{{ (item.last_updated | local_time(user.timezone, "%Y-%m-%d")) or "—" }}</td>
         </tr>
         {% else %}
         <tr>

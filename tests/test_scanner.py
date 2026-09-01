@@ -155,6 +155,43 @@ def test_logged_failure_with_no_file_is_flagged_failed():
     assert result.stats.logged_failure_count == 1
 
 
+def test_logged_failure_carries_the_error_message_through():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as logs:
+        log_path = _write_log(logs, [
+            {
+                "link": "https://archiveofourown.org/works/999",
+                "title": ["999 Ghost Fic - Nobody"],
+                "success": False,
+                "error": "Work is only available to registered users of the Archive.",
+                "timestamp": "01/01/2026, 00:00:00",
+            },
+        ])
+        result = scan(downloads, log_path)
+
+    entry = result.entries[0]
+    assert entry.log_error == "Work is only available to registered users of the Archive."
+
+
+def test_log_error_survives_refresh_cache_round_trip():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as logs, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        log_path = _write_log(logs, [
+            {
+                "link": "https://archiveofourown.org/works/999",
+                "title": ["999 Ghost Fic - Nobody"],
+                "success": False,
+                "error": "Work is only available to registered users of the Archive.",
+                "timestamp": "01/01/2026, 00:00:00",
+            },
+        ])
+
+        refresh_cache(downloads, log_path, db_path)
+        entry = load_cached(db_path).entries[0]
+
+    assert entry.log_error == "Work is only available to registered users of the Archive."
+
+
 def test_override_applies_title_author_and_dismissed():
     with tempfile.TemporaryDirectory() as tmp:
         db_path = os.path.join(tmp, "app.db")

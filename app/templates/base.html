@@ -43,15 +43,20 @@
       </div>
       <span class="nav-spacer"></span>
       <span class="hint">
-        {% if last_refreshed %}last refreshed {{ last_refreshed[:16].replace("T", " ") }}
+        {% if last_refreshed %}last refreshed {{ last_refreshed | local_time(user.timezone) }}
         {% else %}never refreshed{% endif %}
       </span>
-      <div class="account-row">
-        <a href="/account">Hi, {{ user.username }}</a>
-        <form method="post" action="/logout" class="logout-form">
-          <button type="submit">Log Out</button>
-        </form>
-      </div>
+      <details class="nav-dropdown dropdown account-dropdown" name="nav-dropdown">
+        <summary class="{% if request.url.path in ['/account', '/history'] %}active{% endif %}">Hi, {{ user.username }}</summary>
+        <div class="nav-dropdown-menu menu">
+          <a href="/account" class="{% if request.url.path == '/account' %}active{% endif %}">Account</a>
+          <a href="/?bookmarked=true">Bookmarks</a>
+          <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
+          <form method="post" action="/logout" class="logout-form">
+            <button type="submit">Log Out</button>
+          </form>
+        </div>
+      </details>
     </nav>
   </header>
   <div id="inner" class="wrapper">

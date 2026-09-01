@@ -1,5 +1,5 @@
 {% import "_fandom_picker.html" as picker %}
-{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, show_edit_button=false) %}
+{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, show_edit_button=false, viewed_at=none) %}
 {% set icons = e | blurb_icons %}
 {% set tags = e | blurb_tag_line %}
 <li class="blurb work group">
@@ -20,7 +20,7 @@
           <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
           <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
         </form>
-        <a class="blurb-title" href="{% if e.on_disk %}/reader/{{ e.work_id }}{% else %}https://archiveofourown.org/works/{{ e.work_id }}{% endif %}"{% if not e.on_disk %} target="_blank" rel="noopener"{% endif %}{% if e.summary %} title="{{ e.summary }}"{% endif %}>
+        <a class="blurb-title" href="{% if e.on_disk %}/reader/{{ e.work_id }}{% else %}/go/{{ e.work_id }}{% endif %}"{% if not e.on_disk %} target="_blank" rel="noopener"{% endif %}{% if e.summary %} title="{{ e.summary }}"{% endif %}>
           {{ e.title or "(unknown title)" }}
         </a>
         {% if e.work_id in abs_links %}
@@ -76,9 +76,7 @@
     <p class="blurb-footer">
       {{ e.size_bytes | human_size }}
       &middot;
-      {% if e.mtime %}{{ e.mtime.strftime("%Y-%m-%d %H:%M") }}
-      {% elif e.log_timestamp %}{{ e.log_timestamp }}
-      {% else %}—{% endif %}
+      {{ (e | effective_timestamp | local_time(user.timezone)) or "—" }}
       &middot;
       {% if e.parse_error %}
         <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
@@ -87,7 +85,11 @@
       {% elif e.log_success %}
         <span class="badge badge-missing">✗ missing</span>
       {% else %}
-        <span class="badge badge-warn">✗ failed</span>
+        <span class="badge badge-warn" title="{{ e.log_error }}">✗ failed</span>
+      {% endif %}
+      {% if viewed_at %}
+      &middot;
+      <span class="hint">last viewed {{ viewed_at | local_time(user.timezone) }}</span>
       {% endif %}
       &middot;
       {% if e.work_id in abs_read_ids %}

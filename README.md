@@ -134,8 +134,10 @@ copy untouched.
 ## Accounts, roles, and bookmarks
 
 Every page requires logging in. The first time the app starts, it seeds one admin account --
-username `admin`, password `admin` -- change that password immediately from the Account page
-(top right, next to Log Out) once you're in. There are two roles:
+username `admin`, password `admin` -- change that password immediately from the Account page,
+reached via the "Hi, {username}" dropdown at the top right, once you're in. That same dropdown also
+has **Bookmarks** (a shortcut to `/?bookmarked=true`) and **History** (see below). There are two
+roles:
 
 - **Admin** -- everything, including the Admin Dashboard, Issues, Tracked Feeds, Queue, tag
   classification (`/tags/classify`), and user management (`/admin/users`, to create additional
@@ -152,6 +154,19 @@ tag classifications, tracked feeds) stays shared across every account, unchanged
 logins existed. A bookmarked work also gets an "add note" toggle underneath it, for a short
 private note to yourself (a reminder of why you saved it, where you left off, etc.) -- also
 per-user, and cleared automatically if you remove the bookmark.
+
+**History** (`/history`, from the account dropdown) lists every work you've clicked into before,
+most recently viewed first, reusing the same blurb rendering as Downloads with a "last viewed" time
+in place of nothing extra. Clicking a work's title counts as a view whether it opens the in-app
+reader (a downloaded work) or goes out to AO3 (via `/go/{work_id}`, so an un-downloaded work still
+gets tracked); re-viewing an already-listed work just moves it back to the top rather than adding a
+second row. Per-user, like bookmarks.
+
+**Time zone**: every timestamp this app shows (downloaded dates, last refreshed, History's "last
+viewed", and so on) is recorded on the server's own clock -- UTC by default, or whatever `TZ` you
+set in `.env` (see below) -- and converted to whichever zone you pick under Account for display.
+It's a personal display preference, not a data change: two accounts can each pick their own zone (or
+leave it on "Server time") independently, and it never touches what's actually recorded.
 
 Sessions are opaque server-side tokens (a `sessions` table, not a signed cookie) and don't expire
 on a timer -- they last until you log out. That's a deliberate simplification for a small,
@@ -194,16 +209,20 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   place; Audiobookshelf doesn't track it (confirmed
   against a real schema export), so this only ever comes from the file itself, matched or not.
 
-  A 📖 link next to the AO3 link (Home and Issues both, whenever the file is actually on disk) opens
-  an in-browser reader (`/reader/{work_id}`) -- a one-page-per-chapter view with Next/Previous and a
-  chapter-jump dropdown, reading directly from the work's own downloaded epub. It's a plain fallback
-  for whenever an external reader (e.g. Audiobookshelf) isn't cooperating, not a replacement for one:
-  no bookmarked reading position, no font/theme controls of its own beyond whatever Custom CSS theme
-  you've set (see Account, above -- the reader's content area uses AO3's own `userstuff` class, so
-  an AO3 skin styles it same as everywhere else in this app). Chapter titles come from whatever
-  heading the chapter's own HTML uses (AO3's real per-chapter title, if it set one); a chapter
-  bundled image renders through this app rather than as a broken relative path. Available to any
-  logged-in user, not just admins -- reading isn't an editing action.
+  A work's title (Home and Issues both) opens straight into an in-browser reader
+  (`/reader/{work_id}`) whenever the file is actually on disk -- a one-page-per-chapter view with
+  Next/Previous and a chapter-jump dropdown, reading directly from the work's own downloaded epub.
+  It's a plain fallback for whenever an external reader (e.g. Audiobookshelf) isn't cooperating, not
+  a replacement for one: no bookmarked reading position, no font/theme controls of its own beyond
+  whatever Custom CSS theme you've set (see Account, above -- the reader's content area uses AO3's
+  own `userstuff` class, so an AO3 skin styles it same as everywhere else in this app). Chapter
+  titles come from whatever heading the chapter's own HTML uses (AO3's real per-chapter title, if it
+  set one); a chapter's bundled image renders through this app rather than as a broken relative path.
+  A Mark Read toggle sits right in the reader's own header, same manual per-account toggle as
+  Downloads. Available to any logged-in user, not just admins -- reading isn't an editing action. A
+  work not yet downloaded still opens its title in a new tab, straight to AO3 (via `/go/{work_id}`,
+  so it still lands in History -- see below); AO3 itself stays one click away either way through the
+  🔗 link next to the title.
 
   A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
   Include/Exclude split: every facet (Rating/Warning/Category/Fandom/Character/Relationship/
@@ -259,8 +278,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   library-wide list. Filter tabs, sort, and Organize-by still apply on top of that narrowed set, and
   every action taken while a work is loaded keeps it loaded afterward.
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
-  missing on disk, or a logged failure. Each row can be dismissed (hidden from the default view,
-  toggle "show dismissed" to see them again) and has an inline form to fix the title/author.
+  missing on disk, or a logged failure. A logged failure shows ao3downloader's own exception message
+  (e.g. "Work is only available to registered users of the Archive.") both as a hover tooltip on the
+  badge and as plain text underneath, straight from log.jsonl's own `error` field -- see "Optional:
+  downloading from within the app" above for adding `AO3_USERNAME`/`AO3_PASSWORD` if that's the
+  cause. Each row can be dismissed (hidden from the default view, toggle "show dismissed" to see
+  them again) and has an inline form to fix the title/author.
 - **Fandoms** (`/fandoms`) -- unique fandom names with work counts; click one to filter Downloads.
   A sort dropdown (Name A-Z/Z-A, Most/Fewest Works -- defaulting to Most Works) reorders the list,
   and an A-Z letter strip (plus "#" for names starting with anything else) jumps straight to fandoms

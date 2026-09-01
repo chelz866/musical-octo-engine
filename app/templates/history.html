@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "_blurb.html" as blurb %}
+{% import "_pager.html" as pagination %}
+{% block title %}History - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>History</h1>
+    <p class="paths">
+      Every work you've clicked into before, most recently viewed first &mdash; opening the
+      in-app reader or the AO3 link both count. Only you see your own history.
+    </p>
+  </header>
+
+  {{ pagination.pager(page, total_pages, "") }}
+
+  <ul class="blurb-list work index group">
+    {% for e in entries %}
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, viewed_at=view_times.get(e.work_id)) }}
+    {% else %}
+    <li class="empty">Nothing viewed yet &mdash; clicking a work's title on Home or Issues adds it here.</li>
+    {% endfor %}
+  </ul>
+
+  {{ pagination.pager(page, total_pages, "") }}
+{% endblock %}

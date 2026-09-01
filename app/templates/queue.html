@@ -15,7 +15,7 @@
       <input type="hidden" name="next" value="/queue">
       <button type="submit">Refresh feeds</button>
       <span class="hint">
-        {% if feeds_last_refreshed %}last checked {{ feeds_last_refreshed[:16].replace("T", " ") }}
+        {% if feeds_last_refreshed %}last checked {{ feeds_last_refreshed | local_time(user.timezone) }}
         {% else %}never checked{% endif %}
       </span>
     </form>

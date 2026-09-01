@@ -13,6 +13,7 @@
     </p>
   </header>
 
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -26,7 +27,7 @@
       {% for e in entries %}
       <tr class="{% if e.dismissed %}row-dismissed{% endif %}">
         <td>
-          <a href="{% if e.on_disk %}/reader/{{ e.work_id }}{% else %}https://archiveofourown.org/works/{{ e.work_id }}{% endif %}"{% if not e.on_disk %} target="_blank" rel="noopener"{% endif %}{% if e.summary %} title="{{ e.summary }}"{% endif %}>
+          <a href="{% if e.on_disk %}/reader/{{ e.work_id }}{% else %}/go/{{ e.work_id }}{% endif %}"{% if not e.on_disk %} target="_blank" rel="noopener"{% endif %}{% if e.summary %} title="{{ e.summary }}"{% endif %}>
             {{ e.title or "(unknown title)" }}
           </a>
           {% if e.work_id in abs_links %}
@@ -41,7 +42,8 @@
           {% elif e.issue_type == "missing" %}
             <span class="badge badge-missing">✗ missing on disk</span>
           {% elif e.issue_type == "failed" %}
-            <span class="badge badge-warn">✗ logged failure</span>
+            <span class="badge badge-warn" title="{{ e.log_error }}">✗ logged failure</span>
+            {% if e.log_error %}<div class="hint">{{ e.log_error }}</div>{% endif %}
           {% endif %}
           {% if e.dismissed %}<span class="badge">dismissed</span>{% endif %}
         </td>
@@ -70,4 +72,5 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% endblock %}

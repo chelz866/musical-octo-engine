@@ -748,6 +748,37 @@ def test_user_home_edit_source_round_trip():
         assert db.get_user_home_edit_source(path, user_id) is False
 
 
+def test_user_timezone_defaults_to_none_and_round_trips():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        assert db.get_user_by_id(path, user_id).timezone is None
+
+        db.set_user_timezone(path, user_id, "America/New_York")
+        assert db.get_user_by_id(path, user_id).timezone == "America/New_York"
+
+        db.set_user_timezone(path, user_id, None)
+        assert db.get_user_by_id(path, user_id).timezone is None
+
+
+def test_get_session_user_and_get_user_credentials_include_timezone():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+        db.set_user_timezone(path, user_id, "Europe/London")
+
+        db.create_session(path, "tok", user_id, "2026-01-01T00:00:00")
+        assert db.get_session_user(path, "tok").timezone == "Europe/London"
+
+        user, _ = db.get_user_credentials(path, "admin")
+        assert user.timezone == "Europe/London"
+
+
 def test_enqueue_downloads_adds_new_items_and_reports_count():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
@@ -878,6 +909,51 @@ def test_remove_manual_link_removes_only_that_work_id():
         db.remove_manual_link(path, "1")
 
         assert [link["work_id"] for link in db.list_manual_links(path)] == ["2"]
+
+
+def test_record_view_and_get_view_history_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.record_view(path, user_id, "1", "2026-01-01T00:00:00")
+        db.record_view(path, user_id, "2", "2026-01-02T00:00:00")
+
+        assert db.get_view_history(path, user_id) == {
+            "1": "2026-01-01T00:00:00",
+            "2": "2026-01-02T00:00:00",
+        }
+
+
+def test_record_view_upserts_to_the_latest_timestamp_only():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        user_id = db.list_users(path)[0].id
+
+        db.record_view(path, user_id, "1", "2026-01-01T00:00:00")
+        db.record_view(path, user_id, "1", "2026-01-05T12:00:00")
+
+        history = db.get_view_history(path, user_id)
+        assert history == {"1": "2026-01-05T12:00:00"}
+
+
+def test_get_view_history_is_scoped_per_user():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_user(path, "admin", "hashed", "admin")
+        db.create_user(path, "friend", "hashed", "user")
+        admin_id, friend_id = (u.id for u in db.list_users(path))
+
+        db.record_view(path, admin_id, "1", "2026-01-01T00:00:00")
+        db.record_view(path, friend_id, "2", "2026-01-01T00:00:00")
+
+        assert db.get_view_history(path, admin_id) == {"1": "2026-01-01T00:00:00"}
+        assert db.get_view_history(path, friend_id) == {"2": "2026-01-01T00:00:00"}
 
 
 def test_user_abs_username_round_trip():

@@ -21,6 +21,7 @@ class LogRecord:
     author: str | None
     success: bool
     timestamp: str | None
+    error: str | None = None
 
 
 def _parse_title_author(raw_title: str, work_id: str) -> tuple[str | None, str | None]:
@@ -65,5 +66,6 @@ def parse_log(path: str) -> dict[str, LogRecord]:
                 author=author,
                 success=bool(entry.get("success", False)),
                 timestamp=entry.get("timestamp"),
+                error=entry.get("error"),
             )
     return records

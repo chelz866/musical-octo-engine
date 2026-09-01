@@ -22,6 +22,25 @@
     <button type="submit">Change Password</button>
   </form>
 
+  <h2>Time Zone</h2>
+  {% if saved == "timezone" %}<p class="badge badge-ok">Time zone saved.</p>{% endif %}
+  <p class="paths">
+    Every time shown in this app (downloaded dates, last refreshed, viewed history, and so on) is
+    converted to this zone for display -- it never changes what's actually recorded, just how you
+    see it. Leave this on "Server time" to see times exactly as this app's server records them.
+  </p>
+  <form method="post" action="/account/timezone" class="stacked-form">
+    <label>Time zone
+      <select name="timezone">
+        <option value="" {% if not user.timezone %}selected{% endif %}>Server time (no conversion)</option>
+        {% for tz in timezone_options %}
+        <option value="{{ tz }}" {% if tz == user.timezone %}selected{% endif %}>{{ tz }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+
   <h2>Audiobookshelf</h2>
   {% if saved == "abs_username" %}<p class="badge badge-ok">Audiobookshelf username saved.</p>{% endif %}
   <p class="paths">

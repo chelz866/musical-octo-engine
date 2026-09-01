@@ -20,6 +20,7 @@ class User:
     id: int
     username: str
     role: str  # "admin" | "user"
+    timezone: str | None = None  # IANA name, e.g. "America/New_York" -- None means no conversion
 
     @property
     def is_admin(self) -> bool:

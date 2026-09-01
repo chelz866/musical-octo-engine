@@ -53,6 +53,7 @@ class WorkEntry:
     on_disk: bool = False
     log_success: bool | None = None
     log_timestamp: str | None = None
+    log_error: str | None = None  # ao3downloader's own exception message, only set when log_success is False
     parse_error: str | None = None
     dismissed: bool = False
     issue_type: str | None = None  # "parse_error" | "missing" | "failed" | None
@@ -167,6 +168,7 @@ def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, Abs
         if record:
             entry.log_success = record.success
             entry.log_timestamp = record.timestamp
+            entry.log_error = record.error
 
         if entry.parse_error:
             entry.issue_type = "parse_error"
@@ -447,6 +449,7 @@ def _entry_to_row(entry: WorkEntry) -> dict:
         "on_disk": int(entry.on_disk),
         "log_success": None if entry.log_success is None else int(entry.log_success),
         "log_timestamp": entry.log_timestamp,
+        "log_error": entry.log_error,
         "parse_error": entry.parse_error,
         "issue_type": entry.issue_type,
     }
@@ -477,6 +480,7 @@ def _row_to_entry(row: dict) -> WorkEntry:
         on_disk=bool(row["on_disk"]),
         log_success=None if row["log_success"] is None else bool(row["log_success"]),
         log_timestamp=row["log_timestamp"],
+        log_error=row["log_error"],
         parse_error=row["parse_error"],
         issue_type=row["issue_type"],
     )

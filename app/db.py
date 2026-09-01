@@ -72,7 +72,7 @@ WORKS_CACHE_COLUMNS = [
     "relationships", "fandoms", "fandom_candidates", "series", "series_index",
     "published_date", "language", "summary", "word_count", "chapters_have",
     "chapters_total", "file_path", "size_bytes", "mtime", "on_disk",
-    "log_success", "log_timestamp", "parse_error", "issue_type",
+    "log_success", "log_timestamp", "log_error", "parse_error", "issue_type",
 ]
 _WORKS_CACHE_INTEGER_COLUMNS = ("size_bytes", "on_disk", "log_success", "word_count", "chapters_have", "chapters_total")
 
@@ -249,6 +249,16 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS view_history (
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                work_id TEXT NOT NULL,
+                viewed_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, work_id)
+            )
+            """
+        )
         # A 'downloading' row means the background worker died mid-item on
         # a previous run of the app (nothing can still be in flight right
         # after a fresh start) -- put it back to pending so it's picked up
@@ -261,11 +271,13 @@ def init_db(path: str) -> None:
         _ensure_column(conn, "works_cache", "word_count", "INTEGER")
         _ensure_column(conn, "works_cache", "chapters_have", "INTEGER")
         _ensure_column(conn, "works_cache", "chapters_total", "INTEGER")
+        _ensure_column(conn, "works_cache", "log_error")
         _ensure_column(conn, "tag_flags", "category")
         _ensure_column(conn, "users", "theme_css")
         _ensure_column(conn, "users", "abs_username")
         _ensure_column(conn, "users", "active_theme_id", "INTEGER")
         _ensure_column(conn, "users", "home_edit_source", "INTEGER")
+        _ensure_column(conn, "users", "timezone")
         _ensure_column(conn, "bookmarks", "note")
         # One-time, idempotent: users.theme_css used to hold a single unnamed
         # theme per account. Existing values become a named theme ("My
@@ -697,14 +709,14 @@ def create_user(path: str, username: str, password_hash: str, role: str) -> None
 
 def list_users(path: str) -> list[User]:
     with _connect(path) as conn:
-        rows = conn.execute("SELECT id, username, role FROM users ORDER BY username").fetchall()
-    return [User(id=row[0], username=row[1], role=row[2]) for row in rows]
+        rows = conn.execute("SELECT id, username, role, timezone FROM users ORDER BY username").fetchall()
+    return [User(id=row[0], username=row[1], role=row[2], timezone=row[3]) for row in rows]
 
 
 def get_user_by_id(path: str, user_id: int) -> User | None:
     with _connect(path) as conn:
-        row = conn.execute("SELECT id, username, role FROM users WHERE id = ?", (user_id,)).fetchone()
-    return User(id=row[0], username=row[1], role=row[2]) if row else None
+        row = conn.execute("SELECT id, username, role, timezone FROM users WHERE id = ?", (user_id,)).fetchone()
+    return User(id=row[0], username=row[1], role=row[2], timezone=row[3]) if row else None
 
 
 def get_user_credentials(path: str, username: str) -> tuple[User, str] | None:
@@ -714,12 +726,12 @@ def get_user_credentials(path: str, username: str) -> tuple[User, str] | None:
     """
     with _connect(path) as conn:
         row = conn.execute(
-            "SELECT id, username, password_hash, role FROM users WHERE username = ?",
+            "SELECT id, username, password_hash, role, timezone FROM users WHERE username = ?",
             (username,),
         ).fetchone()
     if not row:
         return None
-    return User(id=row[0], username=row[1], role=row[3]), row[2]
+    return User(id=row[0], username=row[1], role=row[3], timezone=row[4]), row[2]
 
 
 def set_user_password(path: str, user_id: int, password_hash: str) -> None:
@@ -739,13 +751,13 @@ def get_session_user(path: str, token: str) -> User | None:
     with _connect(path) as conn:
         row = conn.execute(
             """
-            SELECT users.id, users.username, users.role
+            SELECT users.id, users.username, users.role, users.timezone
             FROM sessions JOIN users ON sessions.user_id = users.id
             WHERE sessions.token = ?
             """,
             (token,),
         ).fetchone()
-    return User(id=row[0], username=row[1], role=row[2]) if row else None
+    return User(id=row[0], username=row[1], role=row[2], timezone=row[3]) if row else None
 
 
 def delete_session(path: str, token: str) -> None:
@@ -911,6 +923,17 @@ def set_user_home_edit_source(path: str, user_id: int, enabled: bool) -> None:
         conn.execute("UPDATE users SET home_edit_source = ? WHERE id = ?", (1 if enabled else 0, user_id))
 
 
+def set_user_timezone(path: str, user_id: int, tz_name: str | None) -> None:
+    """The zone this user's own view of every timestamp in the app is
+    converted to for display (see app.main.local_time) -- purely a
+    per-account display preference; it never changes what zone the
+    underlying recorded times actually are in. None/blank means "no
+    conversion, show the server's own recorded time as-is".
+    """
+    with _connect(path) as conn:
+        conn.execute("UPDATE users SET timezone = ? WHERE id = ?", (tz_name or None, user_id))
+
+
 def list_user_abs_usernames(path: str) -> dict[int, str]:
     """user_id -> abs_username, only for users who've actually set one --
     the refresh cycle uses this to know which app users to sync Audiobookshelf
@@ -1054,3 +1077,27 @@ def list_manual_links(path: str) -> list[dict]:
 def remove_manual_link(path: str, work_id: str) -> None:
     with _connect(path) as conn:
         conn.execute("DELETE FROM manual_links WHERE work_id = ?", (work_id,))
+
+
+def record_view(path: str, user_id: int, work_id: str, viewed_at: str) -> None:
+    """Upserts one (user, work) row to the given timestamp -- a work only
+    ever appears once in a user's History, at whatever time they most
+    recently viewed it (see the History page, /go/{work_id}, and the
+    reader routes, all of which call this on every view).
+    """
+    with _connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO view_history (user_id, work_id, viewed_at) VALUES (?, ?, ?)
+            ON CONFLICT(user_id, work_id) DO UPDATE SET viewed_at = excluded.viewed_at
+            """,
+            (user_id, work_id, viewed_at),
+        )
+
+
+def get_view_history(path: str, user_id: int) -> dict[str, str]:
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT work_id, viewed_at FROM view_history WHERE user_id = ?", (user_id,)
+        ).fetchall()
+    return dict(rows)

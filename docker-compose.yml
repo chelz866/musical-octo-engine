@@ -16,6 +16,12 @@ services:
       - AO3_USERNAME=${AO3_USERNAME:-}
       - AO3_PASSWORD=${AO3_PASSWORD:-}
       - AO3_EXTRA_WAIT_SECONDS=${AO3_EXTRA_WAIT_SECONDS:-2}
+      # Zone this container's own clock runs in -- file mtimes and this
+      # app's own recorded timestamps are all in this zone. Defaults to
+      # UTC if unset. Each account's own *display* timezone is a separate
+      # setting under Account -- this only matters if you want the
+      # underlying recorded times themselves to be in a specific zone.
+      - TZ=${TZ:-UTC}
     volumes:
       # No longer read-only: the app can now download works itself (see
       # the Queue page and AO3_USERNAME/AO3_PASSWORD in README) and writes

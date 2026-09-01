@@ -21,6 +21,22 @@
       by {{ entry.author or "Anonymous" }}
       &middot;
       <a href="https://archiveofourown.org/works/{{ work_id }}" target="_blank" rel="noopener">View on AO3</a>
+      &middot;
+      {% if work_id in abs_read_ids %}
+      <span class="badge badge-ok" title="Marked finished in Audiobookshelf">✓ Read</span>
+      {% elif work_id in read_marked_ids %}
+      <form method="post" action="/works/{{ work_id }}/read" class="read-form">
+        <input type="hidden" name="next" value="{{ request.url }}">
+        <input type="hidden" name="read" value="false">
+        <button type="submit" class="badge badge-ok read-toggle" title="Mark unread">✓ Read</button>
+      </form>
+      {% else %}
+      <form method="post" action="/works/{{ work_id }}/read" class="read-form">
+        <input type="hidden" name="next" value="{{ request.url }}">
+        <input type="hidden" name="read" value="true">
+        <button type="submit" class="read-toggle" title="Mark read">Mark Read</button>
+      </form>
+      {% endif %}
     </p>
   </header>
 

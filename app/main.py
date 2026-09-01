@@ -6,6 +6,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from fast_autocomplete import AutoComplete
 from fastapi import FastAPI, Form, Request
@@ -25,6 +26,15 @@ AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECOND
 DOWNLOADS_PAGE_SIZE = 25
 TAGS_PAGE_SIZE = 100
 FACET_SUGGESTION_COUNT = 10
+
+# The zone this app's own naive timestamps (file mtimes, its own
+# datetime.now() calls) are actually recorded in -- defaults to UTC, this
+# container's own default clock, if unset. Each account's own *display*
+# timezone (see /account/timezone) is a completely separate setting; this
+# only matters for correctly converting *from* whatever zone the underlying
+# recorded times are really in.
+SERVER_TZ_NAME = os.environ.get("TZ", "UTC")
+TIMEZONE_OPTIONS = sorted(available_timezones())
 
 # Optional: only needed for restricted/mature-locked-behind-login works or
 # a logged-in user's own reading history -- a queue of ordinary public
@@ -205,8 +215,31 @@ def human_size(num_bytes: int | None) -> str:
     return f"{size:.1f} TB"
 
 
+def local_time(value: datetime | str | None, tz_name: str | None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Formats a naive datetime (or an ISO string, e.g. from db.get_meta) in
+    a user's chosen display timezone. Every naive value in this app was
+    recorded on this container's own clock (see SERVER_TZ_NAME) -- that's
+    the "from" zone; tz_name (an IANA name, or None/blank for "no
+    conversion, show the server's own time as-is") is the "to" zone, set
+    per-account under Account. Falls back to the untouched server time if
+    tz_name doesn't resolve to a real zone.
+    """
+    if not value:
+        return ""
+    dt = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    if not tz_name:
+        return dt.strftime(fmt)
+    try:
+        target_tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return dt.strftime(fmt)
+    return dt.replace(tzinfo=ZoneInfo(SERVER_TZ_NAME)).astimezone(target_tz).strftime(fmt)
+
+
 templates.env.filters["human_size"] = human_size
 templates.env.filters["format_number"] = lambda n: f"{n:,}" if n is not None else ""
+templates.env.filters["local_time"] = local_time
+templates.env.filters["effective_timestamp"] = scanner.effective_timestamp
 
 # AO3-style blurb icons/tags for the Downloads page (see dashboard.html),
 # colors/symbols matched against AO3's own "Symbols we use on the Archive"
@@ -957,6 +990,41 @@ def series_view(request: Request, series_name: str):
     )
 
 
+@app.get("/history", response_class=HTMLResponse)
+def history_page(request: Request, page: int = 1):
+    """Every work this account has clicked into before (see /go/{work_id}
+    and the reader routes, both of which call db.record_view), most
+    recently viewed first. One row per work_id no matter how many times
+    it's been opened -- record_view always upserts to the latest time.
+    """
+    result = scanner.load_cached(DB_PATH)
+    view_times = {wid: datetime.fromisoformat(ts) for wid, ts in db.get_view_history(DB_PATH, request.state.user.id).items()}
+    entries = [e for e in result.entries if e.work_id in view_times]
+    entries.sort(key=lambda e: view_times[e.work_id], reverse=True)
+
+    page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
+
+    bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
+    bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
+    abs_read_ids, read_marked_ids = _read_ids(request.state.user.id)
+
+    return templates.TemplateResponse(
+        "history.html",
+        {
+            **_base_context(request),
+            "entries": page_entries,
+            "view_times": view_times,
+            "bookmarked_ids": bookmarked_ids,
+            "bookmark_notes": bookmark_notes,
+            "abs_read_ids": abs_read_ids,
+            "read_marked_ids": read_marked_ids,
+            "abs_links": _abs_links(),
+            "page": page,
+            "total_pages": total_pages,
+        },
+    )
+
+
 def _entry_by_work_id(work_id: str):
     return next((e for e in scanner.load_cached(DB_PATH).entries if e.work_id == work_id), None)
 
@@ -994,6 +1062,9 @@ def read_chapter(request: Request, work_id: str, chapter_index: int):
     if chapter_index < 0 or chapter_index >= len(chapters):
         return RedirectResponse(url=f"/reader/{work_id}/{max(0, min(chapter_index, len(chapters) - 1))}")
 
+    db.record_view(DB_PATH, request.state.user.id, work_id, datetime.now().isoformat())
+    abs_read_ids, read_marked_ids = _read_ids(request.state.user.id)
+
     chapter = chapters[chapter_index]
     chapter_html = epub_reader.get_chapter_html(entry.file_path, work_id, chapter)
     return templates.TemplateResponse(
@@ -1007,8 +1078,21 @@ def read_chapter(request: Request, work_id: str, chapter_index: int):
             "chapter_html": chapter_html,
             "prev_index": chapter_index - 1 if chapter_index > 0 else None,
             "next_index": chapter_index + 1 if chapter_index < len(chapters) - 1 else None,
+            "abs_read_ids": abs_read_ids,
+            "read_marked_ids": read_marked_ids,
         },
     )
+
+
+@app.get("/go/{work_id}")
+def go_to_ao3(request: Request, work_id: str):
+    """Every "title" link on Home/Issues for a work not yet downloaded
+    routes through here instead of straight to AO3, purely so a click
+    still lands in History (see /history) the same way opening the
+    in-app reader already does for a work that's on disk.
+    """
+    db.record_view(DB_PATH, request.state.user.id, work_id, datetime.now().isoformat())
+    return RedirectResponse(url=f"https://archiveofourown.org/works/{work_id}", status_code=302)
 
 
 @app.get("/reader/{work_id}/{chapter_index}/asset/{asset_path:path}")
@@ -2276,6 +2360,7 @@ def account_page(request: Request, error: str = "", saved: str = ""):
             "themes": db.list_user_themes(DB_PATH, request.state.user.id),
             "active_theme_id": db.get_active_theme_id(DB_PATH, request.state.user.id),
             "abs_username": db.get_user_abs_username(DB_PATH, request.state.user.id) or "",
+            "timezone_options": TIMEZONE_OPTIONS,
         },
     )
 
@@ -2322,6 +2407,15 @@ def deactivate_theme(request: Request):
 def remove_theme(request: Request, theme_id: int):
     db.delete_theme(DB_PATH, request.state.user.id, theme_id)
     return RedirectResponse(url="/account?saved=theme_deleted", status_code=303)
+
+
+@app.post("/account/timezone")
+def save_timezone(request: Request, timezone: str = Form("")):
+    """Per-account display timezone -- see local_time. Blank means "no
+    conversion, show the server's own recorded time as-is".
+    """
+    db.set_user_timezone(DB_PATH, request.state.user.id, timezone.strip() or None)
+    return RedirectResponse(url="/account?saved=timezone", status_code=303)
 
 
 @app.post("/account/abs_username")
