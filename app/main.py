@@ -1915,9 +1915,15 @@ def wrangle_tags(
     category, target is explicitly classified as that category too --
     see the block after the loop. Mixed-category children (only possible
     while target itself has no category to enforce against) leave it
-    unclassified, same as before.
+    unclassified, same as before. A Verified tag among those checked is
+    skipped entirely (see _unverified) -- its own wrangling relation is
+    part of what "Verified" locks. target itself being Verified doesn't
+    block *other* tags from being wrangled under it, only the auto-typing
+    step at the end, since that's the one thing here that would actually
+    change target's own data.
     """
     target = target.strip()
+    verified_tags = db.get_all_verified_tags(DB_PATH)
     if relation in ("synonym", "child") and target:
         entries = scanner.load_cached(DB_PATH).entries if relation == "child" else []
         # Fetched once up front (rather than inside _effective_tag_category
@@ -1928,7 +1934,7 @@ def wrangle_tags(
         # recognized as already-categorized on a later one.
         explicit_categories = db.get_all_tag_categories(DB_PATH) if relation == "child" else {}
         target_category = _effective_tag_category(entries, target, explicit_categories) if relation == "child" else None
-        for tag in tags:
+        for tag in _unverified(tags, verified_tags):
             if relation == "child" and target_category is not None:
                 tag_category = _effective_tag_category(entries, tag, explicit_categories)
                 if tag_category is not None and tag_category != target_category:
@@ -1938,7 +1944,7 @@ def wrangle_tags(
             except ValueError:
                 pass
 
-        if relation == "child" and target_category is None:
+        if relation == "child" and target_category is None and target not in verified_tags:
             children = db.get_tag_children(DB_PATH).get(target, set())
             new_category = _shared_child_category(children, entries, explicit_categories)
             if new_category is not None:
@@ -1991,7 +1997,12 @@ def tag_wranglings_page(request: Request):
 
 @app.post("/tags/classify/unwrangle")
 def unwrangle_tag(tag: str = Form(...)):
-    db.remove_tag_wrangling(DB_PATH, tag)
+    """Undoes tag's own 'synonym'/'child' relation (see the Tag Wrangling
+    page). Refuses on a Verified tag, same as every other classification
+    change -- see _unverified.
+    """
+    if tag not in db.get_all_verified_tags(DB_PATH):
+        db.remove_tag_wrangling(DB_PATH, tag)
     return RedirectResponse(url="/tags/classify/wranglings", status_code=303)
 
 
@@ -2037,6 +2048,18 @@ def _relationship_name_parts(relationship_tag: str) -> list[str]:
     db.get_all_relationship_characters.
     """
     return [part.strip() for part in _RELATIONSHIP_SPLIT_RE.split(relationship_tag) if part.strip()]
+
+
+def _unverified(tags: list[str], verified_tags: set[str]) -> list[str]:
+    """Drops any tag currently marked Verified -- a locked row, same idea
+    as "No Fandom" already blocking new Character/Relationship links:
+    once someone's confirmed a row is right, every classification/
+    association route refuses to touch it until its own Verified box is
+    unchecked again (see set_tag_verified_route, the one action always
+    allowed regardless of this). Used both for a single tag (wrap it in a
+    list) and for a bulk action's whole checked batch.
+    """
+    return [tag for tag in tags if tag not in verified_tags]
 
 
 def _matches_classification_source(
@@ -2181,11 +2204,13 @@ def set_tag_fandom_route(
     (the dropdown's "No Fandom (auto)" option) instead clears any
     explicit association, reverting the tag back to inheriting from its
     same-category parent chain. See scanner.resolve_tag_fandom_explicit.
+    A Verified tag refuses this entirely -- see _unverified.
     """
-    if fandom:
-        db.set_tag_fandom(DB_PATH, tag, fandom)
-    else:
-        db.remove_tag_fandom(DB_PATH, tag)
+    if tag not in db.get_all_verified_tags(DB_PATH):
+        if fandom:
+            db.set_tag_fandom(DB_PATH, tag, fandom)
+        else:
+            db.remove_tag_fandom(DB_PATH, tag)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2218,9 +2243,10 @@ def set_tag_media_type_route(
     it. Only meaningful on a tag explicitly classified Fandom (see
     tags.html), though nothing here re-checks that server-side -- there's
     no association to corrupt either way if it's ever called on something
-    else.
+    else. A Verified tag refuses this entirely -- see _unverified.
     """
-    db.set_tag_media_types(DB_PATH, tag, set(media_type))
+    if tag not in db.get_all_verified_tags(DB_PATH):
+        db.set_tag_media_types(DB_PATH, tag, set(media_type))
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2279,14 +2305,17 @@ def set_relationship_character_route(
     character_tag clears that slot instead of linking it. A relationship
     with "No Fandom" explicitly set can't gain a new link (see
     _tag_has_no_fandom) -- clearing an existing one is still always
-    allowed, so setting "No Fandom" later never traps a stale link.
+    allowed, so setting "No Fandom" later never traps a stale link. A
+    Verified relationship_tag refuses either direction, though -- see
+    _unverified, unverifying it first is the only way back in.
     """
     character_tag = character_tag.strip()
-    if character_tag:
-        if not _tag_has_no_fandom(relationship_tag):
-            db.set_relationship_character(DB_PATH, relationship_tag, part_index, character_tag)
-    else:
-        db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
+    if relationship_tag not in db.get_all_verified_tags(DB_PATH):
+        if character_tag:
+            if not _tag_has_no_fandom(relationship_tag):
+                db.set_relationship_character(DB_PATH, relationship_tag, part_index, character_tag)
+        else:
+            db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2309,7 +2338,8 @@ def remove_freeform_character_route(
     show_set: bool = Form(False),
     incomplete_only: bool = Form(False),
 ):
-    db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
+    if freeform_tag not in db.get_all_verified_tags(DB_PATH):
+        db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2332,7 +2362,8 @@ def remove_freeform_relationship_route(
     show_set: bool = Form(False),
     incomplete_only: bool = Form(False),
 ):
-    db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
+    if freeform_tag not in db.get_all_verified_tags(DB_PATH):
+        db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2372,7 +2403,9 @@ def apply_associations(
     one), same restriction as the per-row control -- and, since a Fandom
     can belong to more than one category, this *adds* the picked one to
     whatever the tag already has rather than replacing its whole set (the
-    per-row checkbox group is the tool for replacing/clearing one).
+    per-row checkbox group is the tool for replacing/clearing one). A
+    Verified tag among those checked is skipped entirely -- see
+    _unverified.
     """
     fandom = fandom.strip()
     character = character.strip()
@@ -2383,7 +2416,7 @@ def apply_associations(
         tag_fandoms = db.get_all_tag_fandoms(DB_PATH)
         explicit_categories = db.get_all_tag_categories(DB_PATH)
         tag_media_types = db.get_all_tag_media_types(DB_PATH)
-        for tag in tags:
+        for tag in _unverified(tags, db.get_all_verified_tags(DB_PATH)):
             category = _effective_tag_category(entries, tag)
             if fandom and category in ("character", "relationship", "freeform"):
                 db.set_tag_fandom(DB_PATH, tag, fandom)
@@ -2416,6 +2449,7 @@ def set_selected_tags(
     show_set: bool = Form(False),
     incomplete_only: bool = Form(False),
 ):
+    tags = _unverified(tags, db.get_all_verified_tags(DB_PATH))
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
         if category in ("character", "relationship"):
@@ -2444,7 +2478,8 @@ def mark_page_freeform(
     incomplete_only: bool = Form(False),
 ):
     explicit = db.get_all_tag_categories(DB_PATH)
-    db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
+    verified = db.get_all_verified_tags(DB_PATH)
+    db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit and t not in verified})
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2459,7 +2494,8 @@ def mark_all_unclassified_freeform(work_id: str = Form("")):
     result = scanner.load_cached(DB_PATH)
     all_tags = {t for e in result.entries for t in e.fandom_candidates}
     explicit = db.get_all_tag_categories(DB_PATH)
-    db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit})
+    verified = db.get_all_verified_tags(DB_PATH)
+    db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit and t not in verified})
     return RedirectResponse(url=f"/tags/classify?work_id={quote(work_id)}", status_code=303)
 
 

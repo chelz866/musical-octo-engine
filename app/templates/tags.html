@@ -12,8 +12,9 @@
 {% endmacro %}
 {% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only, verified_tags) %}
 {% set is_synthetic_heading = organize_by and row.children and not row.category %}
-<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}{% if row.tag in verified_tags %} tag-row-verified{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
-  <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
+{% set is_verified = row.tag in verified_tags %}
+<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}{% if is_verified %} tag-row-verified{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
+  <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()" {% if is_verified %}disabled title="Unverify this row to select it for bulk actions"{% endif %}></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
     {% if row.children %}
     <button type="button" class="tag-toggle" data-group="{{ row.tag }}" aria-expanded="false" onclick="toggleChildren(this)">&#9656;</button>
@@ -39,7 +40,7 @@
     <form method="post" action="/tags/classify/set_fandom" class="inline-form">
       <input type="hidden" name="tag" value="{{ row.tag }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <select name="fandom" onchange="this.form.requestSubmit()">
+      <select name="fandom" onchange="this.form.requestSubmit()" {% if is_verified %}disabled{% endif %}>
         <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
         <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
         {% for f, d in known_fandoms %}
@@ -54,7 +55,7 @@
       {% set own_media_types = tag_media_types.get(row.tag, []) %}
       {% if not own_media_types %}<span class="hint">Uncategorized Fandoms (auto)</span>{% endif %}
       {% for mt in media_type_options %}
-      <label class="hint"><input type="checkbox" name="media_type" value="{{ mt }}" {% if mt in own_media_types %}checked{% endif %} onchange="this.form.requestSubmit()"> {{ mt }}</label>
+      <label class="hint"><input type="checkbox" name="media_type" value="{{ mt }}" {% if mt in own_media_types %}checked{% endif %} onchange="this.form.requestSubmit()" {% if is_verified %}disabled{% endif %}> {{ mt }}</label>
       {% endfor %}
     </form>
     {% elif row.category == "fandom" %}
@@ -75,7 +76,7 @@
       <input type="hidden" name="part_index" value="{{ part_index }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <label class="hint">{{ part }}:
-        <select name="character_tag" onchange="this.form.requestSubmit()">
+        <select name="character_tag" onchange="this.form.requestSubmit()" {% if is_verified %}disabled{% endif %}>
           <option value="">&mdash;</option>
           {% if no_fandom %}
           <option value="{{ linked }}" selected>{{ linked }}</option>
@@ -96,7 +97,7 @@
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="character_tag" value="{{ c }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <button type="submit" class="chip-remove">{{ c }} &times;</button>
+      <button type="submit" class="chip-remove" {% if is_verified %}disabled{% endif %}>{{ c }} &times;</button>
     </form>
     {% endfor %}
     {% if not freeform_characters.get(row.tag) %}
@@ -111,7 +112,7 @@
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="relationship_tag" value="{{ r }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <button type="submit" class="chip-remove">{{ r }} &times;</button>
+      <button type="submit" class="chip-remove" {% if is_verified %}disabled{% endif %}>{{ r }} &times;</button>
     </form>
     {% endfor %}
     {% if not freeform_relationships.get(row.tag) %}

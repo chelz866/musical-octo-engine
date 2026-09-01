@@ -804,6 +804,13 @@ th {
   background: color-mix(in srgb, var(--ok) 18%, transparent);
 }
 
+.tag-row-verified select:disabled,
+.tag-row-verified input:disabled,
+.tag-row-verified button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .tag-child-name {
   padding-left: 1.5rem;
 }

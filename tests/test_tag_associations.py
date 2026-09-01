@@ -15,10 +15,18 @@ from app.main import (
     _auto_link_relationship_characters,
     _tag_has_no_fandom,
     _tag_rows,
+    _unverified,
     apply_associations,
+    mark_all_unclassified_freeform,
+    mark_page_freeform,
+    remove_freeform_character_route,
+    remove_freeform_relationship_route,
     set_relationship_character_route,
     set_selected_tags,
+    set_tag_fandom_route,
+    set_tag_media_type_route,
     set_tag_verified_route,
+    unwrangle_tag,
     wrangle_tags,
 )
 from app.scanner import WorkEntry, _entry_to_row
@@ -490,3 +498,195 @@ def test_set_tag_verified_route_checks_and_unchecks():
             show_guessed=False, show_set=False, incomplete_only=False,
         )
         assert db.get_all_verified_tags(path) == set()
+
+
+def test_unverified_drops_verified_tags_from_a_list():
+    assert _unverified(["A", "B", "C"], {"B"}) == ["A", "C"]
+    assert _unverified(["A", "B"], set()) == ["A", "B"]
+    assert _unverified([], {"A"}) == []
+
+
+def test_set_tag_fandom_route_refuses_on_a_verified_tag():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Hermione Granger": "character"})
+        db.set_tag_verified(path, "Hermione Granger", True)
+
+        set_tag_fandom_route(
+            tag="Hermione Granger", fandom="Harry Potter", filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_fandoms(path) == {}
+
+
+def test_set_tag_fandom_route_allows_it_once_unverified():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Hermione Granger": "character"})
+
+        set_tag_fandom_route(
+            tag="Hermione Granger", fandom="Harry Potter", filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_fandoms(path) == {"Hermione Granger": "Harry Potter"}
+
+
+def test_set_tag_media_type_route_refuses_on_a_verified_tag():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Doctor Who": "fandom"})
+        db.set_tag_verified(path, "Doctor Who", True)
+
+        set_tag_media_type_route(
+            tag="Doctor Who", media_type=["TV Shows"], filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_media_types(path) == {}
+
+
+def test_remove_freeform_character_route_refuses_on_a_verified_tag():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.add_freeform_character(path, "Coffee Shop AU", "Harry Potter")
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        remove_freeform_character_route(
+            freeform_tag="Coffee Shop AU", character_tag="Harry Potter", filter="all", page=1,
+            sort="count_desc", work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_freeform_characters(path) == {"Coffee Shop AU": {"Harry Potter"}}
+
+
+def test_remove_freeform_relationship_route_refuses_on_a_verified_tag():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.add_freeform_relationship(path, "Coffee Shop AU", "A/B")
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        remove_freeform_relationship_route(
+            freeform_tag="Coffee Shop AU", relationship_tag="A/B", filter="all", page=1,
+            sort="count_desc", work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_freeform_relationships(path) == {"Coffee Shop AU": {"A/B"}}
+
+
+def test_set_relationship_character_route_refuses_on_a_verified_relationship_even_to_clear():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"A/B": "relationship"})
+        db.set_relationship_character(path, "A/B", 0, "A")
+        db.set_tag_verified(path, "A/B", True)
+
+        set_relationship_character_route(
+            relationship_tag="A/B", part_index=0, character_tag="",
+            filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        # Even clearing (normally always allowed) is refused while Verified.
+        assert db.get_all_relationship_characters(path) == {"A/B": {0: "A"}}
+
+
+def test_apply_associations_skips_a_verified_tag_in_the_batch():
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Coffee Shop AU", "Angst"])
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform", "Angst": "freeform"})
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        apply_associations(
+            tags=["Coffee Shop AU", "Angst"], fandom="", character="Harry Potter", relationship="", media_type="",
+            filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_freeform_characters(path) == {"Angst": {"Harry Potter"}}
+
+
+def test_set_selected_tags_skips_a_verified_tag_when_reclassifying():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        set_selected_tags(
+            tags=["Coffee Shop AU"], category="fandom", filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}
+
+
+def test_set_selected_tags_skips_a_verified_tag_when_unclassifying():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        set_selected_tags(
+            tags=["Coffee Shop AU"], category="unclassify", filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}
+
+
+def test_wrangle_tags_skips_a_verified_tag_being_wrangled():
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Harry Potter", "Draco Malfoy"])
+        db.set_tag_categories(path, {"Harry Potter": "character", "Draco Malfoy": "character"})
+        db.set_tag_verified(path, "Draco Malfoy", True)
+
+        wrangle_tags(
+            tags=["Harry Potter", "Draco Malfoy"], relation="child", target="Hogwarts Students",
+            **_WRANGLE_DEFAULTS,
+        )
+
+        assert db.get_tag_children(path).get("Hogwarts Students", set()) == {"Harry Potter"}
+
+
+def test_wrangle_tags_does_not_auto_type_a_verified_target():
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Harry Potter", "Draco Malfoy"])
+        db.set_tag_categories(path, {"Harry Potter": "character", "Draco Malfoy": "character"})
+        db.set_tag_verified(path, "Hogwarts Students", True)
+
+        wrangle_tags(
+            tags=["Harry Potter", "Draco Malfoy"], relation="child", target="Hogwarts Students",
+            **_WRANGLE_DEFAULTS,
+        )
+
+        # The children still attach (they aren't the ones locked)...
+        assert db.get_tag_children(path)["Hogwarts Students"] == {"Harry Potter", "Draco Malfoy"}
+        # ...but the Verified target itself doesn't get auto-typed.
+        assert "Hogwarts Students" not in db.get_all_tag_categories(path)
+
+
+def test_unwrangle_tag_refuses_on_a_verified_tag():
+    with _temp_db() as path:
+        db.set_tag_wrangling(path, "Ianto Jones", "child", "Torchwood")
+        db.set_tag_verified(path, "Ianto Jones", True)
+
+        unwrangle_tag(tag="Ianto Jones")
+
+        assert db.get_all_tag_wranglings(path) == {"Ianto Jones": ("child", "Torchwood")}
+
+
+def test_mark_page_freeform_skips_a_verified_unclassified_tag():
+    with _temp_db() as path:
+        db.set_tag_verified(path, "Weird Tag", True)
+
+        mark_page_freeform(
+            tags=["Weird Tag", "Other Tag"], filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_categories(path) == {"Other Tag": "freeform"}
+
+
+def test_mark_all_unclassified_freeform_skips_a_verified_unclassified_tag():
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Weird Tag", "Other Tag"])
+        db.set_tag_verified(path, "Weird Tag", True)
+
+        mark_all_unclassified_freeform(work_id="")
+
+        assert db.get_all_tag_categories(path) == {"Other Tag": "freeform"}

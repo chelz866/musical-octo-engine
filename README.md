@@ -501,6 +501,17 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   reviewed still counts as incomplete. A synthetic Organize-by group heading has no checkbox of its
   own (it isn't a real tag), same as it has no Category dropdown either.
 
+  Checking Verified locks the row: its Fandom dropdown, Media Type checkboxes, Character dropdowns,
+  and remove-chip buttons all go disabled (and the bulk "select this tag" checkbox too, so it can't
+  be swept into a bulk action either), so a row you've confirmed correct can't be nudged out of that
+  state by a stray click. The Verified checkbox itself is the one control that's never disabled --
+  unchecking it is the only way back in, at which point every other control on the row works again.
+  This is enforced server-side too (every classification/association/wrangling route refuses to
+  touch a Verified tag), not just by graying out the controls -- including the bulk tools further
+  up the page ("Set selected as:", "Merge/Make children of," "Apply to selected," and the two
+  "mark as Freeform" buttons): a Verified tag swept up in a batch with others is silently skipped,
+  leaving the rest of the batch to go through normally.
+
   None of the per-row controls (Fandom, Media Type, a Relationship's per-part Character dropdowns,
   the remove-chip buttons, Verified) reload the page -- each one posts in the background and swaps in
   just the freshly-updated table, leaving the page exactly where you were scrolled to. Checking off a
