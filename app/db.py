@@ -240,6 +240,15 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS manual_links (
+                work_id TEXT PRIMARY KEY,
+                url TEXT NOT NULL,
+                added_at TEXT NOT NULL
+            )
+            """
+        )
         # A 'downloading' row means the background worker died mid-item on
         # a previous run of the app (nothing can still be in flight right
         # after a fresh start) -- put it back to pending so it's picked up
@@ -1017,3 +1026,31 @@ def clear_finished_downloads(path: str) -> None:
     """
     with _connect(path) as conn:
         conn.execute("DELETE FROM download_queue WHERE status = 'done'")
+
+
+def add_manual_links(path: str, items: list[tuple[str, str]], added_at: str) -> int:
+    """Adds (work_id, url) rows to the manually-curated link list -- a
+    work_id already present is left alone, so pasting the same link twice
+    (or one already tracked through a feed) is a harmless no-op. Returns
+    how many were newly added.
+    """
+    added = 0
+    with _connect(path) as conn:
+        for work_id, url in items:
+            cursor = conn.execute(
+                "INSERT INTO manual_links (work_id, url, added_at) VALUES (?, ?, ?) ON CONFLICT(work_id) DO NOTHING",
+                (work_id, url, added_at),
+            )
+            added += cursor.rowcount
+    return added
+
+
+def list_manual_links(path: str) -> list[dict]:
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id, url, added_at FROM manual_links ORDER BY added_at").fetchall()
+    return [{"work_id": r[0], "url": r[1], "added_at": r[2]} for r in rows]
+
+
+def remove_manual_link(path: str, work_id: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM manual_links WHERE work_id = ?", (work_id,))

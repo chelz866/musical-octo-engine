@@ -21,6 +21,11 @@
     </form>
   </header>
 
+  <form method="post" action="/queue/manual_links/add" class="edit-form manual-links-form">
+    <textarea name="links" rows="2" placeholder="Paste one or more AO3 work links here, then Add to Queue" style="min-width: 320px;"></textarea>
+    <button type="submit">Add to Queue</button>
+  </form>
+
   <section class="stats">
     <div class="stat">
       <div class="stat-value">{{ download_queue_counts.pending }}</div>
@@ -71,7 +76,7 @@
           <th>Author</th>
           <th>Chapters</th>
           <th>Status</th>
-          <th>From feed</th>
+          <th>Source</th>
         </tr>
       </thead>
       <tbody>
@@ -93,7 +98,15 @@
             {% if item.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
             {% else %}<span class="badge badge-warn">may need update</span>{% endif %}
           </td>
-          <td>{{ item.feed_titles | join(", ") }}</td>
+          <td>
+            {{ item.feed_titles | join(", ") }}
+            {% if item.feed_titles == ["Manually added"] %}
+            <form method="post" action="/queue/manual_links/remove" class="inline-form">
+              <input type="hidden" name="work_id" value="{{ item.entry.work_id }}">
+              <button type="submit" class="chip-remove" title="Remove this manually added link">&times;</button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
         <tr>

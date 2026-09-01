@@ -838,6 +838,48 @@ def test_clear_finished_downloads_removes_only_done_rows():
         assert db.get_download_queue_counts(path) == {"pending": 1, "downloading": 0, "done": 0}
 
 
+def test_add_manual_links_adds_new_items_and_reports_count():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        added = db.add_manual_links(
+            path,
+            [("1", "https://archiveofourown.org/works/1"), ("2", "https://archiveofourown.org/works/2")],
+            "2026-01-01T00:00:00",
+        )
+
+        assert added == 2
+        assert [link["work_id"] for link in db.list_manual_links(path)] == ["1", "2"]
+
+
+def test_add_manual_links_skips_a_work_id_already_present():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        db.add_manual_links(path, [("1", "https://archiveofourown.org/works/1")], "2026-01-01T00:00:00")
+        added_again = db.add_manual_links(path, [("1", "https://archiveofourown.org/works/1")], "2026-01-01T00:00:01")
+
+        assert added_again == 0
+        assert len(db.list_manual_links(path)) == 1
+
+
+def test_remove_manual_link_removes_only_that_work_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.add_manual_links(
+            path,
+            [("1", "https://archiveofourown.org/works/1"), ("2", "https://archiveofourown.org/works/2")],
+            "2026-01-01T00:00:00",
+        )
+
+        db.remove_manual_link(path, "1")
+
+        assert [link["work_id"] for link in db.list_manual_links(path)] == ["2"]
+
+
 def test_user_abs_username_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

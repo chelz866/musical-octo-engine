@@ -12,6 +12,7 @@ from app.main import (
     _facet_suggestions,
     _filter_query_string,
     _parse_date,
+    _parse_manual_links,
     _selected_with_counts,
     _add_virtual_parent_counts,
     _all_descendants,
@@ -247,6 +248,31 @@ def test_parse_date_invalid_or_blank_returns_none():
     assert _parse_date("not-a-date") is None
     assert _parse_date("") is None
     assert _parse_date(None) is None
+
+
+def test_parse_manual_links_extracts_work_ids_one_per_line():
+    text = "https://archiveofourown.org/works/111\nhttps://archiveofourown.org/works/222/chapters/999"
+
+    assert _parse_manual_links(text) == [
+        ("111", "https://archiveofourown.org/works/111"),
+        ("222", "https://archiveofourown.org/works/222"),
+    ]
+
+
+def test_parse_manual_links_handles_a_comma_separated_or_pasted_paragraph():
+    text = "check out https://archiveofourown.org/works/111, and also archiveofourown.org/works/222 !"
+
+    assert [work_id for work_id, _ in _parse_manual_links(text)] == ["111", "222"]
+
+
+def test_parse_manual_links_dedupes_by_work_id_keeping_first_occurrence():
+    text = "https://archiveofourown.org/works/111 https://archiveofourown.org/works/111/chapters/5"
+
+    assert _parse_manual_links(text) == [("111", "https://archiveofourown.org/works/111")]
+
+
+def test_parse_manual_links_returns_empty_list_for_no_matches():
+    assert _parse_manual_links("nothing useful here") == []
 
 
 def test_entry_matches_word_count_bounds_are_inclusive():

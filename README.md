@@ -400,7 +400,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   thousands of works) runs on its own while you do something else in the app -- see "Optional:
   downloading from within the app" above for how that works and what it needs. Successes and
   failures land on Home and Issues exactly like a manual ao3downloader run would, since it's driving
-  the same underlying download logic.
+  the same underlying download logic. A "paste links" box above the table lets you add specific
+  works straight to this same queue with no feed involved -- paste one or more AO3 work URLs (one
+  per line, or however they come out of a copy-paste) and click "Add to Queue"; each one shows up as
+  "Manually added" (with a &times; to retract it before it downloads) and drops out on its own once
+  it's on disk, exactly like a tracked-feed row would.
 - **Incomplete Works** (`/incomplete`) -- every already-downloaded work that's still a WIP, across
   your whole library, not just ones tracked through a feed (that's what Queue is for). Instead of a
   "From feed" column it shows Last Updated -- when you last downloaded/refreshed that file locally,

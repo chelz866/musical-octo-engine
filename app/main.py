@@ -1963,15 +1963,56 @@ def tracked(request: Request):
     )
 
 
-def _queue_items() -> list[dict]:
-    """Tracked-feed entries that still need attention: not downloaded at
-    all, or possibly out of date. A first cut over the same status rss
-    already computes for the Tracked Feeds page -- expected to grow.
+MANUAL_LINK_SOURCE = "Manually added"
+AO3_WORK_URL_RE = re.compile(r"works/(\d+)", re.IGNORECASE)
 
-    The same work can be tracked through more than one feed (e.g. it
-    matches two tags you follow) -- dedupe by work_id so it shows up once,
-    keeping whichever feed's copy has the most recent feed_updated info
-    and listing every feed it came from.
+
+def _parse_manual_links(text: str) -> list[tuple[str, str]]:
+    """Pulls (work_id, canonical url) pairs out of pasted text -- scans for
+    any works/<id> occurrence rather than requiring one link per line, so a
+    comma-separated list or a pasted paragraph of links both work. Dedupes
+    by work_id, keeping the first occurrence.
+    """
+    found: dict[str, str] = {}
+    for match in AO3_WORK_URL_RE.finditer(text):
+        work_id = match.group(1)
+        found.setdefault(work_id, f"https://archiveofourown.org/works/{work_id}")
+    return list(found.items())
+
+
+def _manual_queue_rows() -> list[dict]:
+    """Manually pasted AO3 links (see /queue/manual_links/add) that aren't
+    downloaded yet. A link's stored row is never deleted just because its
+    work_id lands on disk -- it simply stops appearing here, and would
+    reappear on its own if that file were ever removed, the same way a
+    tracked feed's entry behaves.
+    """
+    result = scanner.load_cached(DB_PATH)
+    local_by_id = {e.work_id: e for e in result.entries}
+    rows = []
+    for link in db.list_manual_links(DB_PATH):
+        local_entry = local_by_id.get(link["work_id"])
+        if local_entry and local_entry.on_disk:
+            continue
+        entry = rss.FeedEntry(
+            work_id=link["work_id"],
+            title=local_entry.title if local_entry else None,
+            author=local_entry.author if local_entry else None,
+        )
+        rows.append({"entry": entry, "on_disk": False, "status": "not_downloaded", "feed_titles": [MANUAL_LINK_SOURCE]})
+    return rows
+
+
+def _queue_items() -> list[dict]:
+    """Tracked-feed entries that still need attention (not downloaded at
+    all, or possibly out of date -- a first cut over the same status rss
+    already computes for the Tracked Feeds page), plus every manually
+    pasted link that isn't downloaded yet.
+
+    The same work can show up more than once (tracked through two feeds,
+    or tracked AND manually pasted) -- dedupe by work_id so it shows up
+    once, keeping whichever feed's copy has the most recent feed_updated
+    info and listing every source it came from.
     """
     status_order = {"not_downloaded": 0, "may_need_update": 1}
     by_work_id: dict[str, dict] = {}
@@ -1992,6 +2033,14 @@ def _queue_items() -> list[dict]:
                 existing["entry"] = row["entry"]
                 existing["status"] = row["status"]
                 existing["on_disk"] = row["on_disk"]
+
+    for row in _manual_queue_rows():
+        work_id = row["entry"].work_id
+        existing = by_work_id.get(work_id)
+        if existing is None:
+            by_work_id[work_id] = row
+        elif MANUAL_LINK_SOURCE not in existing["feed_titles"]:
+            existing["feed_titles"].append(MANUAL_LINK_SOURCE)
 
     items = list(by_work_id.values())
     items.sort(key=lambda item: (status_order[item["status"]], (item["entry"].title or "").lower()))
@@ -2054,6 +2103,20 @@ async def stop_download_worker(next: str = Form("/queue")):
 def clear_finished_downloads_route(next: str = Form("/queue")):
     db.clear_finished_downloads(DB_PATH)
     return RedirectResponse(url=next, status_code=303)
+
+
+@app.post("/queue/manual_links/add")
+def add_manual_links_route(links: str = Form("")):
+    parsed = _parse_manual_links(links)
+    if parsed:
+        db.add_manual_links(DB_PATH, parsed, datetime.now().isoformat())
+    return RedirectResponse(url="/queue", status_code=303)
+
+
+@app.post("/queue/manual_links/remove")
+def remove_manual_link_route(work_id: str = Form(...)):
+    db.remove_manual_link(DB_PATH, work_id)
+    return RedirectResponse(url="/queue", status_code=303)
 
 
 @app.get("/incomplete", response_class=HTMLResponse)
