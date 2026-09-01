@@ -3,6 +3,7 @@ from datetime import datetime
 
 from app import main as main_module
 from app.main import (
+    DESCENDING_SORTS,
     EXCLUDE_FACETS,
     FACETS,
     SORT_OPTIONS,
@@ -669,7 +670,10 @@ def test_autocomplete_index_no_match_returns_empty():
     assert _search(autocompleter, word_to_tags, "xyz") == []
 
 
-def test_sort_newest_prefers_mtime_then_log_timestamp_then_min():
+def test_sort_newest_key_prefers_mtime_then_log_timestamp_then_min():
+    # The raw key alone sorts ascending (oldest timestamp first) -- ["newest"]
+    # only actually shows newest-first once DESCENDING_SORTS' reverse=True
+    # is applied at the dashboard's own sort call, covered separately below.
     with_mtime = WorkEntry(work_id="1", mtime=datetime(2024, 1, 1))
     with_log_timestamp = WorkEntry(work_id="2", log_timestamp="01/01/2023, 00:00:00")
     with_neither = WorkEntry(work_id="3")
@@ -677,6 +681,23 @@ def test_sort_newest_prefers_mtime_then_log_timestamp_then_min():
     entries = [with_mtime, with_log_timestamp, with_neither]
     entries.sort(key=SORT_OPTIONS["newest"])
     assert [e.work_id for e in entries] == ["3", "2", "1"]
+
+
+def test_sort_newest_with_descending_reverse_shows_newest_first():
+    # This is the actual end-to-end behavior "Date Downloaded (Newest)"
+    # promises on Downloads -- see dashboard()'s entries.sort(...,
+    # reverse=filters["sort"] in DESCENDING_SORTS). A regression here (e.g.
+    # dropping that reverse=True) previously put freshly-downloaded works
+    # dead last instead of first, with nothing-downloaded-yet works
+    # floating to the top.
+    oldest = WorkEntry(work_id="1", mtime=datetime(2024, 1, 1))
+    newest = WorkEntry(work_id="2", mtime=datetime(2026, 1, 1))
+    no_timestamp = WorkEntry(work_id="3")
+
+    entries = [oldest, newest, no_timestamp]
+    entries.sort(key=SORT_OPTIONS["newest"], reverse="newest" in DESCENDING_SORTS)
+
+    assert [e.work_id for e in entries] == ["2", "1", "3"]
 
 
 def test_sanitize_style_content_neutralizes_closing_style_tag():

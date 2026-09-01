@@ -504,6 +504,11 @@ SORT_OPTIONS = {
     "word_count_asc": lambda e: (e.word_count or 0),
     "newest": lambda e: scanner.effective_timestamp(e) or datetime.min,
 }
+# word_count_desc fakes "descending" by negating its own sort key instead
+# (a plain number, unlike a datetime, negates safely) -- "newest" can't do
+# that (datetime.min.timestamp() overflows), so it's the one SORT_OPTIONS
+# entry that needs an actual reverse=True at the call site below.
+DESCENDING_SORTS = {"newest"}
 def _series_sort_key(entry) -> float:
     """Numeric-aware ordering for the series view (see /series/{series_name}
     below) -- AO3's own series page lists works "Part 1, 2, ... 10" in that
@@ -939,7 +944,10 @@ def dashboard(request: Request, page: int = 1):
         entries = [e for e in entries if e.work_id in bookmarked_ids]
     if filters["unread"]:
         entries = [e for e in entries if e.work_id not in abs_read_ids and e.work_id not in read_marked_ids]
-    entries.sort(key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]))
+    entries.sort(
+        key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]),
+        reverse=filters["sort"] in DESCENDING_SORTS,
+    )
 
     page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
 
