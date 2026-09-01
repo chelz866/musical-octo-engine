@@ -39,7 +39,7 @@
     <form method="post" action="/tags/classify/set_fandom" class="inline-form">
       <input type="hidden" name="tag" value="{{ row.tag }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <select name="fandom" onchange="this.form.submit()">
+      <select name="fandom" onchange="this.form.requestSubmit()">
         <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
         <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
         {% for f, d in known_fandoms %}
@@ -54,7 +54,7 @@
       {% set own_media_types = tag_media_types.get(row.tag, []) %}
       {% if not own_media_types %}<span class="hint">Uncategorized Fandoms (auto)</span>{% endif %}
       {% for mt in media_type_options %}
-      <label class="hint"><input type="checkbox" name="media_type" value="{{ mt }}" {% if mt in own_media_types %}checked{% endif %} onchange="this.form.submit()"> {{ mt }}</label>
+      <label class="hint"><input type="checkbox" name="media_type" value="{{ mt }}" {% if mt in own_media_types %}checked{% endif %} onchange="this.form.requestSubmit()"> {{ mt }}</label>
       {% endfor %}
     </form>
     {% elif row.category == "fandom" %}
@@ -75,7 +75,7 @@
       <input type="hidden" name="part_index" value="{{ part_index }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <label class="hint">{{ part }}:
-        <select name="character_tag" onchange="this.form.submit()">
+        <select name="character_tag" onchange="this.form.requestSubmit()">
           <option value="">&mdash;</option>
           {% if no_fandom %}
           <option value="{{ linked }}" selected>{{ linked }}</option>
@@ -125,7 +125,7 @@
       <input type="hidden" name="tag" value="{{ row.tag }}">
       <input type="hidden" name="verified" value="false">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <input type="checkbox" name="verified" value="true" {% if row.tag in verified_tags %}checked{% endif %} onchange="this.form.submit()">
+      <input type="checkbox" name="verified" value="true" {% if row.tag in verified_tags %}checked{% endif %} onchange="this.form.requestSubmit()">
     </form>
     {% endif %}
   </td>
@@ -403,5 +403,42 @@
       list.hidden = true;
       list.textContent = "";
     }
+
+    // Every per-row control (Fandom/Media Type/Character/Verified, the
+    // remove-chip buttons) posts one of these small "inline-form" forms.
+    // None of them change which rows are visible on this page (they never
+    // touch a tag's category, only its associations), so submitting one
+    // the normal way -- a full page navigation -- was pure cost: the
+    // browser jumps back to the top of the page for a change that only
+    // ever affects one row, which made checking off a column of Verified
+    // or Media Type boxes down a long list miserable. Intercepting the
+    // submit and swapping in just the freshly-rendered table instead
+    // keeps the scroll position exactly where it was.
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.classList.contains("inline-form")) return;
+      var scroll = document.querySelector(".tag-table-scroll");
+      if (!scroll || !scroll.contains(form)) return;
+      event.preventDefault();
+
+      var checkedTags = Array.from(scroll.querySelectorAll(".tag-checkbox:checked")).map(function (cb) {
+        return cb.value;
+      });
+      fetch(form.action, { method: "POST", body: new FormData(form) })
+        .then(function (response) { return response.text(); })
+        .then(function (html) {
+          var newScroll = new DOMParser().parseFromString(html, "text/html").querySelector(".tag-table-scroll");
+          if (!newScroll) { window.location.reload(); return; }
+          // Carry the bulk "select tags" checkboxes forward -- none of
+          // these actions change the row set, so anything checked before
+          // this one row's edit should still be checked after it.
+          newScroll.querySelectorAll(".tag-checkbox").forEach(function (checkbox) {
+            checkbox.checked = checkedTags.indexOf(checkbox.value) !== -1;
+          });
+          scroll.replaceWith(newScroll);
+          updateSelectedCount();
+        })
+        .catch(function () { window.location.reload(); });
+    });
   </script>
 {% endblock %}

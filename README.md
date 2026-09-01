@@ -500,6 +500,15 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   own rules there require this box checked too, so a tag with every field filled in but never
   reviewed still counts as incomplete. A synthetic Organize-by group heading has no checkbox of its
   own (it isn't a real tag), same as it has no Category dropdown either.
+
+  None of the per-row controls (Fandom, Media Type, a Relationship's per-part Character dropdowns,
+  the remove-chip buttons, Verified) reload the page -- each one posts in the background and swaps in
+  just the freshly-updated table, leaving the page exactly where you were scrolled to. Checking off a
+  column of Verified boxes, or several Media Type categories on the same row, used to mean a full
+  page reload back to the top after every single click; now it doesn't move at all. Anything that can
+  actually change *which* rows are showing (the filter tabs, Organize by, Sort, Show guessed/Show
+  set/Incomplete items only, search, pagination, and the bulk actions below the table) still does a
+  normal full-page navigation, since the row set underneath is genuinely different afterward.
 - **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
   into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
   sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is
