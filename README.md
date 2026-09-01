@@ -296,6 +296,18 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   and an A-Z letter strip (plus "#" for names starting with anything else) jumps straight to fandoms
   starting with that letter. A fandom wrangled as a child of another (set up on the admin Classify
   Tags page) nests under its parent here too, collapsed behind the same &#9656; toggle as the Tags pages.
+
+  A row of tabs above the letter strip filters by AO3's own Fandom media types (Anime & Manga, Books
+  & Literature, TV Shows, and so on, plus "Uncategorized Fandoms" for anything filed under none) --
+  set on Classify Tags, in the same "Fandom" column that shows a Fandom-association dropdown for
+  Character/Relationship/Freeform rows, once a Fandom tag has actually been *classified* Fandom
+  there (not just guessed -- a merely-guessed row shows "(classify to set a type)" instead, since
+  confirming the guess is what unlocks it). A same-category child with no media type of its own
+  inherits its nearest ancestor's explicit choice, same inheritance shape as the Fandom association
+  above; picking "Uncategorized Fandoms (auto)" clears a tag's own explicit choice, reverting it to
+  that inheritance (a plain "Uncategorized Fandoms" is a real, terminal choice the same way an
+  explicit "No Fandom" is for the Fandom-association dropdown). This is purely a browsing aid for a
+  large fandom list -- it doesn't feed into Downloads filtering.
 - **Series** (`/series/<name>`, not in the nav -- reached by clicking a work's series line) -- every
   downloaded work in that series, in series order, reusing the same blurb rendering as Downloads.
 - **Tags** (`/tags`, under Browse, any logged-in user) -- every tag across the whole library, with

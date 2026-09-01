@@ -19,18 +19,28 @@
     <h1>Fandoms</h1>
     <p class="paths">
       Best-effort guess from tag order in each epub &mdash; may occasionally
-      include a character or freeform tag, or miss a fandom.
+      include a character or freeform tag, or miss a fandom. A Fandom tag classified on
+      <a href="/tags/classify">Classify Tags</a> (not just guessed) can also be filed under one of
+      AO3's own media types below, to help keep a long list manageable.
     </p>
   </header>
 
+  <nav class="tag-filter-tabs">
+    <a href="/fandoms?sort={{ sort }}&letter={{ letter }}&media_type=all" class="{% if media_type == 'all' %}active{% endif %}">All ({{ total_fandoms }})</a>
+    {% for mt in media_type_options %}
+    <a href="/fandoms?sort={{ sort }}&letter={{ letter }}&media_type={{ mt | urlencode }}" class="{% if media_type == mt %}active{% endif %}">{{ mt }} ({{ media_type_counts.get(mt, 0) }})</a>
+    {% endfor %}
+  </nav>
+
   <nav class="letter-filter">
     {% for l in letter_options %}
-    <a href="/fandoms?sort={{ sort }}&letter={{ l }}" class="{% if letter == l %}active{% endif %}">{{ "All" if l == "all" else l }}</a>
+    <a href="/fandoms?sort={{ sort }}&letter={{ l }}&media_type={{ media_type | urlencode }}" class="{% if letter == l %}active{% endif %}">{{ "All" if l == "all" else l }}</a>
     {% endfor %}
   </nav>
 
   <form method="get" action="/fandoms" id="sort-form" class="tag-sort-form">
     <input type="hidden" name="letter" value="{{ letter }}">
+    <input type="hidden" name="media_type" value="{{ media_type }}">
     <label class="hint" for="fandom-sort">Sort:
       <select name="sort" id="fandom-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}

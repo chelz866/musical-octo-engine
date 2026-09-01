@@ -255,36 +255,45 @@ def child_parent_map(children: dict[str, set[str]]) -> dict[str, str]:
     return {child: parent for parent, kids in children.items() for child in kids}
 
 
-def resolve_tag_fandom_explicit(
-    tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]
+def _resolve_explicit_in_chain(
+    tag: str, parent_of: dict[str, str], explicit: dict[str, str], default: str
 ) -> tuple[str, bool]:
     """Walks `tag`'s own same-category 'child' chain (parent_of, from
     child_parent_map/db.get_tag_children) looking for the nearest
-    ancestor -- including `tag` itself -- with an explicit Fandom
-    association (db.set_tag_fandom). 'No Fandom' is itself a real,
-    terminal choice that stops the walk just as much as a real fandom
-    name would; only a tag with no explicit row anywhere in its own chain
-    falls back to the 'No Fandom' default. Safe against a cycle even
-    though db.set_tag_wrangling already refuses to create one.
+    ancestor -- including `tag` itself -- with an explicit value in
+    `explicit`. `default` is itself a real, terminal choice that stops
+    the walk just as much as any other explicit value would (see
+    resolve_tag_fandom_explicit/resolve_tag_media_type_explicit, whose
+    own callers rely on being able to set it explicitly too); only a tag
+    with no explicit row anywhere in its own chain falls back to it as a
+    default. Safe against a cycle even though db.set_tag_wrangling
+    already refuses to create one.
 
-    Returns (resolved fandom, whether an explicit choice -- on `tag`
-    itself or an ancestor -- produced it, as opposed to the "No Fandom"
-    default kicking in because nothing in the whole chain has ever set
-    one). Callers that only need the resolved value can ignore the second
-    element; a caller that needs to tell a real "No Fandom" decision
-    apart from a tag nobody's classified yet (e.g. the Organize-by-Fandom
+    Returns (resolved value, whether an explicit choice -- on `tag`
+    itself or an ancestor -- produced it, as opposed to `default` kicking
+    in because nothing in the whole chain has ever set one). Callers that
+    only need the resolved value can ignore the second element; a caller
+    that needs to tell a real "explicitly this default" decision apart
+    from a tag nobody's classified yet (e.g. the Organize-by-Fandom
     grouping) needs both.
     """
     current = tag
     seen: set[str] = set()
     while current is not None:
-        if current in explicit_fandoms:
-            return explicit_fandoms[current], True
+        if current in explicit:
+            return explicit[current], True
         if current in seen:
             break
         seen.add(current)
         current = parent_of.get(current)
-    return "No Fandom", False
+    return default, False
+
+
+def resolve_tag_fandom_explicit(
+    tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]
+) -> tuple[str, bool]:
+    """See _resolve_explicit_in_chain -- 'No Fandom' is the default here."""
+    return _resolve_explicit_in_chain(tag, parent_of, explicit_fandoms, "No Fandom")
 
 
 def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: dict[str, str]) -> str:
@@ -292,6 +301,24 @@ def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: di
     full (value, is_explicit) result.
     """
     return resolve_tag_fandom_explicit(tag, parent_of, explicit_fandoms)[0]
+
+
+def resolve_tag_media_type_explicit(
+    tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]
+) -> tuple[str, bool]:
+    """See _resolve_explicit_in_chain -- 'Uncategorized Fandoms' (AO3's
+    own real bucket for a Fandom filed under no specific medium) is the
+    default here. Only meaningful for a Fandom-category tag, though
+    nothing here enforces that.
+    """
+    return _resolve_explicit_in_chain(tag, parent_of, explicit_media_types, "Uncategorized Fandoms")
+
+
+def resolve_tag_media_type(tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]) -> str:
+    """The resolved media type only -- see resolve_tag_media_type_explicit
+    for the full (value, is_explicit) result.
+    """
+    return resolve_tag_media_type_explicit(tag, parent_of, explicit_media_types)[0]
 
 
 def _resolve_associated_fandoms(

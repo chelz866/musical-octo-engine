@@ -93,6 +93,48 @@ def test_get_all_tag_categories_empty_by_default():
         assert db.get_all_tag_categories(path) == {}
 
 
+def test_set_and_get_all_tag_media_types():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
+        db.set_tag_media_type(path, "Harry Potter", "Books & Literature")
+
+        assert db.get_all_tag_media_types(path) == {
+            "Doctor Who": "TV Shows",
+            "Harry Potter": "Books & Literature",
+        }
+
+
+def test_set_tag_media_type_overwrites_existing_value():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
+        db.set_tag_media_type(path, "Doctor Who", "Movies")
+
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": "Movies"}
+
+
+def test_remove_tag_media_type_clears_only_that_tag():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
+        db.set_tag_media_type(path, "Harry Potter", "Books & Literature")
+
+        db.remove_tag_media_type(path, "Doctor Who")
+
+        assert db.get_all_tag_media_types(path) == {"Harry Potter": "Books & Literature"}
+
+
+def test_get_all_tag_media_types_empty_by_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.get_all_tag_media_types(path) == {}
+
+
 def test_set_tag_wrangling_synonym_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

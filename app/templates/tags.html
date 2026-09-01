@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id) %}
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) %}
 <tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-tag="{{ row.tag | lower }}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
@@ -39,6 +39,22 @@
         {% endfor %}
       </select>
     </form>
+    {% elif row.category == "fandom" and row.tag in explicit_categories %}
+    <form method="post" action="/tags/classify/set_media_type" class="inline-form">
+      <input type="hidden" name="tag" value="{{ row.tag }}">
+      <input type="hidden" name="filter" value="{{ filter }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="work_id" value="{{ work_id }}">
+      <select name="media_type" onchange="this.form.submit()">
+        <option value="" {% if row.tag not in tag_media_types %}selected{% endif %}>Uncategorized Fandoms (auto)</option>
+        {% for mt in media_type_options %}
+        <option value="{{ mt }}" {% if tag_media_types.get(row.tag) == mt %}selected{% endif %}>{{ mt }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% elif row.category == "fandom" %}
+    <span class="hint">(classify to set a type)</span>
     {% endif %}
   </td>
   {% set no_fandom = tag_fandoms.get(row.tag) == "No Fandom" %}
@@ -130,7 +146,7 @@
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -285,7 +301,7 @@
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) }}
         {% else %}
         <tr>
           <td colspan="7" class="empty">

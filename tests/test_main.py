@@ -13,6 +13,7 @@ from app.main import (
     _effective_tag_category,
     _entry_matches,
     _facet_suggestions,
+    _filter_by_media_type,
     _filter_query_string,
     _parse_date,
     _parse_manual_links,
@@ -890,6 +891,34 @@ def test_filter_by_letter_all_is_a_no_op():
 def test_filter_by_letter_hash_catches_non_alphabetic_starts():
     rows = [("apple", 1), ("100 Ways", 2), ("(Working Title)", 3)]
     assert [r[0] for r in _filter_by_letter(rows, "#")] == ["100 Ways", "(Working Title)"]
+
+
+def test_filter_by_media_type_all_is_a_no_op():
+    rows = [("Doctor Who", 1), ("Harry Potter", 2)]
+    assert _filter_by_media_type(rows, "all", {}, {}) == rows
+
+
+def test_filter_by_media_type_matches_the_resolved_value():
+    rows = [("Doctor Who", 1), ("Harry Potter", 2)]
+    explicit = {"Doctor Who": "TV Shows", "Harry Potter": "Books & Literature"}
+    assert [r[0] for r in _filter_by_media_type(rows, "TV Shows", {}, explicit)] == ["Doctor Who"]
+
+
+def test_filter_by_media_type_matches_an_inherited_value():
+    rows = [("Fantastic Beasts", 1)]
+    parent_of = {"Fantastic Beasts": "Wizarding World"}
+    explicit = {"Wizarding World": "Movies"}
+    assert _filter_by_media_type(rows, "Movies", parent_of, explicit) == rows
+
+
+def test_filter_by_media_type_excludes_a_never_classified_row_from_a_real_category():
+    rows = [("Some New Fandom", 1)]
+    assert _filter_by_media_type(rows, "Movies", {}, {}) == []
+
+
+def test_filter_by_media_type_uncategorized_matches_a_never_classified_row():
+    rows = [("Some New Fandom", 1)]
+    assert _filter_by_media_type(rows, "Uncategorized Fandoms", {}, {}) == rows
 
 
 def test_add_virtual_parent_counts_creates_a_row_for_a_nonexistent_parent():

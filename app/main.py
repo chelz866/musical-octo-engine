@@ -1296,6 +1296,25 @@ def _sort_name_count_rows(rows: list[tuple], sort: str) -> list[tuple]:
 
 LETTER_FILTER_OPTIONS = ["all"] + [chr(c) for c in range(ord("A"), ord("Z") + 1)] + ["#"]
 
+# AO3's own real Fandom media-type vocabulary (its Fandoms page's own
+# category list), reused verbatim rather than inventing this app's own --
+# a Fandom tag's own explicit choice among these (see db.set_tag_media_type)
+# only makes sense once it's been explicitly classified Fandom, not merely
+# guessed (see the Classify Tags "(guessed)" hint).
+FANDOM_MEDIA_TYPES = [
+    "Anime & Manga",
+    "Books & Literature",
+    "Cartoons & Comics & Graphic Novels",
+    "Celebrities & Real People",
+    "Movies",
+    "Music & Bands",
+    "Other Media",
+    "Theater",
+    "TV Shows",
+    "Video Games",
+    "Uncategorized Fandoms",
+]
+
 
 def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
     """Narrows (name, count, ...) rows to those starting with the given
@@ -1307,6 +1326,21 @@ def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
     if letter == "#":
         return [row for row in rows if not row[0][:1].isalpha()]
     return [row for row in rows if row[0][:1].upper() == letter]
+
+
+def _filter_by_media_type(
+    rows: list[tuple], media_type: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]
+) -> list[tuple]:
+    """Narrows (fandom_name, count, ...) rows to those whose *resolved*
+    media type (scanner.resolve_tag_media_type, so a same-category child
+    inheriting its parent's explicit choice still counts) matches; "all"
+    is a no-op. A row whose direct parent gets filtered out here (a
+    different medium) still falls back to its own top-level row rather
+    than disappearing -- see _group_tag_rows_by_parent.
+    """
+    if media_type == "all":
+        return rows
+    return [row for row in rows if scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types) == media_type]
 
 
 def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children_map: dict[str, set[str]]) -> None:
@@ -1675,6 +1709,8 @@ def tags_classify_page(
             "explicit_categories": db.get_all_tag_categories(DB_PATH),
             "wranglings": db.get_all_tag_wranglings(DB_PATH),
             "tag_fandoms": db.get_all_tag_fandoms(DB_PATH),
+            "tag_media_types": db.get_all_tag_media_types(DB_PATH),
+            "media_type_options": FANDOM_MEDIA_TYPES,
             "known_fandoms": _flatten_tag_options(sorted({f for e in result.entries for f in e.fandoms}), children_map),
             "known_characters": _flatten_tag_options(sorted({c for e in result.entries for c in e.characters}), children_map),
             "known_relationships": _flatten_tag_options(sorted({r for e in result.entries for r in e.relationships}), children_map),
@@ -1926,6 +1962,31 @@ def set_tag_fandom_route(
     )
 
 
+@app.post("/tags/classify/set_media_type")
+def set_tag_media_type_route(
+    tag: str = Form(...),
+    media_type: str = Form(""),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
+):
+    """Sets tag's own AO3-style media type -- see set_tag_fandom_route,
+    same "empty clears the explicit choice, a real value (including the
+    explicit 'Uncategorized Fandoms') is terminal" shape. Only meaningful
+    on a tag explicitly classified Fandom (see tags.html), though nothing
+    here re-checks that server-side -- there's no association to corrupt
+    either way if it's ever called on something else.
+    """
+    if media_type:
+        db.set_tag_media_type(DB_PATH, tag, media_type)
+    else:
+        db.remove_tag_media_type(DB_PATH, tag)
+    return RedirectResponse(
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+    )
+
+
 @app.post("/tags/classify/set_relationship_character")
 def set_relationship_character_route(
     relationship_tag: str = Form(...),
@@ -2104,7 +2165,7 @@ def mark_all_unclassified_freeform(work_id: str = Form("")):
 
 
 @app.get("/fandoms", response_class=HTMLResponse)
-def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str = "all"):
+def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str = "all", media_type: str = "all"):
     result = scanner.load_cached(DB_PATH)
     counts = Counter()
     for entry in result.entries:
@@ -2112,8 +2173,20 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
             counts[name] += 1
     children_map = db.get_tag_children(DB_PATH)
     _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, _expand_children_transitively(children_map))
+    parent_of = scanner.child_parent_map(children_map)
+    explicit_media_types = db.get_all_tag_media_types(DB_PATH)
+
     sorted_fandoms = _sort_name_count_rows([(name, count, None) for name, count in counts.items()], sort)
     sorted_fandoms = _filter_by_letter(sorted_fandoms, letter)
+
+    # Tab counts reflect the whole library regardless of which letter/media
+    # type tab happens to be selected right now -- same "always the full
+    # picture" convention as Classify Tags' own filter-tab counts.
+    media_type_counts = Counter(
+        scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types) for row in sorted_fandoms
+    )
+
+    sorted_fandoms = _filter_by_media_type(sorted_fandoms, media_type, parent_of, explicit_media_types)
     sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, children_map)
     return templates.TemplateResponse(
         "fandoms.html",
@@ -2124,6 +2197,10 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
             "sort_options": NAME_COUNT_SORT_LABELS,
             "letter": letter,
             "letter_options": LETTER_FILTER_OPTIONS,
+            "media_type": media_type,
+            "media_type_options": FANDOM_MEDIA_TYPES,
+            "media_type_counts": media_type_counts,
+            "total_fandoms": sum(media_type_counts.values()),
         },
     )
 
