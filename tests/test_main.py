@@ -30,6 +30,10 @@ from app.main import (
     _group_tag_rows_by_parent,
     _is_tag_complete,
     _matches_classification_source,
+    _metatag_children_map,
+    _metatag_tree,
+    _flatten_metatag_options,
+    _tags_for_metatag,
     _series_sort_key,
     _value_or_children_present,
     _sort_name_count_rows,
@@ -1393,3 +1397,74 @@ def test_flatten_tag_options_orphan_becomes_top_level_when_parent_not_in_names()
 def test_flatten_tag_options_siblings_are_alphabetical_at_each_level():
     names = ["Zeta", "Alpha"]
     assert _flatten_tag_options(names, {}) == [("Alpha", 0), ("Zeta", 0)]
+
+
+def _metatags_fixture():
+    # 1: Love (top) -> 2: Characters in love -> 3: Ilya is in love
+    return {
+        1: ("Love", None),
+        2: ("Characters in love", 1),
+        3: ("Ilya is in love", 2),
+    }
+
+
+def test_metatag_children_map_inverts_parent_id():
+    assert _metatag_children_map(_metatags_fixture()) == {1: {2}, 2: {3}}
+
+
+def test_metatag_children_map_empty_when_all_top_level():
+    assert _metatag_children_map({1: ("Love", None), 2: ("Angst", None)}) == {}
+
+
+def test_flatten_metatag_options_depth_first_with_depths():
+    metatags = _metatags_fixture()
+    children_of = _metatag_children_map(metatags)
+    assert _flatten_metatag_options(metatags) == [
+        (1, "Love", 0),
+        (2, "Characters in love", 1),
+        (3, "Ilya is in love", 2),
+    ]
+
+
+def test_flatten_metatag_options_siblings_alphabetical():
+    metatags = {1: ("Zeta", None), 2: ("Alpha", None)}
+    assert _flatten_metatag_options(metatags) == [(2, "Alpha", 0), (1, "Zeta", 0)]
+
+
+def test_metatag_tree_nests_by_parent_id():
+    metatags = _metatags_fixture()
+    children_of = _metatag_children_map(metatags)
+    assert _metatag_tree(metatags, children_of) == [
+        {"id": 1, "name": "Love", "children": [
+            {"id": 2, "name": "Characters in love", "children": [
+                {"id": 3, "name": "Ilya is in love", "children": []},
+            ]},
+        ]},
+    ]
+
+
+def test_tags_for_metatag_rolls_up_from_a_grandchild_association():
+    metatags = _metatags_fixture()
+    children_of = _metatag_children_map(metatags)
+    metatag_tags = {3: {"Ilya loves Shane"}}
+
+    # Visiting the grandchild, the child, or the top-level node all surface it.
+    assert _tags_for_metatag(3, children_of, metatag_tags) == [("Ilya loves Shane", 3)]
+    assert _tags_for_metatag(2, children_of, metatag_tags) == [("Ilya loves Shane", 3)]
+    assert _tags_for_metatag(1, children_of, metatag_tags) == [("Ilya loves Shane", 3)]
+
+
+def test_tags_for_metatag_keeps_the_real_direct_id_not_the_viewed_one():
+    metatags = _metatags_fixture()
+    children_of = _metatag_children_map(metatags)
+    metatag_tags = {1: {"A Love Story"}, 3: {"Ilya loves Shane"}}
+
+    tags = dict(_tags_for_metatag(1, children_of, metatag_tags))
+    assert tags["A Love Story"] == 1
+    assert tags["Ilya loves Shane"] == 3
+
+
+def test_tags_for_metatag_empty_when_nothing_linked():
+    metatags = _metatags_fixture()
+    children_of = _metatag_children_map(metatags)
+    assert _tags_for_metatag(1, children_of, {}) == []

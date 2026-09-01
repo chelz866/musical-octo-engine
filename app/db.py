@@ -150,6 +150,24 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS metatags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                parent_id INTEGER REFERENCES metatags(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metatag_tags (
+                metatag_id INTEGER NOT NULL REFERENCES metatags(id),
+                tag TEXT NOT NULL,
+                PRIMARY KEY (metatag_id, tag)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS tag_verified (
                 tag TEXT PRIMARY KEY
             )
@@ -653,6 +671,81 @@ def set_tag_verified(path: str, tag: str, verified: bool) -> None:
             conn.execute("INSERT INTO tag_verified (tag) VALUES (?) ON CONFLICT(tag) DO NOTHING", (tag,))
         else:
             conn.execute("DELETE FROM tag_verified WHERE tag = ?", (tag,))
+
+
+def create_metatag(path: str, name: str, parent_id: int | None) -> int:
+    """Creates a new metatag node and returns its id. Raises ValueError on
+    a duplicate name -- metatags are names the user invents from scratch
+    (unlike every other tag-shaped table here, which is keyed on a real
+    tag's own text), so there's no epub-derived spelling to fall back on
+    if two collide. No cycle check is needed here (contrast
+    set_tag_wrangling's): with no re-parent operation in this version,
+    parent_id can only ever point at a node that already existed before
+    this one, so a cycle is structurally impossible.
+    """
+    with _connect(path) as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO metatags (name, parent_id) VALUES (?, ?)", (name, parent_id)
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f"a metatag named {name!r} already exists")
+        return cursor.lastrowid
+
+
+def delete_metatag(path: str, metatag_id: int) -> None:
+    """Refuses (ValueError) to delete a metatag that still has children or
+    still has any tag directly linked to it -- deleting is only ever safe
+    on a true, empty leaf, so a subtree or an association is never
+    silently dropped along with it.
+    """
+    with _connect(path) as conn:
+        has_child = conn.execute(
+            "SELECT 1 FROM metatags WHERE parent_id = ? LIMIT 1", (metatag_id,)
+        ).fetchone()
+        if has_child:
+            raise ValueError("can't delete a metatag that still has children")
+        has_tag = conn.execute(
+            "SELECT 1 FROM metatag_tags WHERE metatag_id = ? LIMIT 1", (metatag_id,)
+        ).fetchone()
+        if has_tag:
+            raise ValueError("can't delete a metatag that still has tags linked to it")
+        conn.execute("DELETE FROM metatags WHERE id = ?", (metatag_id,))
+
+
+def get_all_metatags(path: str) -> dict[int, tuple[str, int | None]]:
+    """metatag id -> (name, parent_id) for every metatag, parent_id None
+    for a top-level one.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT id, name, parent_id FROM metatags").fetchall()
+    return {row[0]: (row[1], row[2]) for row in rows}
+
+
+def get_all_metatag_tags(path: str) -> dict[int, set[str]]:
+    """metatag id -> the tags directly linked to it -- not its
+    descendants' own links, see main.py's _tags_for_metatag for the
+    aggregated view a metatag's own page actually shows.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT metatag_id, tag FROM metatag_tags").fetchall()
+    result: dict[int, set[str]] = defaultdict(set)
+    for metatag_id, tag in rows:
+        result[metatag_id].add(tag)
+    return dict(result)
+
+
+def add_tag_to_metatag(path: str, metatag_id: int, tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO metatag_tags (metatag_id, tag) VALUES (?, ?) ON CONFLICT(metatag_id, tag) DO NOTHING",
+            (metatag_id, tag),
+        )
+
+
+def remove_tag_from_metatag(path: str, metatag_id: int, tag: str) -> None:
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM metatag_tags WHERE metatag_id = ? AND tag = ?", (metatag_id, tag))
 
 
 def get_all_relationship_characters(path: str) -> dict[str, dict[int, str]]:

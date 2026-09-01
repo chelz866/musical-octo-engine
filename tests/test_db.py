@@ -1,6 +1,8 @@
 import os
 import tempfile
 
+import pytest
+
 from app import db
 
 
@@ -144,6 +146,86 @@ def test_get_all_tag_media_types_empty_by_default():
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
         assert db.get_all_tag_media_types(path) == {}
+
+
+def test_create_metatag_round_trip_and_top_level_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        top_id = db.create_metatag(path, "Love", None)
+        child_id = db.create_metatag(path, "Characters in love", top_id)
+
+        assert db.get_all_metatags(path) == {
+            top_id: ("Love", None),
+            child_id: ("Characters in love", top_id),
+        }
+
+
+def test_create_metatag_refuses_a_duplicate_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.create_metatag(path, "Love", None)
+        with pytest.raises(ValueError):
+            db.create_metatag(path, "Love", None)
+
+
+def test_delete_metatag_refuses_a_node_with_children():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        top_id = db.create_metatag(path, "Love", None)
+        db.create_metatag(path, "Characters in love", top_id)
+        with pytest.raises(ValueError):
+            db.delete_metatag(path, top_id)
+        assert top_id in db.get_all_metatags(path)
+
+
+def test_delete_metatag_refuses_a_node_with_linked_tags():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        leaf_id = db.create_metatag(path, "Ilya is in love", None)
+        db.add_tag_to_metatag(path, leaf_id, "Ilya loves Shane")
+        with pytest.raises(ValueError):
+            db.delete_metatag(path, leaf_id)
+        assert leaf_id in db.get_all_metatags(path)
+
+
+def test_delete_metatag_succeeds_on_a_true_empty_leaf():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        leaf_id = db.create_metatag(path, "Ilya is in love", None)
+        db.delete_metatag(path, leaf_id)
+        assert db.get_all_metatags(path) == {}
+
+
+def test_add_and_remove_tag_from_metatag():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        leaf_id = db.create_metatag(path, "Ilya is in love", None)
+        db.add_tag_to_metatag(path, leaf_id, "Ilya loves Shane")
+        assert db.get_all_metatag_tags(path) == {leaf_id: {"Ilya loves Shane"}}
+
+        db.remove_tag_from_metatag(path, leaf_id, "Ilya loves Shane")
+        assert db.get_all_metatag_tags(path) == {}
+
+
+def test_a_tag_can_be_linked_to_more_than_one_metatag():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        love_id = db.create_metatag(path, "Love", None)
+        angst_id = db.create_metatag(path, "Angst", None)
+        db.add_tag_to_metatag(path, love_id, "Ilya loves Shane")
+        db.add_tag_to_metatag(path, angst_id, "Ilya loves Shane")
+
+        assert db.get_all_metatag_tags(path) == {
+            love_id: {"Ilya loves Shane"},
+            angst_id: {"Ilya loves Shane"},
+        }
 
 
 def test_set_tag_wrangling_synonym_round_trip():

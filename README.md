@@ -526,6 +526,22 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   also the only place to undo a merge, since a merged tag no longer has a row of its own on Classify
   Tags to undo it from. The per-tag Fandom/Character/Relationship association controls stay on
   Classify Tags itself, since they need the row's own count/category context.
+- **Metatags** (`/metatags`, under Admin) -- a second, completely independent tag hierarchy for
+  grouping tags of *any* category under broader themes, unrelated to Classify Tags' own same-category
+  "Child of" wrangling above. A metatag is a name you invent from scratch (not a real tag pulled from
+  an epub) and can nest under another metatag to any depth -- e.g. a top-level "Love" containing
+  "Characters in love" containing "Ilya is in love." Any real tag can then be linked to one or more
+  metatags (an autocomplete searches every tag in the library, any category, same box Classify Tags'
+  own "Canonical/parent tag name" field uses). Visiting a metatag shows every tag linked to it *or to
+  any of its descendants* -- linking the Freeform tag "Ilya loves Shane" to the leaf "Ilya is in love"
+  makes it show up when browsing "Ilya is in love," "Characters in love," or "Love," since the
+  association rolls all the way up the tree; a row shows "(here)" when the tag's actually linked to
+  the node you're looking at, or a link to wherever it's actually attached otherwise, and "Remove"
+  always undoes that real, direct link regardless of which ancestor you removed it from. Each linked
+  tag also links into Downloads filtered by its own resolved category. Deleting a metatag is refused
+  (the button stays disabled) unless it's a true empty leaf -- no children, no tags linked directly to
+  it -- so a subtree or an association is never silently dropped along with it; renaming or moving a
+  metatag to a different parent isn't supported yet, so a typo means deleting and recreating it.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

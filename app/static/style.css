@@ -1102,3 +1102,33 @@ button.read-toggle.badge {
   max-width: 100%;
   height: auto;
 }
+
+.metatag-layout {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.metatag-tree {
+  min-width: 220px;
+}
+
+.metatag-tree ul {
+  list-style: none;
+  padding-left: 1rem;
+  margin: 0.2rem 0;
+}
+
+.metatag-tree > ul {
+  padding-left: 0;
+}
+
+.metatag-detail {
+  flex: 1;
+  min-width: 300px;
+}
+
+.metatag-detail .breadcrumb {
+  font-size: 0.9rem;
+}

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% macro render_metatag_node(node, selected_id) %}
+<li>
+  <a href="/metatags?metatag_id={{ node.id }}" class="{% if node.id == selected_id %}active{% endif %}">{{ node.name }}</a>
+  {% if node.children %}
+  <ul>
+    {% for child in node.children %}
+    {{ render_metatag_node(child, selected_id) }}
+    {% endfor %}
+  </ul>
+  {% endif %}
+</li>
+{% endmacro %}
+{% block title %}Metatags - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Metatags</h1>
+  </header>
+
+  <div class="metatag-layout">
+    <div class="metatag-tree">
+      <ul>
+        {% for node in tree %}
+        {{ render_metatag_node(node, metatag_id) }}
+        {% else %}
+        <li class="hint">No metatags yet.</li>
+        {% endfor %}
+      </ul>
+
+      <form method="post" action="/metatags/create" class="tag-bulk-actions">
+        <input type="text" name="name" placeholder="New metatag name&hellip;" class="fandom-other" required>
+        <select name="parent_id">
+          <option value="">(top level)</option>
+          {% for id, name, depth in metatag_options %}
+          <option value="{{ id }}" {% if id == metatag_id %}selected{% endif %}>{{ "  " * depth }}{% if depth > 0 %}- {% endif %}{{ name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Add metatag</button>
+      </form>
+    </div>
+
+    <div class="metatag-detail">
+      {% if metatag_id is not none %}
+      <p class="breadcrumb">
+        {% for id, name in breadcrumb %}
+        {% if not loop.last %}
+        <a href="/metatags?metatag_id={{ id }}">{{ name }}</a> &rarr;
+        {% else %}
+        <strong>{{ name }}</strong>
+        {% endif %}
+        {% endfor %}
+      </p>
+
+      <div class="tag-bulk-actions">
+        <form method="post" action="/metatags/delete" onsubmit="return confirm('Delete this metatag?');" style="display: inline-block;">
+          <input type="hidden" name="metatag_id" value="{{ metatag_id }}">
+          <button type="submit" {% if not can_delete %}disabled title="Only an empty metatag (no children, no linked tags) can be deleted"{% endif %}>Delete this metatag</button>
+        </form>
+
+        <form method="post" action="/metatags/add_tag" style="display: inline-block;">
+          <input type="hidden" name="metatag_id" value="{{ metatag_id }}">
+          <div class="facet-autocomplete" style="display: inline-block; width: 260px; vertical-align: middle;">
+            <input type="text" name="tag" placeholder="Add a tag&hellip;" autocomplete="off" oninput="onTargetSearch(this)" onkeydown="onTargetKeydown(event, this)" required>
+            <div class="facet-suggestions" hidden></div>
+          </div>
+          <button type="submit">Add</button>
+        </form>
+      </div>
+
+      <table class="tag-table">
+        <thead>
+          <tr>
+            <th>Tag</th>
+            <th>Category</th>
+            <th>Linked at</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tags %}
+          <tr>
+            <td>
+              {% if row.category in ("fandom", "character", "relationship", "freeform") %}
+              <a href="/?{{ row.category }}={{ row.tag | urlencode }}">{{ row.tag }}</a>
+              {% else %}
+              {{ row.tag }}
+              {% endif %}
+            </td>
+            <td>{{ row.category | title if row.category else "&mdash;" | safe }}</td>
+            <td>
+              {% if row.direct_metatag_id != metatag_id %}
+              <a href="/metatags?metatag_id={{ row.direct_metatag_id }}">{{ row.direct_metatag_name }}</a>
+              {% else %}
+              <span class="hint">(here)</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="/metatags/remove_tag" class="inline-form">
+                <input type="hidden" name="metatag_id" value="{{ row.direct_metatag_id }}">
+                <input type="hidden" name="tag" value="{{ row.tag }}">
+                <input type="hidden" name="viewing_id" value="{{ metatag_id }}">
+                <button type="submit" class="chip-remove">&times;</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="empty">No tags linked here yet -- directly, or through a more specific metatag underneath.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="hint">Select a metatag on the left to see its linked tags, or add a new one below the tree.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    function onTargetSearch(input) {
+      clearTimeout(input._debounce);
+      var q = input.value.trim();
+      var container = input.parentElement;
+      if (q.length < 2) { hideTargetSuggestions(container); return; }
+      input._debounce = setTimeout(function () {
+        fetch("/tags/classify/search_tags?q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (matches) { renderTargetSuggestions(container, matches); });
+      }, 200);
+    }
+
+    function renderTargetSuggestions(container, matches) {
+      var list = container.querySelector(".facet-suggestions");
+      list.textContent = "";
+      if (!matches.length) { list.hidden = true; return; }
+      matches.forEach(function (value) {
+        var item = document.createElement("div");
+        item.className = "facet-suggestion-item";
+        item.textContent = value;
+        item.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+          container.querySelector('input[type="text"]').value = value;
+          hideTargetSuggestions(container);
+        });
+        list.appendChild(item);
+      });
+      list.hidden = false;
+    }
+
+    function onTargetKeydown(event, input) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      var container = input.parentElement;
+      var items = container.querySelectorAll(".facet-suggestion-item");
+      if (items.length === 1) {
+        input.value = items[0].textContent;
+        hideTargetSuggestions(container);
+      }
+    }
+
+    function hideTargetSuggestions(container) {
+      var list = container.querySelector(".facet-suggestions");
+      list.hidden = true;
+      list.textContent = "";
+    }
+  </script>
+{% endblock %}

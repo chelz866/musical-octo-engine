@@ -199,7 +199,7 @@ async def _startup():
 # suffix since it lives under the same "/works/{id}/..." prefix as the
 # bookmark toggle, which every logged-in user *should* be able to reach).
 PUBLIC_PATHS = {"/login"}
-ADMIN_PATH_PREFIXES = ("/admin", "/issues", "/tracked", "/queue", "/incomplete", "/refresh", "/tags/classify")
+ADMIN_PATH_PREFIXES = ("/admin", "/issues", "/tracked", "/queue", "/incomplete", "/refresh", "/tags/classify", "/metatags")
 
 
 def _is_admin_only_path(path: str) -> bool:
@@ -2004,6 +2004,183 @@ def unwrangle_tag(tag: str = Form(...)):
     if tag not in db.get_all_verified_tags(DB_PATH):
         db.remove_tag_wrangling(DB_PATH, tag)
     return RedirectResponse(url="/tags/classify/wranglings", status_code=303)
+
+
+def _metatag_children_map(metatags: dict[int, tuple[str, int | None]]) -> dict[int, set[int]]:
+    """parent id -> its direct child ids only, inverting get_all_metatags'
+    own parent_id column -- same idea as scanner.child_parent_map's
+    inverse, just the other direction and over metatag ids instead of
+    tag names.
+    """
+    children: dict[int, set[int]] = defaultdict(set)
+    for metatag_id, (_, parent_id) in metatags.items():
+        if parent_id is not None:
+            children[parent_id].add(metatag_id)
+    return dict(children)
+
+
+def _flatten_metatag_options(metatags: dict[int, tuple[str, int | None]]) -> list[tuple[int, str, int]]:
+    """Every metatag ordered into a depth-first walk of the tree -- (id,
+    name, depth), for the "Parent" <select> on the create-metatag form.
+    Simpler than _flatten_tag_options: every metatag is always in the one
+    same set (get_all_metatags returns literally all of them), so there's
+    no "parent belongs to a different category" case to reconcile.
+    """
+    children_by_parent = _metatag_children_map(metatags)
+
+    def sort_key(metatag_id: int) -> str:
+        return metatags[metatag_id][0].lower()
+
+    ordered: list[tuple[int, str, int]] = []
+
+    def visit(metatag_id: int, depth: int) -> None:
+        ordered.append((metatag_id, metatags[metatag_id][0], depth))
+        for child_id in sorted(children_by_parent.get(metatag_id, ()), key=sort_key):
+            visit(child_id, depth + 1)
+
+    top_level = [mid for mid, (_, parent_id) in metatags.items() if parent_id is None]
+    for metatag_id in sorted(top_level, key=sort_key):
+        visit(metatag_id, 0)
+    return ordered
+
+
+def _metatag_tree(metatags: dict[int, tuple[str, int | None]], children_of: dict[int, set[int]]) -> list[dict]:
+    """metatags nested into {"id", "name", "children": [...]} rows, top
+    level first, siblings sorted alphabetically at each level -- the shape
+    metatags.html actually renders, same "dumb template" convention
+    _group_tag_rows_by_parent already established for the same-category
+    hierarchy display.
+    """
+    def build(metatag_id: int) -> dict:
+        child_ids = sorted(children_of.get(metatag_id, ()), key=lambda i: metatags[i][0].lower())
+        return {"id": metatag_id, "name": metatags[metatag_id][0], "children": [build(cid) for cid in child_ids]}
+
+    top_level = [mid for mid, (_, parent_id) in metatags.items() if parent_id is None]
+    return [build(mid) for mid in sorted(top_level, key=lambda i: metatags[i][0].lower())]
+
+
+def _tags_for_metatag(
+    metatag_id: int, children_of: dict[int, set[int]], metatag_tags: dict[int, set[str]]
+) -> list[tuple[str, int]]:
+    """(tag, direct_metatag_id) pairs for metatag_id and every descendant,
+    at any depth -- an association at a leaf rolls up through every
+    ancestor's own page. `direct_metatag_id` (not just the tag name) rides
+    along so the page can label an entry that only shows up here because a
+    more specific descendant carries it, and so "remove" always targets
+    the tag's real, direct link regardless of which node is being viewed.
+    _all_descendants is generic over its key type despite its str-typed
+    hint (no string-specific operation in its body) -- reused here as-is
+    for metatag ids rather than writing a duplicate int-flavored copy.
+    """
+    ids = {metatag_id} | _all_descendants(metatag_id, children_of)
+    pairs = [(tag, mid) for mid in ids for tag in metatag_tags.get(mid, ())]
+    return sorted(pairs, key=lambda pair: pair[0].lower())
+
+
+@app.get("/metatags", response_class=HTMLResponse)
+def metatags_page(request: Request, metatag_id: int | None = None):
+    """A second, independent tag hierarchy, cross-category and unrelated
+    to Classify Tags' own same-category "child" wrangling -- a purely
+    user-built way to group tags of any category under broader themes
+    (e.g. filing many specific Freeform "X loves Y" tags somewhere under
+    a "Love" branch). Visiting any node shows every tag linked to it or
+    to any of its descendants (_tags_for_metatag), not just tags linked
+    to that exact node -- an association several levels down still rolls
+    all the way up.
+    """
+    metatags = db.get_all_metatags(DB_PATH)
+    children_of = _metatag_children_map(metatags)
+    metatag_tags = db.get_all_metatag_tags(DB_PATH)
+
+    selected = metatags.get(metatag_id) if metatag_id is not None else None
+    breadcrumb: list[tuple[int, str]] = []
+    tags: list[dict] = []
+    can_delete = False
+    if selected is not None:
+        current: int | None = metatag_id
+        while current is not None:
+            name, parent_id = metatags[current]
+            breadcrumb.append((current, name))
+            current = parent_id
+        breadcrumb.reverse()
+        entries = scanner.load_cached(DB_PATH).entries
+        tags = [
+            {
+                "tag": tag,
+                "direct_metatag_id": direct_id,
+                "direct_metatag_name": metatags[direct_id][0],
+                "category": _effective_tag_category(entries, tag),
+            }
+            for tag, direct_id in _tags_for_metatag(metatag_id, children_of, metatag_tags)
+        ]
+        can_delete = not children_of.get(metatag_id) and not metatag_tags.get(metatag_id)
+
+    return templates.TemplateResponse(
+        "metatags.html",
+        {
+            **_base_context(request),
+            "tree": _metatag_tree(metatags, children_of),
+            "metatag_options": _flatten_metatag_options(metatags),
+            "metatag_id": metatag_id,
+            "selected_name": selected[0] if selected else None,
+            "breadcrumb": breadcrumb,
+            "tags": tags,
+            "can_delete": can_delete,
+        },
+    )
+
+
+@app.post("/metatags/create")
+def create_metatag_route(name: str = Form(...), parent_id: str = Form("")):
+    """Creates a new metatag as a child of parent_id (blank -> top level),
+    redirecting to the new node on success or back to the parent (where
+    the create form was) on a duplicate/blank name -- see db.create_metatag.
+    """
+    name = name.strip()
+    parent = int(parent_id) if parent_id.strip() else None
+    redirect_id = parent
+    if name:
+        try:
+            redirect_id = db.create_metatag(DB_PATH, name, parent)
+        except ValueError:
+            pass
+    url = f"/metatags?metatag_id={redirect_id}" if redirect_id is not None else "/metatags"
+    return RedirectResponse(url=url, status_code=303)
+
+
+@app.post("/metatags/delete")
+def delete_metatag_route(metatag_id: int = Form(...)):
+    """Deletes an empty leaf metatag (see db.delete_metatag), redirecting
+    up to its parent since metatag_id no longer exists; refused (still
+    has children or linked tags) redirects back to the same node instead,
+    left exactly as it was.
+    """
+    parent_id = db.get_all_metatags(DB_PATH).get(metatag_id, (None, None))[1]
+    try:
+        db.delete_metatag(DB_PATH, metatag_id)
+    except ValueError:
+        return RedirectResponse(url=f"/metatags?metatag_id={metatag_id}", status_code=303)
+    url = f"/metatags?metatag_id={parent_id}" if parent_id is not None else "/metatags"
+    return RedirectResponse(url=url, status_code=303)
+
+
+@app.post("/metatags/add_tag")
+def add_tag_to_metatag_route(metatag_id: int = Form(...), tag: str = Form("")):
+    tag = tag.strip()
+    if tag:
+        db.add_tag_to_metatag(DB_PATH, metatag_id, tag)
+    return RedirectResponse(url=f"/metatags?metatag_id={metatag_id}", status_code=303)
+
+
+@app.post("/metatags/remove_tag")
+def remove_tag_from_metatag_route(metatag_id: int = Form(...), tag: str = Form(...), viewing_id: int = Form(...)):
+    """metatag_id is the tag's real, direct link to remove -- viewing_id
+    is just where to redirect back to, since a tag shown on an ancestor's
+    page (via _tags_for_metatag's aggregation) is actually linked to some
+    descendant, not the node currently being viewed.
+    """
+    db.remove_tag_from_metatag(DB_PATH, metatag_id, tag)
+    return RedirectResponse(url=f"/metatags?metatag_id={viewing_id}", status_code=303)
 
 
 def _flatten_tag_options(names: list[str], children_map: dict[str, set[str]]) -> list[tuple[str, int]]:
