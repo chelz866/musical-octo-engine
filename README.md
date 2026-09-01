@@ -350,8 +350,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   to already exist as a real tag -- typing a brand-new name creates a consolidated parent purely to
   group existing same-category tags under (e.g. wrangling "Torchwood" and "Doctor Who," both
   Fandoms, as children of a new "Sci-Fi Shows"); it shows up here as its own row with a count of the
-  distinct works matching any descendant (not summed), but starts Unclassified like any new tag, so
-  it only appears under a specific category tab once you've classified it yourself. A parent with
+  distinct works matching any descendant (not summed), but starts Unclassified like any new tag --
+  unless every one of the children you just gave it (or it already had) resolves to the same
+  category, in which case it's classified as that category right away instead of staying ambiguous;
+  a brand-new parent picking up mixed-category children (only possible while it has no category of
+  its own to enforce against) is left Unclassified, same as before. A parent with
   children shows a small &#9656; toggle and renders them indented underneath, one level deeper per
   hop, collapsed by default -- the same nesting shows on the read-only Tags and Fandoms pages too,
   and searching this page's text filter for a descendant auto-expands every collapsed ancestor
@@ -379,6 +382,18 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   mention it directly -- and the Character/Relationship/Additional-Tags suggestions and "Find
   another..." search on Downloads narrow to that Fandom the same way (see the Search & Filter
   section above).
+
+  A Relationship's per-part Character dropdowns fill themselves in on their own whenever a name part
+  matches an existing Character tag's own name exactly (in either direction -- classifying the
+  Character first or the Relationship first both work, and this rechecks the whole library every time
+  a tag's classified so nothing needs to be reclassified to pick up a match that exists already);
+  it never overwrites a link you've set by hand, only an empty slot. A tag with the explicit "No
+  Fandom" choice set can't gain a *new* Character/Relationship association of its own -- that
+  includes this auto-fill, the per-row controls, and the bulk "Apply to selected" tool -- since a
+  tag meant to be fandom-agnostic (a universal trope, an OC with no canon) contradicts also being
+  tied to one fandom's specific people. Clearing an association already there is always still
+  allowed, so setting "No Fandom" after the fact never traps a stale link; the Character(s)/
+  Relationship(s) columns show "(No Fandom -- can't add)" in place of the add controls as a reminder.
 
   Setting the same association on many tags at once doesn't need a visit to each row: a Fandom/
   Character/Relationship dropdown trio plus "Apply to selected" (next to the other bulk-action

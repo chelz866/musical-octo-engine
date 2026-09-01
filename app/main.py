@@ -176,6 +176,13 @@ async def _startup():
         # re-selects the same rows.
         _ensure_download_worker_running()
 
+    # One-time-per-boot backfill: links any relationship-character slot
+    # that already qualifies (both tags classified before this feature
+    # existed, or classified independently since) without needing anyone
+    # to re-touch either tag -- see set_selected_tags for the same call
+    # made reactively as new classifications happen.
+    _auto_link_relationship_characters()
+
     asyncio.create_task(_auto_refresh_loop())
 
 
@@ -1682,7 +1689,7 @@ def tags_classify_page(
     )
 
 
-def _effective_tag_category(entries: list, tag: str) -> str | None:
+def _effective_tag_category(entries: list, tag: str, explicit_categories: dict[str, str] | None = None) -> str | None:
     """The category `tag` behaves as somewhere in the library -- checking
     entry.fandoms/characters/relationships/freeform_tags membership
     (already resolved, explicit-or-heuristic, see
@@ -1691,7 +1698,20 @@ def _effective_tag_category(entries: list, tag: str) -> str | None:
     occurrences to judge by). Used to enforce that a 'child' wrangling
     really is same-category, even for a tag nobody's explicitly
     classified on the Tags page.
+
+    explicit_categories (db.get_all_tag_categories(), passed in rather
+    than queried here so a caller checking many tags only pays for one
+    query) is consulted first when given -- a *purely* virtual tag with
+    zero real occurrences (e.g. a wrangling target nobody's ever tagged a
+    work with directly) can still have an explicit category of its own
+    (see wrangle_tags' auto-classification of a new parent), and the
+    entries scan alone could never see that, since it only ever iterates
+    a real work's own resolved tag lists. Callers that don't need that
+    (nothing here can be a zero-occurrence virtual tag) can omit it and
+    keep the cheaper entries-only check.
     """
+    if explicit_categories is not None and tag in explicit_categories:
+        return explicit_categories[tag]
     for entry in entries:
         if tag in entry.fandoms:
             return "fandom"
@@ -1702,6 +1722,17 @@ def _effective_tag_category(entries: list, tag: str) -> str | None:
         if tag in entry.freeform_tags:
             return "freeform"
     return None
+
+
+def _shared_child_category(children: set[str], entries: list, explicit_categories: dict[str, str] | None = None) -> str | None:
+    """The single category every one of `children` resolves to via
+    _effective_tag_category, or None if they're mixed (2+ distinct
+    categories) or none of them resolve to one at all. Used by
+    wrangle_tags to give an uncategorized parent tag a real category once
+    its children agree on one, instead of leaving it ambiguous forever.
+    """
+    categories = {_effective_tag_category(entries, child, explicit_categories) for child in children} - {None}
+    return categories.pop() if len(categories) == 1 else None
 
 
 @app.post("/tags/classify/wrangle")
@@ -1725,20 +1756,43 @@ def wrangle_tags(
     case anything can attach to it until it does get one. Each tag is
     otherwise wrangled independently, so one tag failing this check or
     the underlying cycle guard doesn't block the rest of the batch.
+
+    Once a brand-new/virtual target has picked up children this way, it
+    doesn't have to stay uncategorized forever: if *every* one of its
+    children (this batch plus any it already had) resolves to the same
+    category, target is explicitly classified as that category too --
+    see the block after the loop. Mixed-category children (only possible
+    while target itself has no category to enforce against) leave it
+    unclassified, same as before.
     """
     target = target.strip()
     if relation in ("synonym", "child") and target:
         entries = scanner.load_cached(DB_PATH).entries if relation == "child" else []
-        target_category = _effective_tag_category(entries, target) if relation == "child" else None
+        # Fetched once up front (rather than inside _effective_tag_category
+        # itself) so checking N tags in the loop below costs one query, not
+        # N -- see _effective_tag_category's own docstring for why this is
+        # the piece that lets a purely virtual target (zero real
+        # occurrences) that this same function typed on an earlier call be
+        # recognized as already-categorized on a later one.
+        explicit_categories = db.get_all_tag_categories(DB_PATH) if relation == "child" else {}
+        target_category = _effective_tag_category(entries, target, explicit_categories) if relation == "child" else None
         for tag in tags:
             if relation == "child" and target_category is not None:
-                tag_category = _effective_tag_category(entries, tag)
+                tag_category = _effective_tag_category(entries, tag, explicit_categories)
                 if tag_category is not None and tag_category != target_category:
                     continue
             try:
                 db.set_tag_wrangling(DB_PATH, tag, relation, target)
             except ValueError:
                 pass
+
+        if relation == "child" and target_category is None:
+            children = db.get_tag_children(DB_PATH).get(target, set())
+            new_category = _shared_child_category(children, entries, explicit_categories)
+            if new_category is not None:
+                db.set_tag_categories(DB_PATH, {target: new_category})
+                if new_category in ("character", "relationship"):
+                    _auto_link_relationship_characters()
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
@@ -1812,6 +1866,41 @@ def _relationship_name_parts(relationship_tag: str) -> list[str]:
     return [part.strip() for part in _RELATIONSHIP_SPLIT_RE.split(relationship_tag) if part.strip()]
 
 
+def _tag_has_no_fandom(tag: str) -> bool:
+    """True once a tag has the explicit, terminal "No Fandom" choice set
+    on it (see db.set_tag_fandom) -- as opposed to simply never having had
+    a Fandom association set at all. A tag like this is meant to be
+    fandom-agnostic (a universal trope, an OC with no canon), so it can't
+    also carry a Character/Relationship association of its own -- those
+    are inherently fandom-specific and would contradict that choice.
+    """
+    return db.get_all_tag_fandoms(DB_PATH).get(tag) == "No Fandom"
+
+
+def _auto_link_relationship_characters() -> None:
+    """Fills in any relationship-character slot left blank where the name
+    part matches an existing Character tag's own name exactly -- in
+    either direction, since this recomputes from scratch every time it
+    runs rather than reacting to just one side of a match: a Relationship
+    classified after its Characters already exist, or a Character
+    classified after its Relationship already does, both get linked the
+    next time this runs. An already-linked slot (auto or set by hand) is
+    never touched, and a Relationship with "No Fandom" explicitly set
+    (see _tag_has_no_fandom) is skipped entirely, same restriction as the
+    manual per-slot control.
+    """
+    categories = db.get_all_tag_categories(DB_PATH)
+    character_tags = {tag for tag, category in categories.items() if category == "character"}
+    existing = db.get_all_relationship_characters(DB_PATH)
+    for tag, category in categories.items():
+        if category != "relationship" or _tag_has_no_fandom(tag):
+            continue
+        linked = existing.get(tag, {})
+        for part_index, part in enumerate(_relationship_name_parts(tag)):
+            if part_index not in linked and part in character_tags:
+                db.set_relationship_character(DB_PATH, tag, part_index, part)
+
+
 @app.post("/tags/classify/set_fandom")
 def set_tag_fandom_route(
     tag: str = Form(...),
@@ -1851,11 +1940,15 @@ def set_relationship_character_route(
     an actual Character tag -- the Character's own spelling can differ
     from the literal substring (e.g. the relationship says "Harry Potter"
     but the Character tag is "Harry James Potter"). An empty
-    character_tag clears that slot instead of linking it.
+    character_tag clears that slot instead of linking it. A relationship
+    with "No Fandom" explicitly set can't gain a new link (see
+    _tag_has_no_fandom) -- clearing an existing one is still always
+    allowed, so setting "No Fandom" later never traps a stale link.
     """
     character_tag = character_tag.strip()
     if character_tag:
-        db.set_relationship_character(DB_PATH, relationship_tag, part_index, character_tag)
+        if not _tag_has_no_fandom(relationship_tag):
+            db.set_relationship_character(DB_PATH, relationship_tag, part_index, character_tag)
     else:
         db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
     return RedirectResponse(
@@ -1873,7 +1966,7 @@ def add_freeform_character_route(
     work_id: str = Form(""),
 ):
     character_tag = character_tag.strip()
-    if character_tag:
+    if character_tag and not _tag_has_no_fandom(freeform_tag):
         db.add_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
@@ -1905,7 +1998,7 @@ def add_freeform_relationship_route(
     work_id: str = Form(""),
 ):
     relationship_tag = relationship_tag.strip()
-    if relationship_tag:
+    if relationship_tag and not _tag_has_no_fandom(freeform_tag):
         db.add_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
@@ -1953,13 +2046,15 @@ def apply_associations(
     relationship = relationship.strip()
     if fandom or character or relationship:
         entries = scanner.load_cached(DB_PATH).entries
+        tag_fandoms = db.get_all_tag_fandoms(DB_PATH)
         for tag in tags:
             category = _effective_tag_category(entries, tag)
             if fandom and category in ("character", "relationship", "freeform"):
                 db.set_tag_fandom(DB_PATH, tag, fandom)
-            if character and category == "freeform":
+            no_fandom = tag_fandoms.get(tag) == "No Fandom"
+            if character and category == "freeform" and not no_fandom:
                 db.add_freeform_character(DB_PATH, tag, character)
-            if relationship and category == "freeform":
+            if relationship and category == "freeform" and not no_fandom:
                 db.add_freeform_relationship(DB_PATH, tag, relationship)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
@@ -1977,6 +2072,8 @@ def set_selected_tags(
 ):
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
+        if category in ("character", "relationship"):
+            _auto_link_relationship_characters()
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )

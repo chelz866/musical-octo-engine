@@ -41,10 +41,15 @@
     </form>
     {% endif %}
   </td>
+  {% set no_fandom = tag_fandoms.get(row.tag) == "No Fandom" %}
   <td>
     {% if row.category == "relationship" %}
     {% for part in relationship_name_parts(row.tag) %}
     {% set part_index = loop.index0 %}
+    {% set linked = relationship_characters.get(row.tag, {}).get(part_index) %}
+    {% if no_fandom and not linked %}
+    <span class="hint">{{ part }}: &mdash; (No Fandom, can't link)</span><br>
+    {% else %}
     <form method="post" action="/tags/classify/set_relationship_character" class="inline-form">
       <input type="hidden" name="relationship_tag" value="{{ row.tag }}">
       <input type="hidden" name="part_index" value="{{ part_index }}">
@@ -55,12 +60,18 @@
       <label class="hint">{{ part }}:
         <select name="character_tag" onchange="this.form.submit()">
           <option value="">&mdash;</option>
+          {% if no_fandom %}
+          <option value="{{ linked }}" selected>{{ linked }}</option>
+          {% else %}
           {% for c, d in known_characters %}
-          <option value="{{ c }}" {% if relationship_characters.get(row.tag, {}).get(part_index) == c %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ c }}</option>
+          <option value="{{ c }}" {% if linked == c %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ c }}</option>
           {% endfor %}
+          {% endif %}
         </select>
       </label>
+      {% if no_fandom %}<span class="hint">(No Fandom -- clear only)</span>{% endif %}
     </form>
+    {% endif %}
     {% endfor %}
     {% elif row.category == "freeform" %}
     {% for c in freeform_characters.get(row.tag, []) %}
@@ -74,6 +85,9 @@
       <button type="submit" class="chip-remove">{{ c }} &times;</button>
     </form>
     {% endfor %}
+    {% if no_fandom %}
+    <span class="hint">(No Fandom -- can't add)</span>
+    {% else %}
     <form method="post" action="/tags/classify/add_freeform_character" class="inline-form">
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="filter" value="{{ filter }}">
@@ -83,6 +97,7 @@
       <input type="text" name="character_tag" placeholder="Add character&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
+    {% endif %}
     {% endif %}
   </td>
   <td>
@@ -98,6 +113,9 @@
       <button type="submit" class="chip-remove">{{ r }} &times;</button>
     </form>
     {% endfor %}
+    {% if no_fandom %}
+    <span class="hint">(No Fandom -- can't add)</span>
+    {% else %}
     <form method="post" action="/tags/classify/add_freeform_relationship" class="inline-form">
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="filter" value="{{ filter }}">
@@ -107,6 +125,7 @@
       <input type="text" name="relationship_tag" placeholder="Add relationship&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
+    {% endif %}
     {% endif %}
   </td>
 </tr>

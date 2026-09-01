@@ -10,12 +10,14 @@ from app.main import (
     _active_chips,
     _build_autocomplete_index,
     _completion_status,
+    _effective_tag_category,
     _entry_matches,
     _facet_suggestions,
     _filter_query_string,
     _parse_date,
     _parse_manual_links,
     _selected_with_counts,
+    _shared_child_category,
     _add_virtual_parent_counts,
     _all_descendants,
     _association_parents,
@@ -698,6 +700,50 @@ def test_sort_newest_with_descending_reverse_shows_newest_first():
     entries.sort(key=SORT_OPTIONS["newest"], reverse="newest" in DESCENDING_SORTS)
 
     assert [e.work_id for e in entries] == ["2", "1", "3"]
+
+
+def test_shared_child_category_returns_the_common_category():
+    entries = [WorkEntry(work_id="1", characters=["Ron Weasley", "Ron Weasley (Auror)"])]
+    assert _shared_child_category({"Ron Weasley", "Ron Weasley (Auror)"}, entries) == "character"
+
+
+def test_shared_child_category_none_when_children_are_mixed():
+    entries = [WorkEntry(work_id="1", characters=["Ron Weasley"], freeform_tags=["Coffee Shop AU"])]
+    assert _shared_child_category({"Ron Weasley", "Coffee Shop AU"}, entries) is None
+
+
+def test_shared_child_category_none_when_no_child_resolves_to_anything():
+    assert _shared_child_category({"Brand New Tag"}, []) is None
+
+
+def test_shared_child_category_ignores_unresolved_children_among_resolved_ones():
+    # A child that's never actually appeared on any work yet (a purely
+    # virtual tag someone typed as a target) shouldn't stop the rest of
+    # the children from establishing a shared category.
+    entries = [WorkEntry(work_id="1", characters=["Ron Weasley"])]
+    assert _shared_child_category({"Ron Weasley", "Never Seen Tag"}, entries) == "character"
+
+
+def test_effective_tag_category_prefers_explicit_over_entries():
+    entries = [WorkEntry(work_id="1", freeform_tags=["Some Tag"])]
+    assert _effective_tag_category(entries, "Some Tag", {"Some Tag": "character"}) == "character"
+
+
+def test_effective_tag_category_explicit_resolves_a_zero_occurrence_virtual_tag():
+    # The entries scan alone can never see this -- a purely virtual tag
+    # (e.g. a wrangling target nobody's tagged a real work with) never
+    # appears in any entry's own resolved tag lists no matter what
+    # category it's been explicitly given.
+    assert _effective_tag_category([], "Hogwarts Students", {"Hogwarts Students": "character"}) == "character"
+
+
+def test_effective_tag_category_falls_back_to_entries_when_not_in_explicit():
+    entries = [WorkEntry(work_id="1", characters=["Ron Weasley"])]
+    assert _effective_tag_category(entries, "Ron Weasley", {"Some Other Tag": "freeform"}) == "character"
+
+
+def test_effective_tag_category_none_when_omitted_and_tag_never_occurs():
+    assert _effective_tag_category([], "Hogwarts Students") is None
 
 
 def test_sanitize_style_content_neutralizes_closing_style_tag():
