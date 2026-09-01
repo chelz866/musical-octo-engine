@@ -103,6 +103,13 @@ a small delay between each download on top of ao3downloader's own rate-limit bac
 kicks in once AO3 actually throttles a request) -- a deliberately conservative default given this
 can run unattended over a queue thousands of works long.
 
+If a login attempt itself fails (wrong password, or AO3 blocking what looks like an automated
+login), a banner appears at the top of every page: "AO3 login failed on the last download run
+(...)". The batch still runs -- ordinary public works don't need login at all, so the rest of the
+queue keeps going unauthenticated -- but anything requiring login will keep failing until this is
+fixed. Double-check `AO3_USERNAME`/`AO3_PASSWORD`, restart the container to pick up a changed
+`.env`, and the banner clears itself on the next successful login.
+
 **How the queue behaves**: selecting rows and clicking "Download Selected" adds them to a small
 persistent queue (a work id already anywhere in it, pending or finished, is left alone rather than
 re-queued, so re-selecting the same rows twice is harmless) and starts a background worker if one

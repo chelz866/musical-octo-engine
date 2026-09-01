@@ -103,12 +103,19 @@ class Ao3Client:
     session cleanup Repository's own context-manager protocol expects.
     Construct one per worker run (see main.py's download worker loop) --
     it holds an open requests.Session for the run's lifetime.
+
+    login_error is None whenever login wasn't attempted (no credentials
+    configured) or succeeded; otherwise it's Repository.login's own
+    exception message (wrong password, an AO3-side challenge blocking an
+    automated login, etc.) -- see build_client, which catches that
+    exception itself so a bad login can't take the whole client down.
     """
 
-    def __init__(self, repo: Repository, ao3: Ao3, download_dir: str):
+    def __init__(self, repo: Repository, ao3: Ao3, download_dir: str, login_error: str | None = None):
         self.repo = repo
         self.ao3 = ao3
         self.download_dir = download_dir
+        self.login_error = login_error
 
     def download(self, url: str) -> None:
         self.ao3.download(url)
@@ -137,6 +144,16 @@ def build_client(
     saved filetypes list; login isn't cached there since credentials come
     from environment variables here every run instead of its own prompt-
     and-save flow).
+
+    A failed login (wrong password, or AO3 blocking what looks like an
+    automated login) doesn't raise out of here -- Repository.login raises
+    on failure, and letting that propagate would previously take the
+    whole client-build step down before a single item was even attempted,
+    silently killing the download worker with nothing downloaded and
+    nothing logged (see main.py's login-error banner on Queue for how
+    this surfaces instead). Ordinary public works need no login at all,
+    so it's better to still build a working (unauthenticated) client and
+    let those keep downloading than to fail the whole batch over it.
     """
     os.makedirs(state_dir, exist_ok=True)
     os.makedirs(download_dir, exist_ok=True)
@@ -153,8 +170,12 @@ def build_client(
     fileops.downloadfolder = download_dir
 
     repo = Repository(fileops)
+    login_error = None
     if username and password:
-        repo.login(username, password)
+        try:
+            repo.login(username, password)
+        except Exception as exc:
+            login_error = str(exc)
 
     ao3 = Ao3(repo, fileops, filetypes=["EPUB"], pages=None, series=False, images=False)
-    return Ao3Client(repo, ao3, download_dir)
+    return Ao3Client(repo, ao3, download_dir, login_error=login_error)

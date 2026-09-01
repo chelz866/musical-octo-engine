@@ -64,6 +64,13 @@
       {% if refresh_error %}
       <p class="badge badge-warn">Some feeds failed to refresh: {{ refresh_error }}</p>
       {% endif %}
+      {% if ao3_login_error %}
+      <p class="badge badge-warn">
+        AO3 login failed on the last download run ({{ ao3_login_error }}) -- downloads proceeded
+        without logging in, so anything restricted still failed. Double-check AO3_USERNAME/
+        AO3_PASSWORD in your environment.
+      </p>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
   </div>

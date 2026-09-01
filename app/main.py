@@ -70,6 +70,7 @@ async def _auto_refresh_loop():
 
 
 DOWNLOAD_WORKER_CURRENT_KEY = "download_worker_current_title"
+AO3_LOGIN_ERROR_KEY = "ao3_login_error"
 
 _download_worker_task: asyncio.Task | None = None
 _download_worker_stop = asyncio.Event()
@@ -114,6 +115,11 @@ async def _download_worker_loop():
         DOWNLOAD_DIR, LOG_PATH, os.path.dirname(DB_PATH),
         AO3_USERNAME, AO3_PASSWORD, AO3_EXTRA_WAIT_SECONDS,
     )
+    if AO3_USERNAME and AO3_PASSWORD:
+        # Only touched at all when credentials are actually configured --
+        # a fixed password clears a stale warning from an earlier run;
+        # nobody using this unauthenticated ever sees this banner.
+        db.set_meta(DB_PATH, AO3_LOGIN_ERROR_KEY, client.login_error or "")
     last_refresh = time.monotonic()
     try:
         while not _download_worker_stop.is_set():
@@ -407,6 +413,7 @@ def _base_context(request: Request) -> dict:
         "last_refreshed": db.get_meta(DB_PATH, LAST_REFRESHED_KEY),
         "feeds_last_refreshed": db.get_meta(DB_PATH, FEEDS_LAST_REFRESHED_KEY),
         "refresh_error": request.query_params.get("refresh_error"),
+        "ao3_login_error": db.get_meta(DB_PATH, AO3_LOGIN_ERROR_KEY) or "",
     }
 
 
