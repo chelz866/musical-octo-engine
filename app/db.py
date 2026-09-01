@@ -142,8 +142,9 @@ def init_db(path: str) -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tag_media_types (
-                tag TEXT PRIMARY KEY,
-                media_type TEXT NOT NULL
+                tag TEXT NOT NULL,
+                media_type TEXT NOT NULL,
+                PRIMARY KEY (tag, media_type)
             )
             """
         )
@@ -325,6 +326,30 @@ def init_db(path: str) -> None:
             WHERE category IS NULL
             """
         )
+        # One-time, idempotent: tag_media_types used to allow only one media
+        # type per Fandom tag (tag TEXT PRIMARY KEY). A Fandom can genuinely
+        # belong to more than one AO3-style category, so the table is now
+        # keyed on (tag, media_type) instead -- detected by checking whether
+        # media_type is still part of the primary key (pk=0 means it isn't,
+        # i.e. this is still the old single-value table); existing rows
+        # carry over unchanged; already-migrated installs (or a fresh one,
+        # created with the new schema above) see media_type already in the
+        # primary key and skip this entirely.
+        media_type_cols = {row[1]: row[5] for row in conn.execute("PRAGMA table_info(tag_media_types)")}
+        if media_type_cols.get("media_type") == 0:
+            old_rows = conn.execute("SELECT tag, media_type FROM tag_media_types").fetchall()
+            conn.execute("ALTER TABLE tag_media_types RENAME TO tag_media_types_old")
+            conn.execute(
+                """
+                CREATE TABLE tag_media_types (
+                    tag TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    PRIMARY KEY (tag, media_type)
+                )
+                """
+            )
+            conn.executemany("INSERT INTO tag_media_types (tag, media_type) VALUES (?, ?)", old_rows)
+            conn.execute("DROP TABLE tag_media_types_old")
 
 
 def pop_legacy_tracked_feeds(path: str) -> list[tuple[str, str | None]]:
@@ -567,46 +592,46 @@ def remove_tag_fandom(path: str, tag: str) -> None:
         conn.execute("DELETE FROM tag_fandoms WHERE tag = ?", (tag,))
 
 
-def get_all_tag_media_types(path: str) -> dict[str, str]:
-    """tag -> its explicit AO3-style media type ('Uncategorized Fandoms'
-    or one of the real ones, e.g. 'TV Shows') -- only meaningful for a
-    Fandom-category tag, though nothing here enforces that (the Classify
-    Tags UI only ever offers this control for one). A tag absent from
-    this dict has never had one set explicitly -- see
+def get_all_tag_media_types(path: str) -> dict[str, set[str]]:
+    """tag -> its explicit AO3-style media types (one or more of, e.g.
+    {'TV Shows', 'Anime & Manga'} for a crossover-friendly fandom, or
+    {'Uncategorized Fandoms'} as a real, terminal choice) -- only
+    meaningful for a Fandom-category tag, though nothing here enforces
+    that (the Classify Tags UI only ever offers this control for one). A
+    tag absent from this dict has never had one set explicitly -- see
     scanner.resolve_tag_media_type_explicit, which then walks the tag's
     own same-category 'child' chain (get_tag_children) looking for the
-    nearest ancestor that does, defaulting to 'Uncategorized Fandoms' if
+    nearest ancestor that does, defaulting to {'Uncategorized Fandoms'} if
     the whole chain comes up empty -- same inheritance shape as
-    get_all_tag_fandoms/resolve_tag_fandom_explicit.
+    get_all_tag_fandoms/resolve_tag_fandom_explicit, just a set of values
+    at each link instead of one.
     """
     with _connect(path) as conn:
         rows = conn.execute("SELECT tag, media_type FROM tag_media_types").fetchall()
-    return dict(rows)
+    result: dict[str, set[str]] = defaultdict(set)
+    for tag, media_type in rows:
+        result[tag].add(media_type)
+    return dict(result)
 
 
-def set_tag_media_type(path: str, tag: str, media_type: str) -> None:
-    """Sets tag's own explicit media type -- 'Uncategorized Fandoms' is a
-    real, terminal choice here (it stops inheritance from an ancestor
-    just as much as a real media type would), not the same as never
-    having set anything at all.
-    """
-    with _connect(path) as conn:
-        conn.execute(
-            """
-            INSERT INTO tag_media_types (tag, media_type) VALUES (?, ?)
-            ON CONFLICT(tag) DO UPDATE SET media_type = excluded.media_type
-            """,
-            (tag, media_type),
-        )
-
-
-def remove_tag_media_type(path: str, tag: str) -> None:
-    """Clears tag's own explicit media type, reverting it to whatever it
-    would inherit from its same-category parent chain (or 'Uncategorized
-    Fandoms' if nothing in the chain has one set either).
+def set_tag_media_types(path: str, tag: str, media_types: set[str]) -> None:
+    """Replaces tag's own explicit media types wholesale with exactly
+    `media_types` -- the per-row checkbox group on Classify Tags submits
+    its whole checked set every time, so this is a full replace rather
+    than an add/remove pair. An empty set clears tag's own explicit
+    choice entirely, reverting it to whatever it would inherit from its
+    same-category parent chain (or {'Uncategorized Fandoms'} if nothing
+    in the chain has one set either) -- same as the old remove_tag_media_type.
+    Passing {'Uncategorized Fandoms'} explicitly is still a real, terminal
+    choice that stops inheritance, not the same as clearing it.
     """
     with _connect(path) as conn:
         conn.execute("DELETE FROM tag_media_types WHERE tag = ?", (tag,))
+        if media_types:
+            conn.executemany(
+                "INSERT INTO tag_media_types (tag, media_type) VALUES (?, ?)",
+                [(tag, media_type) for media_type in media_types],
+            )
 
 
 def get_all_verified_tags(path: str) -> set[str]:

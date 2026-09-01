@@ -228,7 +228,26 @@ def test_apply_associations_bulk_sets_media_type_on_explicitly_classified_fandom
             show_guessed=False, show_set=False, incomplete_only=False,
         )
 
-        assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows", "Harry Potter": "TV Shows"}
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows"}, "Harry Potter": {"TV Shows"}}
+
+
+def test_apply_associations_bulk_adds_media_type_alongside_an_existing_one():
+    # A Fandom can genuinely belong to more than one AO3-style category --
+    # bulk-applying a second one adds to what's already there rather than
+    # replacing it (replacing/clearing is what the per-row checkbox group
+    # is for).
+    with _temp_db() as path:
+        _seed_candidate_tag(path, "Doctor Who")
+        db.set_tag_categories(path, {"Doctor Who": "fandom"})
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows"})
+
+        apply_associations(
+            tags=["Doctor Who"], fandom="", character="", relationship="", media_type="Books & Literature",
+            filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows", "Books & Literature"}}
 
 
 def test_apply_associations_skips_media_type_on_a_merely_guessed_fandom():
@@ -253,7 +272,7 @@ def test_apply_associations_media_type_dont_change_leaves_existing_value_alone()
     with _temp_db() as path:
         _seed_candidate_tag(path, "Doctor Who")
         db.set_tag_categories(path, {"Doctor Who": "fandom"})
-        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows"})
 
         apply_associations(
             tags=["Doctor Who"], fandom="", character="", relationship="", media_type="",
@@ -261,7 +280,7 @@ def test_apply_associations_media_type_dont_change_leaves_existing_value_alone()
             show_guessed=False, show_set=False, incomplete_only=False,
         )
 
-        assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows"}
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows"}}
 
 
 def test_wrangle_tags_types_a_brand_new_parent_when_all_children_agree():

@@ -1304,8 +1304,9 @@ LETTER_FILTER_OPTIONS = ["all"] + [chr(c) for c in range(ord("A"), ord("Z") + 1)
 
 # AO3's own real Fandom media-type vocabulary (its Fandoms page's own
 # category list), reused verbatim rather than inventing this app's own --
-# a Fandom tag's own explicit choice among these (see db.set_tag_media_type)
-# only makes sense once it's been explicitly classified Fandom, not merely
+# a Fandom tag's own explicit choice(s) among these (see
+# db.set_tag_media_types -- a Fandom can belong to more than one) only
+# makes sense once it's been explicitly classified Fandom, not merely
 # guessed (see the Classify Tags "(guessed)" hint).
 FANDOM_MEDIA_TYPES = [
     "Anime & Manga",
@@ -1335,18 +1336,20 @@ def _filter_by_letter(rows: list[tuple], letter: str) -> list[tuple]:
 
 
 def _filter_by_media_type(
-    rows: list[tuple], media_type: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]
+    rows: list[tuple], media_type: str, parent_of: dict[str, str], explicit_media_types: dict[str, set[str]]
 ) -> list[tuple]:
     """Narrows (fandom_name, count, ...) rows to those whose *resolved*
-    media type (scanner.resolve_tag_media_type, so a same-category child
-    inheriting its parent's explicit choice still counts) matches; "all"
-    is a no-op. A row whose direct parent gets filtered out here (a
-    different medium) still falls back to its own top-level row rather
-    than disappearing -- see _group_tag_rows_by_parent.
+    media types (scanner.resolve_tag_media_type, so a same-category child
+    inheriting its parent's explicit choice still counts) include this
+    one -- a Fandom belonging to more than one category (e.g. both
+    "Movies" and "Comics") passes every one of its tabs' filters, not
+    just one; "all" is a no-op. A row whose direct parent gets filtered
+    out here (none of its own categories match) still falls back to its
+    own top-level row rather than disappearing -- see _group_tag_rows_by_parent.
     """
     if media_type == "all":
         return rows
-    return [row for row in rows if scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types) == media_type]
+    return [row for row in rows if media_type in scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types)]
 
 
 def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children_map: dict[str, set[str]]) -> None:
@@ -1525,7 +1528,7 @@ def _association_parents(
     character_freeform_tags: dict[str, set[str]],
     relationship_freeform_tags: dict[str, set[str]],
     category: str | None = None,
-    explicit_media_types: dict[str, str] | None = None,
+    explicit_media_types: dict[str, set[str]] | None = None,
 ) -> list[str]:
     """The "parent(s)" `tag` belongs to for the given Organize-by
     dimension -- used to regroup a Tags-page listing by an association
@@ -1540,12 +1543,16 @@ def _association_parents(
     organizing by Relationship while looking at a Character tag).
 
     "media_type" (AO3's own "Fandom Category" -- Anime & Manga, Books &
-    Literature, etc, see db.tag_media_types) is at most one value too. A
-    Fandom-category tag (`category == "fandom"`) resolves its own media
-    type directly; any other tag resolves through its associated Fandom
-    first (same lookup the "fandom" dimension above uses) and then that
-    Fandom's media type, so grouping the Character/Relationship/Freeform
-    tabs by Fandom Category groups them the way their Fandom is grouped.
+    Literature, etc, see db.tag_media_types) can be several too, since a
+    single Fandom can genuinely belong to more than one AO3-style category
+    (a franchise spanning both "Movies" and "Comics", say) -- a tag with
+    two resolved categories appears under both headings, same as a
+    Freeform tag linked to two Characters does. A Fandom-category tag
+    (`category == "fandom"`) resolves its own media type(s) directly; any
+    other tag resolves through its associated Fandom first (same lookup
+    the "fandom" dimension above uses) and then that Fandom's media
+    type(s), so grouping the Character/Relationship/Freeform tabs by
+    Fandom Category groups them the way their Fandom is grouped.
     `category` and `explicit_media_types` are only needed for this
     dimension -- every other branch below ignores them.
 
@@ -1587,10 +1594,10 @@ def _association_parents(
             if not fandom_is_explicit or fandom == "No Fandom":
                 return []
             tag = fandom
-        media_type, is_explicit = scanner.resolve_tag_media_type_explicit(tag, parent_of, explicit_media_types)
-        if media_type == "Uncategorized Fandoms":
-            return ["Uncategorized Fandoms"] if is_explicit else []
-        return [media_type]
+        media_types, is_explicit = scanner.resolve_tag_media_type_explicit(tag, parent_of, explicit_media_types)
+        if media_types == {"Uncategorized Fandoms"} and not is_explicit:
+            return []
+        return sorted(media_types)
     return []
 
 
@@ -1603,7 +1610,7 @@ def _group_tag_rows_by_association(
     freeform_characters: dict[str, set[str]],
     freeform_relationships: dict[str, set[str]],
     sort: str,
-    explicit_media_types: dict[str, str] | None = None,
+    explicit_media_types: dict[str, set[str]] | None = None,
 ) -> list[dict]:
     """Regroups an already-filtered (tag, count, category) list by
     Organize-by `dimension` (see _association_parents) instead of the
@@ -2054,7 +2061,7 @@ def _is_tag_complete(
     is_parent: bool,
     is_child: bool,
     tag_fandoms: dict[str, str],
-    tag_media_types: dict[str, str],
+    tag_media_types: dict[str, set[str]],
     relationship_characters: dict[str, dict[int, str]],
     freeform_characters: dict[str, set[str]],
     freeform_relationships: dict[str, set[str]],
@@ -2180,7 +2187,7 @@ def set_tag_fandom_route(
 @app.post("/tags/classify/set_media_type")
 def set_tag_media_type_route(
     tag: str = Form(...),
-    media_type: str = Form(""),
+    media_type: list[str] = Form([]),
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
@@ -2190,17 +2197,19 @@ def set_tag_media_type_route(
     show_set: bool = Form(False),
     incomplete_only: bool = Form(False),
 ):
-    """Sets tag's own AO3-style media type -- see set_tag_fandom_route,
-    same "empty clears the explicit choice, a real value (including the
-    explicit 'Uncategorized Fandoms') is terminal" shape. Only meaningful
-    on a tag explicitly classified Fandom (see tags.html), though nothing
-    here re-checks that server-side -- there's no association to corrupt
-    either way if it's ever called on something else.
+    """Replaces tag's own explicit AO3-style media types wholesale with
+    whatever's checked (see the Classify Tags checkbox group and
+    db.set_tag_media_types) -- a Fandom can genuinely belong to more than
+    one category, so this isn't a single-value dropdown. An empty
+    selection clears tag's own explicit choice entirely, reverting it to
+    inheritance (see db.set_tag_media_types); checking only "Uncategorized
+    Fandoms" is still a real, terminal choice, not the same as clearing
+    it. Only meaningful on a tag explicitly classified Fandom (see
+    tags.html), though nothing here re-checks that server-side -- there's
+    no association to corrupt either way if it's ever called on something
+    else.
     """
-    if media_type:
-        db.set_tag_media_type(DB_PATH, tag, media_type)
-    else:
-        db.remove_tag_media_type(DB_PATH, tag)
+    db.set_tag_media_types(DB_PATH, tag, set(media_type))
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2341,15 +2350,18 @@ def apply_associations(
     """Bulk-applies whichever of Fandom/Character/Relationship/Media Type
     were picked (each blank means "don't touch that one") to every
     checked tag, so setting the same Fandom on a dozen Characters -- or
-    the same Media Type on a dozen Fandoms -- doesn't need a visit to
-    each row's own per-row control. Fandom only applies to a selected tag
-    whose effective category is character/relationship/freeform (see
+    adding the same Media Type to a dozen Fandoms -- doesn't need a visit
+    to each row's own per-row control. Fandom only applies to a selected
+    tag whose effective category is character/relationship/freeform (see
     _effective_tag_category); Character/Relationship association only
     applies to selected tags that are freeform, since a Relationship's
     Characters are per-name-part slots with no sensible bulk target;
     Media Type only applies to a tag *explicitly* classified Fandom (see
     tags.html's own "(classify to set a type)" hint for a merely-guessed
-    one), same restriction as the per-row control.
+    one), same restriction as the per-row control -- and, since a Fandom
+    can belong to more than one category, this *adds* the picked one to
+    whatever the tag already has rather than replacing its whole set (the
+    per-row checkbox group is the tool for replacing/clearing one).
     """
     fandom = fandom.strip()
     character = character.strip()
@@ -2359,6 +2371,7 @@ def apply_associations(
         entries = scanner.load_cached(DB_PATH).entries
         tag_fandoms = db.get_all_tag_fandoms(DB_PATH)
         explicit_categories = db.get_all_tag_categories(DB_PATH)
+        tag_media_types = db.get_all_tag_media_types(DB_PATH)
         for tag in tags:
             category = _effective_tag_category(entries, tag)
             if fandom and category in ("character", "relationship", "freeform"):
@@ -2369,7 +2382,7 @@ def apply_associations(
             if relationship and category == "freeform" and not no_fandom:
                 db.add_freeform_relationship(DB_PATH, tag, relationship)
             if media_type and explicit_categories.get(tag) == "fandom":
-                db.set_tag_media_type(DB_PATH, tag, media_type)
+                db.set_tag_media_types(DB_PATH, tag, tag_media_types.get(tag, set()) | {media_type})
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2456,10 +2469,16 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
 
     # Tab counts reflect the whole library regardless of which letter/media
     # type tab happens to be selected right now -- same "always the full
-    # picture" convention as Classify Tags' own filter-tab counts.
-    media_type_counts = Counter(
-        scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types) for row in sorted_fandoms
-    )
+    # picture" convention as Classify Tags' own filter-tab counts. A Fandom
+    # belonging to more than one category counts once in each of their
+    # tabs (not split fractionally), so these tab counts -- unlike a
+    # single-value tab set -- don't sum back to total_fandoms, which is
+    # instead the distinct-fandom count from before this per-category split.
+    total_fandoms = len(sorted_fandoms)
+    media_type_counts: Counter = Counter()
+    for row in sorted_fandoms:
+        for mt in scanner.resolve_tag_media_type(row[0], parent_of, explicit_media_types):
+            media_type_counts[mt] += 1
 
     sorted_fandoms = _filter_by_media_type(sorted_fandoms, media_type, parent_of, explicit_media_types)
     sorted_fandoms = _group_tag_rows_by_parent(sorted_fandoms, children_map)
@@ -2475,7 +2494,7 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
             "media_type": media_type,
             "media_type_options": FANDOM_MEDIA_TYPES,
             "media_type_counts": media_type_counts,
-            "total_fandoms": sum(media_type_counts.values()),
+            "total_fandoms": total_fandoms,
         },
     )
 

@@ -1096,11 +1096,19 @@ def test_association_parents_unknown_dimension_returns_nothing():
 
 
 def test_association_parents_media_type_a_fandom_tag_resolves_its_own_category():
-    explicit_media_types = {"Harry Potter": "Books & Literature"}
+    explicit_media_types = {"Harry Potter": {"Books & Literature"}}
     parents = _association_parents(
         "Harry Potter", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", explicit_media_types
     )
     assert parents == ["Books & Literature"]
+
+
+def test_association_parents_media_type_a_fandom_tag_can_resolve_to_several():
+    explicit_media_types = {"Harry Potter": {"Books & Literature", "Movies"}}
+    parents = _association_parents(
+        "Harry Potter", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", explicit_media_types
+    )
+    assert parents == ["Books & Literature", "Movies"]
 
 
 def test_association_parents_media_type_a_fandom_tag_with_no_category_is_ungrouped():
@@ -1110,7 +1118,7 @@ def test_association_parents_media_type_a_fandom_tag_with_no_category_is_ungroup
 
 def test_association_parents_media_type_a_non_fandom_tag_resolves_through_its_fandom():
     tag_fandoms = {"Hermione Granger": "Harry Potter"}
-    explicit_media_types = {"Harry Potter": "Books & Literature"}
+    explicit_media_types = {"Harry Potter": {"Books & Literature"}}
     parents = _association_parents(
         "Hermione Granger", "media_type", tag_fandoms, {}, {}, {}, {}, {}, {}, "character", explicit_media_types
     )
@@ -1131,7 +1139,7 @@ def test_association_parents_media_type_a_tag_explicitly_marked_no_fandom_is_ung
 
 
 def test_association_parents_media_type_explicit_uncategorized_gets_its_own_group():
-    explicit_media_types = {"Original Fiction": "Uncategorized Fandoms"}
+    explicit_media_types = {"Original Fiction": {"Uncategorized Fandoms"}}
     parents = _association_parents(
         "Original Fiction", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", explicit_media_types
     )
@@ -1213,13 +1221,25 @@ def test_group_tag_rows_by_association_media_type_groups_fandoms_and_their_own_t
         ("Hermione Granger", 3, "character"),
     ]
     tag_fandoms = {"Hermione Granger": "Harry Potter"}
-    explicit_media_types = {"Harry Potter": "Books & Literature", "Dune": "Books & Literature"}
+    explicit_media_types = {"Harry Potter": {"Books & Literature"}, "Dune": {"Books & Literature"}}
     grouped = _group_tag_rows_by_association(
         tags, "media_type", tag_fandoms, {}, {}, {}, {}, "count_desc", explicit_media_types
     )
     heading = next(r for r in grouped if r["children"])
     assert heading["tag"] == "Books & Literature"
     assert {c["tag"] for c in heading["children"]} == {"Harry Potter", "Dune", "Hermione Granger"}
+
+
+def test_group_tag_rows_by_association_media_type_a_fandom_in_two_categories_appears_under_both():
+    tags = [("Harry Potter", 5, "fandom")]
+    explicit_media_types = {"Harry Potter": {"Books & Literature", "Movies"}}
+    grouped = _group_tag_rows_by_association(
+        tags, "media_type", {}, {}, {}, {}, {}, "count_desc", explicit_media_types
+    )
+    headings = {row["tag"]: row for row in grouped if row["children"]}
+    assert set(headings) == {"Books & Literature", "Movies"}
+    assert headings["Books & Literature"]["children"] == [{"tag": "Harry Potter", "count": 5, "category": "fandom", "children": []}]
+    assert headings["Movies"]["children"] == [{"tag": "Harry Potter", "count": 5, "category": "fandom", "children": []}]
 
 
 def test_matches_classification_source_both_unchecked_is_a_no_op():
@@ -1250,7 +1270,7 @@ def test_matches_classification_source_both_checked_matches_either():
 
 def test_is_tag_complete_fandom_needs_a_media_type():
     assert _is_tag_complete("Harry Potter", "fandom", False, False, {}, {}, {}, {}, {}) is False
-    assert _is_tag_complete("Harry Potter", "fandom", False, False, {}, {"Harry Potter": "Books & Literature"}, {}, {}, {}) is True
+    assert _is_tag_complete("Harry Potter", "fandom", False, False, {}, {"Harry Potter": {"Books & Literature"}}, {}, {}, {}) is True
 
 
 def test_is_tag_complete_character_needs_any_fandom_answer_including_explicit_no_fandom():

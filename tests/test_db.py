@@ -97,35 +97,46 @@ def test_set_and_get_all_tag_media_types():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
-        db.set_tag_media_type(path, "Harry Potter", "Books & Literature")
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows"})
+        db.set_tag_media_types(path, "Harry Potter", {"Books & Literature"})
 
         assert db.get_all_tag_media_types(path) == {
-            "Doctor Who": "TV Shows",
-            "Harry Potter": "Books & Literature",
+            "Doctor Who": {"TV Shows"},
+            "Harry Potter": {"Books & Literature"},
         }
 
 
-def test_set_tag_media_type_overwrites_existing_value():
+def test_set_tag_media_types_allows_more_than_one_at_once():
+    # A Fandom can genuinely belong to more than one AO3-style category
+    # (e.g. a franchise spanning both a movie and a comic line).
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
-        db.set_tag_media_type(path, "Doctor Who", "Movies")
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows", "Books & Literature"})
 
-        assert db.get_all_tag_media_types(path) == {"Doctor Who": "Movies"}
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows", "Books & Literature"}}
 
 
-def test_remove_tag_media_type_clears_only_that_tag():
+def test_set_tag_media_types_replaces_the_whole_set():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
-        db.set_tag_media_type(path, "Harry Potter", "Books & Literature")
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows"})
+        db.set_tag_media_types(path, "Doctor Who", {"Movies"})
 
-        db.remove_tag_media_type(path, "Doctor Who")
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"Movies"}}
 
-        assert db.get_all_tag_media_types(path) == {"Harry Potter": "Books & Literature"}
+
+def test_set_tag_media_types_empty_set_clears_the_tag_entirely():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows"})
+        db.set_tag_media_types(path, "Harry Potter", {"Books & Literature"})
+
+        db.set_tag_media_types(path, "Doctor Who", set())
+
+        assert db.get_all_tag_media_types(path) == {"Harry Potter": {"Books & Literature"}}
 
 
 def test_get_all_tag_media_types_empty_by_default():
@@ -268,6 +279,33 @@ def test_init_db_migrates_legacy_is_fandom_to_category():
         db.set_tag_categories(path, {"Ianto Jones": "character"})
         db.init_db(path)
         assert db.get_all_tag_categories(path)["Ianto Jones"] == "character"
+
+
+def test_init_db_migrates_legacy_single_value_tag_media_types():
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        # Simulate rows from before a Fandom could have more than one media
+        # type -- the old (tag TEXT PRIMARY KEY, media_type) shape.
+        conn = sqlite3.connect(path)
+        conn.execute("DROP TABLE tag_media_types")
+        conn.execute("CREATE TABLE tag_media_types (tag TEXT PRIMARY KEY, media_type TEXT NOT NULL)")
+        conn.execute("INSERT INTO tag_media_types (tag, media_type) VALUES (?, ?)", ("Doctor Who", "TV Shows"))
+        conn.commit()
+        conn.close()
+
+        db.init_db(path)  # migration runs here
+
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows"}}
+
+        # idempotent: running init_db again doesn't wipe a subsequent
+        # multi-value addition
+        db.set_tag_media_types(path, "Doctor Who", {"TV Shows", "Books & Literature"})
+        db.init_db(path)
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": {"TV Shows", "Books & Literature"}}
 
 
 def _sample_work_row(work_id="1", **overrides):

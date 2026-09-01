@@ -48,15 +48,14 @@
       </select>
     </form>
     {% elif row.category == "fandom" and row.tag in explicit_categories %}
-    <form method="post" action="/tags/classify/set_media_type" class="inline-form">
+    <form method="post" action="/tags/classify/set_media_type" class="inline-form media-type-checkboxes">
       <input type="hidden" name="tag" value="{{ row.tag }}">
       {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
-      <select name="media_type" onchange="this.form.submit()">
-        <option value="" {% if row.tag not in tag_media_types %}selected{% endif %}>Uncategorized Fandoms (auto)</option>
-        {% for mt in media_type_options %}
-        <option value="{{ mt }}" {% if tag_media_types.get(row.tag) == mt %}selected{% endif %}>{{ mt }}</option>
-        {% endfor %}
-      </select>
+      {% set own_media_types = tag_media_types.get(row.tag, []) %}
+      {% if not own_media_types %}<span class="hint">Uncategorized Fandoms (auto)</span>{% endif %}
+      {% for mt in media_type_options %}
+      <label class="hint"><input type="checkbox" name="media_type" value="{{ mt }}" {% if mt in own_media_types %}checked{% endif %} onchange="this.form.submit()"> {{ mt }}</label>
+      {% endfor %}
     </form>
     {% elif row.category == "fandom" %}
     <span class="hint">(classify to set a type)</span>
@@ -248,7 +247,7 @@
         {% endfor %}
       </select>
       <select name="media_type">
-        <option value="">Media Type: don't change</option>
+        <option value="">Media Type: don't add</option>
         {% for mt in media_type_options %}
         <option value="{{ mt }}">{{ mt }}</option>
         {% endfor %}
@@ -259,7 +258,9 @@
       Fandom applies to every selected Character/Relationship/Freeform tag. Character/Relationship
       only add to selected Freeform tags -- the table below can only remove one, not add one; a
       Relationship's Characters are per-name-part slots, set individually in its own row below. Media
-      Type only applies to a selected tag already explicitly classified Fandom.
+      Type only applies to a selected tag already explicitly classified Fandom, and adds to whatever
+      categories it already has rather than replacing them -- a Fandom can belong to more than one;
+      use its own row's checkboxes below to remove one or replace the whole set.
     </p>
   </form>
 

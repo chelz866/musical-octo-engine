@@ -324,18 +324,23 @@ def resolve_tag_fandom(tag: str, parent_of: dict[str, str], explicit_fandoms: di
 
 
 def resolve_tag_media_type_explicit(
-    tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]
-) -> tuple[str, bool]:
-    """See _resolve_explicit_in_chain -- 'Uncategorized Fandoms' (AO3's
+    tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, set[str]]
+) -> tuple[set[str], bool]:
+    """See _resolve_explicit_in_chain -- {'Uncategorized Fandoms'} (AO3's
     own real bucket for a Fandom filed under no specific medium) is the
     default here. Only meaningful for a Fandom-category tag, though
-    nothing here enforces that.
+    nothing here enforces that. A Fandom can genuinely belong to more than
+    one AO3-style category (e.g. a franchise spanning both 'Movies' and
+    'Comics'), so the resolved value -- like explicit_media_types itself
+    -- is a set, not a single string; _resolve_explicit_in_chain's own
+    chain-walk is value-type-agnostic, so the *nearest* ancestor's whole
+    set wins outright rather than merging sets across multiple ancestors.
     """
-    return _resolve_explicit_in_chain(tag, parent_of, explicit_media_types, "Uncategorized Fandoms")
+    return _resolve_explicit_in_chain(tag, parent_of, explicit_media_types, {"Uncategorized Fandoms"})
 
 
-def resolve_tag_media_type(tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, str]) -> str:
-    """The resolved media type only -- see resolve_tag_media_type_explicit
+def resolve_tag_media_type(tag: str, parent_of: dict[str, str], explicit_media_types: dict[str, set[str]]) -> set[str]:
+    """The resolved media types only -- see resolve_tag_media_type_explicit
     for the full (value, is_explicit) result.
     """
     return resolve_tag_media_type_explicit(tag, parent_of, explicit_media_types)[0]

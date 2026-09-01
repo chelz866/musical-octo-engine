@@ -748,36 +748,43 @@ def test_resolve_tag_fandom_explicit_true_when_inherited_no_fandom_choice():
 
 
 def test_resolve_tag_media_type_uses_own_explicit_choice():
-    assert resolve_tag_media_type("Doctor Who", {}, {"Doctor Who": "TV Shows"}) == "TV Shows"
+    assert resolve_tag_media_type("Doctor Who", {}, {"Doctor Who": {"TV Shows"}}) == {"TV Shows"}
+
+
+def test_resolve_tag_media_type_can_return_more_than_one():
+    # A Fandom can genuinely belong to more than one AO3-style category.
+    assert resolve_tag_media_type("Doctor Who", {}, {"Doctor Who": {"TV Shows", "Books & Literature"}}) == {
+        "TV Shows", "Books & Literature",
+    }
 
 
 def test_resolve_tag_media_type_defaults_to_uncategorized_when_never_set():
-    assert resolve_tag_media_type("Some New Fandom", {}, {}) == "Uncategorized Fandoms"
+    assert resolve_tag_media_type("Some New Fandom", {}, {}) == {"Uncategorized Fandoms"}
 
 
 def test_resolve_tag_media_type_inherits_from_same_category_parent():
     parent_of = {"Fantastic Beasts": "Wizarding World"}
-    explicit = {"Wizarding World": "Movies"}
-    assert resolve_tag_media_type("Fantastic Beasts", parent_of, explicit) == "Movies"
+    explicit = {"Wizarding World": {"Movies"}}
+    assert resolve_tag_media_type("Fantastic Beasts", parent_of, explicit) == {"Movies"}
 
 
 def test_resolve_tag_media_type_own_explicit_choice_overrides_inherited():
     parent_of = {"Harry Potter": "Wizarding World"}
-    explicit = {"Wizarding World": "Movies", "Harry Potter": "Books & Literature"}
-    assert resolve_tag_media_type("Harry Potter", parent_of, explicit) == "Books & Literature"
+    explicit = {"Wizarding World": {"Movies"}, "Harry Potter": {"Books & Literature"}}
+    assert resolve_tag_media_type("Harry Potter", parent_of, explicit) == {"Books & Literature"}
 
 
 def test_resolve_tag_media_type_explicit_true_for_a_real_uncategorized_choice():
     # Someone deliberately chose "Uncategorized Fandoms" -- distinct from a
     # tag nobody's classified either way yet, same as "No Fandom" for
     # resolve_tag_fandom_explicit.
-    assert resolve_tag_media_type_explicit("Weird Fandom", {}, {"Weird Fandom": "Uncategorized Fandoms"}) == (
-        "Uncategorized Fandoms", True,
+    assert resolve_tag_media_type_explicit("Weird Fandom", {}, {"Weird Fandom": {"Uncategorized Fandoms"}}) == (
+        {"Uncategorized Fandoms"}, True,
     )
 
 
 def test_resolve_tag_media_type_explicit_false_when_never_set_anywhere():
-    assert resolve_tag_media_type_explicit("Some New Fandom", {}, {}) == ("Uncategorized Fandoms", False)
+    assert resolve_tag_media_type_explicit("Some New Fandom", {}, {}) == ({"Uncategorized Fandoms"}, False)
 
 
 def test_resolve_associated_fandoms_gathers_from_all_three_lists_deduped():

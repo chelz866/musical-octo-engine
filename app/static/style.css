@@ -847,6 +847,17 @@ th {
   margin: 0.1rem 0.3rem 0.1rem 0;
 }
 
+.media-type-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.6rem;
+  max-width: 16rem;
+}
+
+.media-type-checkboxes label {
+  white-space: nowrap;
+}
+
 .chip-remove {
   font-size: 0.75rem;
   padding: 0.1rem 0.5rem;
