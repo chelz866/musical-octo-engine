@@ -1010,11 +1010,19 @@ button.read-toggle.badge {
 
 .reader-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
   margin: 1.2rem 0;
   font-size: 0.9rem;
+}
+
+.reader-nav-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex: 1 1 auto;
 }
 
 .reader-nav-disabled {
@@ -1022,8 +1030,13 @@ button.read-toggle.badge {
 }
 
 .reader-jump {
-  flex: 1;
-  max-width: 26rem;
+  /* flex-basis 100% always pushes this onto its own row below
+     .reader-nav-links (see .reader-nav's flex-wrap) -- a fixed max-width
+     plus flex:1 here previously let a long chapter title's intrinsic
+     select width force the whole nav row wider than a narrow (mobile)
+     viewport instead of actually shrinking to fit it. */
+  flex: 1 1 100%;
+  min-width: 0;
   font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border);
