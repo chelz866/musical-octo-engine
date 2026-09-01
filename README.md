@@ -435,12 +435,20 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   under every Freeform tag that links back to them, since a Freeform tag has no "parent Freeform tag"
   association of its own to organize its own tab by (only the same-category hierarchy already covers
   that, under "None") -- organizing the Freeform tab by Freeform leaves everything standalone rather
-  than grouping by nothing. A tag with more than one association for the chosen dimension (a Freeform
-  tag linked to two Characters, or a Character linked from two different Freeform tags) appears once
-  under each parent; a tag with none stays a standalone top-level row rather than disappearing. On
-  the read-only Tags page, clicking a synthetic parent heading filters Downloads by that association
-  directly (e.g. a Fandom heading links like the Fandoms page does), not by whatever category the
-  heading's own name happens to also be classified as.
+  than grouping by nothing. This page (only -- see below for why) also has a fifth option, **Fandom
+  Category**: groups every tab by the same AO3-style category (Anime & Manga, Books & Literature,
+  etc, see the Fandoms page above) its resolved Fandom is filed under -- a Fandom tag looks up its
+  own category directly, while a Character/Relationship/Freeform tag looks up its associated Fandom's
+  category instead, so grouping the Character tab by Fandom Category clusters characters the same way
+  their fandoms are already sorted on the Fandoms page. A tag with more than one association for the
+  chosen dimension (a Freeform tag linked to two Characters, or a Character linked from two different
+  Freeform tags) appears once under each parent; a tag with none stays a standalone top-level row
+  rather than disappearing. On the read-only Tags
+  page, clicking a synthetic parent heading filters Downloads by that association directly (e.g. a
+  Fandom heading links like the Fandoms page does), not by whatever category the heading's own name
+  happens to also be classified as. Fandom Category doesn't have that link-through (Downloads has no
+  matching filter to send it to), which is exactly why it's Classify Tags-only rather than also
+  showing up on the read-only Tags page: it'd be a heading with nowhere to click.
 
   Organizing by Fandom treats the "No Fandom (auto)" vs. explicit "No Fandom" distinction above the
   same way it treats a real one: a tag someone deliberately set to "No Fandom" (on itself or

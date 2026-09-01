@@ -1093,6 +1093,49 @@ def test_association_parents_unknown_dimension_returns_nothing():
     assert _association_parents("Angst", "nonsense", {}, {}, {}, {}, {}, {}, {}) == []
 
 
+def test_association_parents_media_type_a_fandom_tag_resolves_its_own_category():
+    explicit_media_types = {"Harry Potter": "Books & Literature"}
+    parents = _association_parents(
+        "Harry Potter", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", explicit_media_types
+    )
+    assert parents == ["Books & Literature"]
+
+
+def test_association_parents_media_type_a_fandom_tag_with_no_category_is_ungrouped():
+    parents = _association_parents("Harry Potter", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", {})
+    assert parents == []
+
+
+def test_association_parents_media_type_a_non_fandom_tag_resolves_through_its_fandom():
+    tag_fandoms = {"Hermione Granger": "Harry Potter"}
+    explicit_media_types = {"Harry Potter": "Books & Literature"}
+    parents = _association_parents(
+        "Hermione Granger", "media_type", tag_fandoms, {}, {}, {}, {}, {}, {}, "character", explicit_media_types
+    )
+    assert parents == ["Books & Literature"]
+
+
+def test_association_parents_media_type_a_tag_with_no_fandom_is_ungrouped():
+    parents = _association_parents("Random Character", "media_type", {}, {}, {}, {}, {}, {}, {}, "character", {})
+    assert parents == []
+
+
+def test_association_parents_media_type_a_tag_explicitly_marked_no_fandom_is_ungrouped():
+    tag_fandoms = {"Original Character": "No Fandom"}
+    parents = _association_parents(
+        "Original Character", "media_type", tag_fandoms, {}, {}, {}, {}, {}, {}, "character", {}
+    )
+    assert parents == []
+
+
+def test_association_parents_media_type_explicit_uncategorized_gets_its_own_group():
+    explicit_media_types = {"Original Fiction": "Uncategorized Fandoms"}
+    parents = _association_parents(
+        "Original Fiction", "media_type", {}, {}, {}, {}, {}, {}, {}, "fandom", explicit_media_types
+    )
+    assert parents == ["Uncategorized Fandoms"]
+
+
 def test_group_tag_rows_by_association_nests_tags_under_their_resolved_fandom():
     tags = [("Harry Potter", 5, "fandom"), ("Hermione Granger", 3, "character")]
     tag_fandoms = {"Hermione Granger": "Harry Potter"}
@@ -1159,6 +1202,22 @@ def test_group_tag_rows_by_association_merges_groups_and_standalone_by_sort_orde
     # Sorted together by count_desc -- the standalone tag's high count puts
     # it first, not after every group the way a "groups always first" order would.
     assert grouped[0]["tag"] == "Aaa Standalone"
+
+
+def test_group_tag_rows_by_association_media_type_groups_fandoms_and_their_own_tags():
+    tags = [
+        ("Harry Potter", 5, "fandom"),
+        ("Dune", 4, "fandom"),
+        ("Hermione Granger", 3, "character"),
+    ]
+    tag_fandoms = {"Hermione Granger": "Harry Potter"}
+    explicit_media_types = {"Harry Potter": "Books & Literature", "Dune": "Books & Literature"}
+    grouped = _group_tag_rows_by_association(
+        tags, "media_type", tag_fandoms, {}, {}, {}, {}, "count_desc", explicit_media_types
+    )
+    heading = next(r for r in grouped if r["children"])
+    assert heading["tag"] == "Books & Literature"
+    assert {c["tag"] for c in heading["children"]} == {"Harry Potter", "Dune", "Hermione Granger"}
 
 
 def test_flatten_tag_options_lists_a_parent_immediately_followed_by_its_children():

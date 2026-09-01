@@ -1498,8 +1498,17 @@ def _group_tag_rows_by_parent(
     return [to_row(row) for row in top_level]
 
 
-ORGANIZE_BY_OPTIONS = ("fandom", "character", "relationship", "freeform")
-ORGANIZE_BY_LABELS = {"fandom": "Fandom", "character": "Character", "relationship": "Relationship", "freeform": "Freeform"}
+ORGANIZE_BY_OPTIONS = ("fandom", "character", "relationship", "freeform", "media_type")
+ORGANIZE_BY_LABELS = {
+    "fandom": "Fandom", "character": "Character", "relationship": "Relationship", "freeform": "Freeform",
+    "media_type": "Fandom Category",
+}
+# The read-only Tags page turns a synthetic group heading into a link that
+# filters Downloads by that same association (e.g. "/?fandom=..."), but the
+# Downloads page has no "media_type" facet of its own to filter by -- so
+# that option is admin-only (Classify Tags), left out of the dropdown here
+# to avoid offering a heading that would just dead-end.
+ORGANIZE_BY_LABELS_BROWSE = {k: v for k, v in ORGANIZE_BY_LABELS.items() if k != "media_type"}
 
 
 def _association_parents(
@@ -1512,6 +1521,8 @@ def _association_parents(
     freeform_relationships: dict[str, set[str]],
     character_freeform_tags: dict[str, set[str]],
     relationship_freeform_tags: dict[str, set[str]],
+    category: str | None = None,
+    explicit_media_types: dict[str, str] | None = None,
 ) -> list[str]:
     """The "parent(s)" `tag` belongs to for the given Organize-by
     dimension -- used to regroup a Tags-page listing by an association
@@ -1524,6 +1535,16 @@ def _association_parents(
     every Freeform tag that links back to this Character/Relationship)
     or none at all if `tag` has no association for this dimension (e.g.
     organizing by Relationship while looking at a Character tag).
+
+    "media_type" (AO3's own "Fandom Category" -- Anime & Manga, Books &
+    Literature, etc, see db.tag_media_types) is at most one value too. A
+    Fandom-category tag (`category == "fandom"`) resolves its own media
+    type directly; any other tag resolves through its associated Fandom
+    first (same lookup the "fandom" dimension above uses) and then that
+    Fandom's media type, so grouping the Character/Relationship/Freeform
+    tabs by Fandom Category groups them the way their Fandom is grouped.
+    `category` and `explicit_media_types` are only needed for this
+    dimension -- every other branch below ignores them.
 
     Freeform is the reverse of Character/Relationship: a Freeform tag has
     no "parent Freeform tag" of its own (there's no such association --
@@ -1556,6 +1577,17 @@ def _association_parents(
     if dimension == "freeform":
         freeforms = character_freeform_tags.get(tag, set()) | relationship_freeform_tags.get(tag, set())
         return sorted(freeforms)
+    if dimension == "media_type":
+        explicit_media_types = explicit_media_types or {}
+        if category != "fandom":
+            fandom, fandom_is_explicit = scanner.resolve_tag_fandom_explicit(tag, parent_of, tag_fandoms)
+            if not fandom_is_explicit or fandom == "No Fandom":
+                return []
+            tag = fandom
+        media_type, is_explicit = scanner.resolve_tag_media_type_explicit(tag, parent_of, explicit_media_types)
+        if media_type == "Uncategorized Fandoms":
+            return ["Uncategorized Fandoms"] if is_explicit else []
+        return [media_type]
     return []
 
 
@@ -1568,6 +1600,7 @@ def _group_tag_rows_by_association(
     freeform_characters: dict[str, set[str]],
     freeform_relationships: dict[str, set[str]],
     sort: str,
+    explicit_media_types: dict[str, str] | None = None,
 ) -> list[dict]:
     """Regroups an already-filtered (tag, count, category) list by
     Organize-by `dimension` (see _association_parents) instead of the
@@ -1579,6 +1612,10 @@ def _group_tag_rows_by_association(
     appears once under each one. Groups and standalone tags are then
     merged into one list and sorted together by `sort`, same as any other
     Tags-page listing, rather than groups always coming first.
+
+    `explicit_media_types` is only used by the "media_type" dimension
+    (see _association_parents) -- every other dimension ignores it, so
+    callers not exercising that dimension can leave it unset.
     """
     character_freeform_tags: dict[str, set[str]] = defaultdict(set)
     relationship_freeform_tags: dict[str, set[str]] = defaultdict(set)
@@ -1595,6 +1632,7 @@ def _group_tag_rows_by_association(
         parents = _association_parents(
             row[0], dimension, tag_fandoms, parent_of, relationship_characters, freeform_characters,
             freeform_relationships, character_freeform_tags, relationship_freeform_tags,
+            row[2], explicit_media_types,
         )
         if not parents:
             ungrouped.append(row)
@@ -1630,15 +1668,16 @@ def _group_tag_rows_by_association(
 def _grouped_tag_rows(tags: list[tuple[str, int, str | None]], organize_by: str, sort: str) -> list[dict]:
     """Chooses the same-category wrangling nesting (default) or an
     Organize-by association grouping (fandom/character/relationship/
-    freeform, see _group_tag_rows_by_association), whichever the caller
-    asked for -- shared by both Tags pages so they group identically.
+    freeform/media_type, see _group_tag_rows_by_association), whichever
+    the caller asked for -- shared by both Tags pages so they group
+    identically.
     """
     if organize_by in ORGANIZE_BY_OPTIONS:
         parent_of = scanner.child_parent_map(db.get_tag_children(DB_PATH))
         return _group_tag_rows_by_association(
             tags, organize_by, db.get_all_tag_fandoms(DB_PATH), parent_of,
             db.get_all_relationship_characters(DB_PATH), db.get_all_freeform_characters(DB_PATH),
-            db.get_all_freeform_relationships(DB_PATH), sort,
+            db.get_all_freeform_relationships(DB_PATH), sort, db.get_all_tag_media_types(DB_PATH),
         )
     return _group_tag_rows_by_parent(tags, db.get_tag_children(DB_PATH))
 
@@ -1677,7 +1716,7 @@ def tags_browse(
             "letter": letter,
             "letter_options": LETTER_FILTER_OPTIONS,
             "organize_by": organize_by,
-            "organize_by_options": ORGANIZE_BY_LABELS,
+            "organize_by_options": ORGANIZE_BY_LABELS_BROWSE,
             "explicit_categories": db.get_all_tag_categories(DB_PATH),
             "q": q,
             "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}&organize_by={quote(organize_by)}&q={quote(q)}",
