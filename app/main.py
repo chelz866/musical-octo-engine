@@ -1777,6 +1777,7 @@ def tags_classify_page(
     freeform_relationships = db.get_all_freeform_relationships(DB_PATH)
     children_map = db.get_tag_children(DB_PATH)
     parent_of = scanner.child_parent_map(children_map)
+    verified_tags = db.get_all_verified_tags(DB_PATH)
 
     if show_guessed or show_set:
         tags = [
@@ -1789,6 +1790,7 @@ def tags_classify_page(
             if not _is_tag_complete(
                 t, cat, t in children_map and bool(children_map[t]), t in parent_of,
                 tag_fandoms, tag_media_types, relationship_characters, freeform_characters, freeform_relationships,
+                verified_tags,
             )
         ]
 
@@ -1820,7 +1822,7 @@ def tags_classify_page(
             "freeform_characters": freeform_characters,
             "freeform_relationships": freeform_relationships,
             "relationship_name_parts": _relationship_name_parts,
-            "verified_tags": db.get_all_verified_tags(DB_PATH),
+            "verified_tags": verified_tags,
             "work_id": work_id,
             "edit_source_entry": edit_source_entry,
             "q": q,
@@ -2065,6 +2067,7 @@ def _is_tag_complete(
     relationship_characters: dict[str, dict[int, str]],
     freeform_characters: dict[str, set[str]],
     freeform_relationships: dict[str, set[str]],
+    verified_tags: set[str],
 ) -> bool:
     """Whether `tag` has every piece of classification data its category
     calls for -- feeds the "Incomplete items only" checkbox on Classify
@@ -2089,20 +2092,28 @@ def _is_tag_complete(
       Characters, so a Freeform tagged with "Harry/Draco" isn't missing
       one side of it.
 
+    On top of all of the above, for every one of those four types, `tag`
+    must also have its own "Verified" checkbox checked (see
+    db.get_all_verified_tags) -- the per-category data can be entirely
+    filled in and it's still "incomplete" until someone's confirmed it by
+    eye, so ticking every box above without ever checking Verified never
+    clears a tag off this list on its own.
+
     Anything else (not yet classified at all) has nothing to check.
     """
     if category == "fandom":
-        return tag in tag_media_types
+        return tag in tag_media_types and tag in verified_tags
     if category == "character":
-        return tag in tag_fandoms
+        return tag in tag_fandoms and tag in verified_tags
     if category == "relationship":
         if tag not in tag_fandoms:
             return False
-        if tag_fandoms[tag] == "No Fandom":
-            return True
-        linked = relationship_characters.get(tag, {})
-        parts = _relationship_name_parts(tag)
-        return bool(parts) and all(i in linked for i in range(len(parts)))
+        if tag_fandoms[tag] != "No Fandom":
+            linked = relationship_characters.get(tag, {})
+            parts = _relationship_name_parts(tag)
+            if not parts or not all(i in linked for i in range(len(parts))):
+                return False
+        return tag in verified_tags
     if category == "freeform":
         if is_parent or is_child:
             if tag not in tag_fandoms:
@@ -2112,7 +2123,7 @@ def _is_tag_complete(
         for relationship_tag in freeform_relationships.get(tag, ()):
             if len(freeform_characters.get(tag, ())) != len(_relationship_name_parts(relationship_tag)):
                 return False
-        return True
+        return tag in verified_tags
     return True
 
 

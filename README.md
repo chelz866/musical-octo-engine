@@ -377,7 +377,10 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   non-canonical one, which inherits its parent's completeness rather than needing its own), at least
   one linked Character as well. Separately, any Freeform tag linked to a Relationship needs exactly
   that Relationship's own party count in linked Characters, whether it has a Parent/Child role or
-  not -- so a Freeform tagged with "Harry/Draco" isn't quietly missing one side of it.
+  not -- so a Freeform tagged with "Harry/Draco" isn't quietly missing one side of it. On top of all
+  of that, every category also requires its own **Verified** checkbox (see below) to be checked --
+  filling in every other field and never checking Verified still counts as incomplete, since the
+  whole point of that checkbox is confirming someone actually looked.
 
   This page also does AO3-style tag wrangling, split into two genuinely different mechanisms rather
   than one generic graph, matching how real AO3 wrangling separates a tag's "Parent Tag" from its
@@ -490,11 +493,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   only ever means someone confirmed there really is none, not "still undecided."
 
   A **Verified** checkbox sits in its own column at the right of every row -- a personal checklist
-  independent of classification itself (nothing else in the app reads it, and reclassifying or
-  re-associating a tag never clears it): tick it once you've looked at a row and confirmed it's
-  right, and its whole row gets a distinct highlight so already-reviewed tags stand out from the
-  rest at a glance while working through a long list. A synthetic Organize-by group heading has no
-  checkbox of its own (it isn't a real tag), same as it has no Category dropdown either.
+  layered on top of classification rather than part of it (reclassifying or re-associating a tag
+  never clears it on its own): tick it once you've looked at a row and confirmed it's right, and its
+  whole row gets a distinct highlight so already-reviewed tags stand out from the rest at a glance
+  while working through a long list. It also feeds "Incomplete items only" above -- every category's
+  own rules there require this box checked too, so a tag with every field filled in but never
+  reviewed still counts as incomplete. A synthetic Organize-by group heading has no checkbox of its
+  own (it isn't a real tag), same as it has no Category dropdown either.
 - **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
   into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
   sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is
