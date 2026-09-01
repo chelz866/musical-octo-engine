@@ -164,7 +164,7 @@ def classify_subjects(subjects: list[str]) -> SubjectClassification:
     return result
 
 
-def _find_opf_path(zf: zipfile.ZipFile) -> str:
+def find_opf_path(zf: zipfile.ZipFile) -> str:
     try:
         container_xml = zf.read("META-INF/container.xml")
     except KeyError as exc:
@@ -180,7 +180,7 @@ def _find_opf_path(zf: zipfile.ZipFile) -> str:
 def parse_epub_metadata(path: str) -> EpubMetadata:
     try:
         with zipfile.ZipFile(path) as zf:
-            opf_path = _find_opf_path(zf)
+            opf_path = find_opf_path(zf)
             opf_xml = zf.read(opf_path)
     except (zipfile.BadZipFile, KeyError, OSError) as exc:
         raise EpubParseError(f"could not read epub {path}: {exc}") from exc
@@ -290,7 +290,7 @@ def parse_epub_stats(path: str) -> EpubStats:
     """
     try:
         with zipfile.ZipFile(path) as zf:
-            opf_path = _find_opf_path(zf)
+            opf_path = find_opf_path(zf)
             opf_root = ET.fromstring(zf.read(opf_path))
             href = _first_spine_item_href(opf_root)
             if not href:

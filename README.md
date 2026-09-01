@@ -194,6 +194,17 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   place; Audiobookshelf doesn't track it (confirmed
   against a real schema export), so this only ever comes from the file itself, matched or not.
 
+  A 📖 link next to the AO3 link (Home and Issues both, whenever the file is actually on disk) opens
+  an in-browser reader (`/reader/{work_id}`) -- a one-page-per-chapter view with Next/Previous and a
+  chapter-jump dropdown, reading directly from the work's own downloaded epub. It's a plain fallback
+  for whenever an external reader (e.g. Audiobookshelf) isn't cooperating, not a replacement for one:
+  no bookmarked reading position, no font/theme controls of its own beyond whatever Custom CSS theme
+  you've set (see Account, above -- the reader's content area uses AO3's own `userstuff` class, so
+  an AO3 skin styles it same as everywhere else in this app). Chapter titles come from whatever
+  heading the chapter's own HTML uses (AO3's real per-chapter title, if it set one); a chapter
+  bundled image renders through this app rather than as a broken relative path. Available to any
+  logged-in user, not just admins -- reading isn't an editing action.
+
   A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
   Include/Exclude split: every facet (Rating/Warning/Category/Fandom/Character/Relationship/
   Additional Tags, plus Completion and Language for Include only -- AO3 has no Exclude equivalent

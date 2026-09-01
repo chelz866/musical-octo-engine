@@ -320,7 +320,7 @@ th {
   font-weight: 600;
 }
 
-.abs-link {
+.blurb-icon-link {
   margin-left: 0.3rem;
   text-decoration: none;
 }
@@ -997,4 +997,39 @@ th {
 
 button.read-toggle.badge {
   text-decoration: none;
+}
+
+.reader-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.2rem 0;
+  font-size: 0.9rem;
+}
+
+.reader-nav-disabled {
+  color: var(--border);
+}
+
+.reader-jump {
+  flex: 1;
+  max-width: 26rem;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.reader-content {
+  max-width: 42rem;
+  margin: 0 auto;
+  line-height: 1.7;
+  font-size: 1.05rem;
+  overflow-wrap: break-word;
+}
+
+.reader-content img {
+  max-width: 100%;
+  height: auto;
 }

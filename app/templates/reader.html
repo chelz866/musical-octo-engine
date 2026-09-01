@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.title if entry else "Reader" }} - Archive Of My Own{% endblock %}
+{% block content %}
+  {% if error == "missing" %}
+  <header>
+    <h1>Not available</h1>
+  </header>
+  <p class="paths">This work isn't on disk (or hasn't been scanned yet) -- nothing to read here.</p>
+  {% elif error == "unreadable" %}
+  <header>
+    <h1>{{ entry.title or "(unknown title)" }}</h1>
+  </header>
+  <p class="paths">
+    This work's epub file couldn't be read -- see <a href="/issues">Issues</a> for details, or try
+    the AO3 link directly.
+  </p>
+  {% else %}
+  <header>
+    <h1>{{ entry.title or "(unknown title)" }}</h1>
+    <p class="hint">
+      by {{ entry.author or "Anonymous" }}
+      &middot;
+      <a href="https://archiveofourown.org/works/{{ work_id }}" target="_blank" rel="noopener">View on AO3</a>
+    </p>
+  </header>
+
+  <nav class="reader-nav">
+    {% if prev_index is not none %}
+    <a href="/reader/{{ work_id }}/{{ prev_index }}">&larr; Previous</a>
+    {% else %}
+    <span class="reader-nav-disabled">&larr; Previous</span>
+    {% endif %}
+
+    <select class="reader-jump" onchange="window.location.href = '/reader/{{ work_id }}/' + this.value">
+      {% for c in chapters %}
+      <option value="{{ c.index }}" {% if c.index == chapter.index %}selected{% endif %}>{{ c.title }}</option>
+      {% endfor %}
+    </select>
+
+    {% if next_index is not none %}
+    <a href="/reader/{{ work_id }}/{{ next_index }}">Next &rarr;</a>
+    {% else %}
+    <span class="reader-nav-disabled">Next &rarr;</span>
+    {% endif %}
+  </nav>
+
+  <article class="userstuff reader-content">
+    {% if chapter_html %}
+    {{ chapter_html | safe }}
+    {% else %}
+    <p><em>This chapter couldn't be read.</em></p>
+    {% endif %}
+  </article>
+
+  <nav class="reader-nav">
+    {% if prev_index is not none %}
+    <a href="/reader/{{ work_id }}/{{ prev_index }}">&larr; Previous</a>
+    {% else %}
+    <span class="reader-nav-disabled">&larr; Previous</span>
+    {% endif %}
+    {% if next_index is not none %}
+    <a href="/reader/{{ work_id }}/{{ next_index }}">Next &rarr;</a>
+    {% else %}
+    <span class="reader-nav-disabled">Next &rarr;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+{% endblock %}

@@ -9,11 +9,11 @@ from urllib.parse import quote
 
 from fast_autocomplete import AutoComplete
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import ao3_client, audiobookshelf, auth, db, rss, scanner
+from . import ao3_client, audiobookshelf, auth, db, epub_reader, rss, scanner
 from .epub_meta import looks_like_relationship
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
@@ -955,6 +955,72 @@ def series_view(request: Request, series_name: str):
             "abs_links": _abs_links(),
         },
     )
+
+
+def _entry_by_work_id(work_id: str):
+    return next((e for e in scanner.load_cached(DB_PATH).entries if e.work_id == work_id), None)
+
+
+@app.get("/reader/{work_id}", response_class=HTMLResponse)
+def read_work(work_id: str):
+    """Jumps straight to the first real chapter (index 1) rather than the
+    preface (index 0, just Words/Chapters stats) -- the preface is still
+    reachable from there via "Previous" or the chapter-jump dropdown.
+    """
+    return RedirectResponse(url=f"/reader/{work_id}/1")
+
+
+@app.get("/reader/{work_id}/{chapter_index}", response_class=HTMLResponse)
+def read_chapter(request: Request, work_id: str, chapter_index: int):
+    """An in-browser reading fallback over a work's own downloaded epub --
+    see app/epub_reader.py. Not admin-gated: reading isn't an editing
+    action, so any logged-in user who can see a work on Home/Issues can
+    open it here.
+    """
+    entry = _entry_by_work_id(work_id)
+    if entry is None or not entry.on_disk or not entry.file_path:
+        return templates.TemplateResponse(
+            "reader.html", {**_base_context(request), "work_id": work_id, "error": "missing"}, status_code=404
+        )
+
+    chapters = epub_reader.list_chapters(entry.file_path)
+    if not chapters:
+        return templates.TemplateResponse(
+            "reader.html",
+            {**_base_context(request), "work_id": work_id, "entry": entry, "error": "unreadable"},
+            status_code=422,
+        )
+
+    if chapter_index < 0 or chapter_index >= len(chapters):
+        return RedirectResponse(url=f"/reader/{work_id}/{max(0, min(chapter_index, len(chapters) - 1))}")
+
+    chapter = chapters[chapter_index]
+    chapter_html = epub_reader.get_chapter_html(entry.file_path, work_id, chapter)
+    return templates.TemplateResponse(
+        "reader.html",
+        {
+            **_base_context(request),
+            "work_id": work_id,
+            "entry": entry,
+            "chapters": chapters,
+            "chapter": chapter,
+            "chapter_html": chapter_html,
+            "prev_index": chapter_index - 1 if chapter_index > 0 else None,
+            "next_index": chapter_index + 1 if chapter_index < len(chapters) - 1 else None,
+        },
+    )
+
+
+@app.get("/reader/{work_id}/{chapter_index}/asset/{asset_path:path}")
+def read_chapter_asset(work_id: str, chapter_index: int, asset_path: str):
+    entry = _entry_by_work_id(work_id)
+    if entry is None or not entry.file_path:
+        return Response(status_code=404)
+    found = epub_reader.get_asset_bytes(entry.file_path, asset_path)
+    if found is None:
+        return Response(status_code=404)
+    content, content_type = found
+    return Response(content=content, media_type=content_type)
 
 
 @app.post("/works/{work_id}/bookmark")

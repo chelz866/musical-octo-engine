@@ -30,7 +30,10 @@
             {{ e.title or "(unknown title)" }}
           </a>
           {% if e.work_id in abs_links %}
-          <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="abs-link" title="Open in Audiobookshelf">🎧</a>
+          <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="blurb-icon-link" title="Open in Audiobookshelf">🎧</a>
+          {% endif %}
+          {% if e.on_disk %}
+          <a href="/reader/{{ e.work_id }}" class="blurb-icon-link" title="Read here">📖</a>
           {% endif %}
           <div class="hint">{{ e.author or "" }}</div>
         </td>
