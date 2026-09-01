@@ -20,15 +20,13 @@
           <input type="hidden" name="bookmarked" value="{{ 'false' if e.work_id in bookmarked_ids else 'true' }}">
           <button type="submit" class="bookmark-toggle" title="{{ 'Remove bookmark' if e.work_id in bookmarked_ids else 'Bookmark this' }}">{{ '★' if e.work_id in bookmarked_ids else '☆' }}</button>
         </form>
-        <a class="blurb-title" href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener"{% if e.summary %} title="{{ e.summary }}"{% endif %}>
+        <a class="blurb-title" href="{% if e.on_disk %}/reader/{{ e.work_id }}{% else %}https://archiveofourown.org/works/{{ e.work_id }}{% endif %}"{% if not e.on_disk %} target="_blank" rel="noopener"{% endif %}{% if e.summary %} title="{{ e.summary }}"{% endif %}>
           {{ e.title or "(unknown title)" }}
         </a>
         {% if e.work_id in abs_links %}
         <a href="{{ abs_links[e.work_id] }}" target="_blank" rel="noopener" class="blurb-icon-link" title="Open in Audiobookshelf">🎧</a>
         {% endif %}
-        {% if e.on_disk %}
-        <a href="/reader/{{ e.work_id }}" class="blurb-icon-link" title="Read here">📖</a>
-        {% endif %}
+        <a href="https://archiveofourown.org/works/{{ e.work_id }}" target="_blank" rel="noopener" class="blurb-icon-link" title="View on AO3">🔗</a>
         by <span class="blurb-author">{{ e.author or "Anonymous" }}</span>
       </h4>
       <div class="blurb-fandoms">
