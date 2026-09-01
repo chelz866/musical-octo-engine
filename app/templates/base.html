@@ -15,7 +15,7 @@
     </h1>
     <nav class="topnav" aria-label="Site">
       {% set browse_paths = ['/fandoms', '/tags'] %}
-      {% set is_admin_section = request.url.path.startswith('/admin') or request.url.path in ['/issues', '/tracked', '/queue'] %}
+      {% set is_admin_section = request.url.path.startswith('/admin') or request.url.path in ['/issues', '/tracked', '/queue', '/incomplete'] %}
       <div class="topnav-links primary navigation actions">
         <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Home</a>
         <details class="nav-dropdown dropdown" name="nav-dropdown">
@@ -33,6 +33,7 @@
             <a href="/issues" class="{% if request.url.path == '/issues' %}active{% endif %}">Issues</a>
             <a href="/tracked" class="{% if request.url.path == '/tracked' %}active{% endif %}">Tracked Feeds</a>
             <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+            <a href="/incomplete" class="{% if request.url.path == '/incomplete' %}active{% endif %}">Incomplete Works</a>
             <a href="/tags/classify" class="{% if request.url.path == '/tags/classify' %}active{% endif %}">Classify Tags</a>
             <a href="/tags/classify/wranglings" class="{% if request.url.path == '/tags/classify/wranglings' %}active{% endif %}">Tag Wrangling</a>
             <a href="/admin/users" class="{% if request.url.path == '/admin/users' %}active{% endif %}">Users</a>

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Incomplete Works - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Incomplete Works</h1>
+    <p class="paths">
+      Every already-downloaded work that's still a WIP, across your whole library -- not just ones
+      you're tracking through a feed. Sorted oldest-checked first (when you last downloaded or
+      refreshed the file, since a plain epub carries no AO3-side "last updated" date of its own),
+      so anything you haven't redownloaded in a long time -- and might quietly have new chapters
+      waiting -- surfaces at the top.
+    </p>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-value">{{ download_queue_counts.pending }}</div>
+      <div class="stat-label">queued to download</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ download_queue_counts.done }}</div>
+      <div class="stat-label">attempted this batch</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ "Running" if download_worker_running else "Stopped" }}</div>
+      <div class="stat-label">download worker</div>
+    </div>
+  </section>
+
+  <p class="paths">
+    {% if download_worker_current %}
+    Currently downloading: <strong>{{ download_worker_current }}</strong>
+    {% elif download_worker_running %}
+    Waiting for the next queued item&hellip;
+    {% else %}
+    Not running &mdash; select rows below and click "Download Selected" to start it.
+    {% endif %}
+    Successes and failures show up on <a href="/">Home</a> and <a href="/issues">Issues</a> as they
+    land, same as the <a href="/queue">Queue</a> page's download worker -- they share one worker and
+    queue.
+  </p>
+
+  <div class="tag-bulk-actions">
+    <form method="post" action="/queue/stop_downloads" class="inline-form">
+      <input type="hidden" name="next" value="/incomplete">
+      <button type="submit" {% if not download_worker_running %}disabled{% endif %}>Stop After Current Item</button>
+    </form>
+    <form method="post" action="/queue/clear_finished_downloads" class="inline-form">
+      <input type="hidden" name="next" value="/incomplete">
+      <button type="submit" {% if not download_queue_counts.done %}disabled{% endif %}>Clear Attempted Count</button>
+    </form>
+  </div>
+
+  <form method="post" action="/incomplete/download" id="incomplete-download-form">
+    <div class="tag-bulk-actions">
+      <span class="hint" id="incomplete-selected-count">0 selected</span>
+      <button type="submit" id="incomplete-download-button" disabled>Download Selected</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="incomplete-select-all" onclick="toggleAllIncomplete(this)"></th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Chapters</th>
+          <th>Last Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td><input type="checkbox" class="incomplete-checkbox" name="work_id" value="{{ item.entry.work_id }}" onchange="updateIncompleteSelectedCount()"></td>
+          <td>
+            <a href="https://archiveofourown.org/works/{{ item.entry.work_id }}" target="_blank" rel="noopener">
+              {{ item.entry.title or "(unknown title)" }}
+            </a>
+          </td>
+          <td>{{ item.entry.author or "—" }}</td>
+          <td>{{ item.entry.chapters_have }}/{{ item.entry.chapters_total if item.entry.chapters_total is not none else "?" }}</td>
+          <td>{{ item.last_updated.strftime("%Y-%m-%d") if item.last_updated else "—" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="empty">No incomplete works found &mdash; everything downloaded is complete.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
+
+  <script>
+    function updateIncompleteSelectedCount() {
+      var count = document.querySelectorAll(".incomplete-checkbox:checked").length;
+      document.getElementById("incomplete-selected-count").textContent = count + " selected";
+      document.getElementById("incomplete-download-button").disabled = count === 0;
+    }
+
+    function toggleAllIncomplete(selectAllBox) {
+      document.querySelectorAll(".incomplete-checkbox").forEach(function (checkbox) {
+        checkbox.checked = selectAllBox.checked;
+      });
+      updateIncompleteSelectedCount();
+    }
+  </script>
+{% endblock %}

@@ -376,6 +376,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   downloading from within the app" above for how that works and what it needs. Successes and
   failures land on Home and Issues exactly like a manual ao3downloader run would, since it's driving
   the same underlying download logic.
+- **Incomplete Works** (`/incomplete`) -- every already-downloaded work that's still a WIP, across
+  your whole library, not just ones tracked through a feed (that's what Queue is for). Instead of a
+  "From feed" column it shows Last Updated -- when you last downloaded/refreshed that file locally,
+  since a plain epub carries no AO3-side "last updated" date of its own -- sorted oldest first, so a
+  WIP nobody's redownloaded in a long time (and might quietly have new chapters waiting) surfaces at
+  the top. "Download Selected" here queues a fresh redownload of the checked works, sharing the same
+  background worker and queue as the Queue page above.
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
 have the same checkbox picker under the Fandom column ("edit", admin-only -- hidden entirely for a

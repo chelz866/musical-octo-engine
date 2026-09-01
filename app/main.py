@@ -140,7 +140,7 @@ async def _startup():
 # suffix since it lives under the same "/works/{id}/..." prefix as the
 # bookmark toggle, which every logged-in user *should* be able to reach).
 PUBLIC_PATHS = {"/login"}
-ADMIN_PATH_PREFIXES = ("/admin", "/issues", "/tracked", "/queue", "/refresh", "/tags/classify")
+ADMIN_PATH_PREFIXES = ("/admin", "/issues", "/tracked", "/queue", "/incomplete", "/refresh", "/tags/classify")
 
 
 def _is_admin_only_path(path: str) -> bool:
@@ -1916,38 +1916,90 @@ def queue(request: Request):
     )
 
 
+def _enqueue_selected_downloads(items: list[tuple[str, str, str | None]]) -> None:
+    """Shared by every "Download Selected" action (Queue, Incomplete Works)
+    -- adds (work_id, url, title) rows to the one shared download queue
+    and makes sure the background worker is running to pick them up.
+    """
+    if items:
+        db.enqueue_downloads(DB_PATH, items, datetime.now().isoformat())
+        _ensure_download_worker_running()
+
+
 @app.post("/queue/download")
 async def download_selected_queue_items(work_id: list[str] = Form([])):
     """Enqueues the checked Queue rows for the background download worker
-    (see _download_worker_loop) and makes sure it's running to pick them
-    up. Looks the URL/title back up from the same tracked-feed data the
-    Queue page itself renders from, so the browser only ever has to post
-    back a work_id, not a full AO3 URL.
+    (see _download_worker_loop). Looks the URL/title back up from the same
+    tracked-feed data the Queue page itself renders from, so the browser
+    only ever has to post back a work_id, not a full AO3 URL.
     """
-    if work_id:
-        wanted = set(work_id)
-        selected = [
-            (item["entry"].work_id, f"https://archiveofourown.org/works/{item['entry'].work_id}", item["entry"].title)
-            for item in _queue_items() if item["entry"].work_id in wanted
-        ]
-        db.enqueue_downloads(DB_PATH, selected, datetime.now().isoformat())
-        _ensure_download_worker_running()
+    wanted = set(work_id)
+    selected = [
+        (item["entry"].work_id, f"https://archiveofourown.org/works/{item['entry'].work_id}", item["entry"].title)
+        for item in _queue_items() if item["entry"].work_id in wanted
+    ]
+    _enqueue_selected_downloads(selected)
     return RedirectResponse(url="/queue", status_code=303)
 
 
 @app.post("/queue/stop_downloads")
-async def stop_download_worker():
+async def stop_download_worker(next: str = Form("/queue")):
     """Lets the current in-flight item finish rather than aborting it
-    mid-download -- the loop only checks this flag between items.
+    mid-download -- the loop only checks this flag between items. Shared
+    by both Queue and Incomplete Works, since there's one download worker
+    for the whole app -- `next` sends you back to whichever page you
+    stopped it from.
     """
     _download_worker_stop.set()
-    return RedirectResponse(url="/queue", status_code=303)
+    return RedirectResponse(url=next, status_code=303)
 
 
 @app.post("/queue/clear_finished_downloads")
-def clear_finished_downloads_route():
+def clear_finished_downloads_route(next: str = Form("/queue")):
     db.clear_finished_downloads(DB_PATH)
-    return RedirectResponse(url="/queue", status_code=303)
+    return RedirectResponse(url=next, status_code=303)
+
+
+@app.get("/incomplete", response_class=HTMLResponse)
+def incomplete_works(request: Request):
+    """Every already-downloaded work that's a WIP (see _completion_status),
+    regardless of whether it's tracked through any feed -- unlike Queue,
+    which is scoped to tracked feeds and to what isn't downloaded yet or
+    might have updated. Sorted oldest-checked first (by when you last
+    downloaded/refreshed the file locally, since a plain epub carries no
+    AO3-side "last updated" date of its own -- only a tracked feed's RSS
+    entry has that), so a WIP nobody's redownloaded in a long time -- and
+    might quietly have new chapters waiting -- surfaces at the top.
+    """
+    result = scanner.load_cached(DB_PATH)
+    items = [
+        {"entry": entry, "last_updated": scanner.effective_timestamp(entry)}
+        for entry in result.entries
+        if _completion_status(entry) == "wip"
+    ]
+    items.sort(key=lambda item: item["last_updated"] or datetime.min)
+    return templates.TemplateResponse(
+        "incomplete.html",
+        {
+            **_base_context(request),
+            "items": items,
+            "download_queue_counts": db.get_download_queue_counts(DB_PATH),
+            "download_worker_running": _download_worker_running(),
+            "download_worker_current": db.get_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY) or "",
+        },
+    )
+
+
+@app.post("/incomplete/download")
+async def download_selected_incomplete_items(work_id: list[str] = Form([])):
+    wanted = set(work_id)
+    result = scanner.load_cached(DB_PATH)
+    selected = [
+        (entry.work_id, f"https://archiveofourown.org/works/{entry.work_id}", entry.title)
+        for entry in result.entries if entry.work_id in wanted
+    ]
+    _enqueue_selected_downloads(selected)
+    return RedirectResponse(url="/incomplete", status_code=303)
 
 
 @app.post("/tracked/add")
