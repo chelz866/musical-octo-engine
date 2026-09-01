@@ -202,7 +202,7 @@ def test_apply_associations_adds_character_and_relationship_when_not_no_fandom()
         db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
 
         apply_associations(
-            tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B",
+            tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B", media_type="",
             filter="all", page=1, sort="count_desc", work_id="",
         )
 
@@ -217,7 +217,7 @@ def test_apply_associations_skips_no_fandom_tags_for_character_and_relationship(
         db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
 
         apply_associations(
-            tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B",
+            tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B", media_type="",
             filter="all", page=1, sort="count_desc", work_id="",
         )
 
@@ -234,11 +234,55 @@ def test_apply_associations_still_allows_fandom_on_a_no_fandom_tag():
         db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
 
         apply_associations(
-            tags=["Coffee Shop AU"], fandom="Harry Potter", character="", relationship="",
+            tags=["Coffee Shop AU"], fandom="Harry Potter", character="", relationship="", media_type="",
             filter="all", page=1, sort="count_desc", work_id="",
         )
 
         assert db.get_all_tag_fandoms(path)["Coffee Shop AU"] == "Harry Potter"
+
+
+def test_apply_associations_bulk_sets_media_type_on_explicitly_classified_fandoms():
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Doctor Who", "Harry Potter"])
+        db.set_tag_categories(path, {"Doctor Who": "fandom", "Harry Potter": "fandom"})
+
+        apply_associations(
+            tags=["Doctor Who", "Harry Potter"], fandom="", character="", relationship="", media_type="TV Shows",
+            filter="all", page=1, sort="count_desc", work_id="",
+        )
+
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows", "Harry Potter": "TV Shows"}
+
+
+def test_apply_associations_skips_media_type_on_a_merely_guessed_fandom():
+    # Only a tag *explicitly* classified Fandom -- not one that just
+    # resolves to "fandom" via the heuristic guess -- can get a media type,
+    # same restriction as the per-row control (see tags.html's own
+    # "(classify to set a type)" hint for a merely-guessed one).
+    with _temp_db() as path:
+        entry = WorkEntry(work_id="1", fandoms=["Guessed Fandom"], fandom_candidates=["Guessed Fandom"])
+        db.save_works_cache(path, [_entry_to_row(entry)])
+
+        apply_associations(
+            tags=["Guessed Fandom"], fandom="", character="", relationship="", media_type="TV Shows",
+            filter="all", page=1, sort="count_desc", work_id="",
+        )
+
+        assert db.get_all_tag_media_types(path) == {}
+
+
+def test_apply_associations_media_type_dont_change_leaves_existing_value_alone():
+    with _temp_db() as path:
+        _seed_candidate_tag(path, "Doctor Who")
+        db.set_tag_categories(path, {"Doctor Who": "fandom"})
+        db.set_tag_media_type(path, "Doctor Who", "TV Shows")
+
+        apply_associations(
+            tags=["Doctor Who"], fandom="", character="", relationship="", media_type="",
+            filter="all", page=1, sort="count_desc", work_id="",
+        )
+
+        assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows"}
 
 
 def test_wrangle_tags_types_a_brand_new_parent_when_all_children_agree():

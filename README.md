@@ -408,11 +408,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   Relationship(s) columns show "(No Fandom -- can't add)" in place of the add controls as a reminder.
 
   Setting the same association on many tags at once doesn't need a visit to each row: a Fandom/
-  Character/Relationship dropdown trio plus "Apply to selected" (next to the other bulk-action
-  buttons) applies whichever of the three you picked (each defaults to "don't change"/"don't add")
-  to every checked tag in one action -- Fandom to every selected Character/Relationship/Freeform
-  tag, Character/Relationship only to selected Freeform tags (a Relationship's Characters stay
-  per-name-part, set individually in its own row).
+  Character/Relationship/Media Type dropdown quartet plus "Apply to selected" (next to the other
+  bulk-action buttons) applies whichever of the four you picked (each defaults to "don't change"/
+  "don't add") to every checked tag in one action -- Fandom to every selected Character/
+  Relationship/Freeform tag, Character/Relationship only to selected Freeform tags (a Relationship's
+  Characters stay per-name-part, set individually in its own row), Media Type only to a selected tag
+  already explicitly classified Fandom.
 
   **Organize by:** (both this page and the read-only Tags page above) regroups the current listing
   by association instead of the same-category hierarchy -- pick Fandom, Character, Relationship, or

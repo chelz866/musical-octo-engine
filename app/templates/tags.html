@@ -275,12 +275,19 @@
         <option value="{{ r }}">{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ r }}</option>
         {% endfor %}
       </select>
+      <select name="media_type">
+        <option value="">Media Type: don't change</option>
+        {% for mt in media_type_options %}
+        <option value="{{ mt }}">{{ mt }}</option>
+        {% endfor %}
+      </select>
       <button type="submit" formaction="/tags/classify/apply_associations" disabled>Apply to selected</button>
     </div>
     <p class="hint">
       Fandom applies to every selected Character/Relationship/Freeform tag. Character/Relationship
       only add to selected Freeform tags -- a Relationship's Characters are per-name-part slots, set
-      individually in its own row below.
+      individually in its own row below. Media Type only applies to a selected tag already
+      explicitly classified Fandom.
     </p>
   </form>
 

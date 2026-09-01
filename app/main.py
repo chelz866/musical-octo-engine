@@ -2087,27 +2087,33 @@ def apply_associations(
     fandom: str = Form(""),
     character: str = Form(""),
     relationship: str = Form(""),
+    media_type: str = Form(""),
     filter: str = Form("all"),
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
 ):
-    """Bulk-applies whichever of Fandom/Character/Relationship were picked
-    (each blank means "don't touch that one") to every checked tag, so
-    setting the same Fandom on a dozen Characters -- or adding the same
-    Character to a dozen Freeform tags -- doesn't need a visit to each
-    row's own per-row control. Fandom only applies to a selected tag whose
-    effective category is character/relationship/freeform (see
+    """Bulk-applies whichever of Fandom/Character/Relationship/Media Type
+    were picked (each blank means "don't touch that one") to every
+    checked tag, so setting the same Fandom on a dozen Characters -- or
+    the same Media Type on a dozen Fandoms -- doesn't need a visit to
+    each row's own per-row control. Fandom only applies to a selected tag
+    whose effective category is character/relationship/freeform (see
     _effective_tag_category); Character/Relationship association only
     applies to selected tags that are freeform, since a Relationship's
-    Characters are per-name-part slots with no sensible bulk target.
+    Characters are per-name-part slots with no sensible bulk target;
+    Media Type only applies to a tag *explicitly* classified Fandom (see
+    tags.html's own "(classify to set a type)" hint for a merely-guessed
+    one), same restriction as the per-row control.
     """
     fandom = fandom.strip()
     character = character.strip()
     relationship = relationship.strip()
-    if fandom or character or relationship:
+    media_type = media_type.strip()
+    if fandom or character or relationship or media_type:
         entries = scanner.load_cached(DB_PATH).entries
         tag_fandoms = db.get_all_tag_fandoms(DB_PATH)
+        explicit_categories = db.get_all_tag_categories(DB_PATH)
         for tag in tags:
             category = _effective_tag_category(entries, tag)
             if fandom and category in ("character", "relationship", "freeform"):
@@ -2117,6 +2123,8 @@ def apply_associations(
                 db.add_freeform_character(DB_PATH, tag, character)
             if relationship and category == "freeform" and not no_fandom:
                 db.add_freeform_relationship(DB_PATH, tag, relationship)
+            if media_type and explicit_categories.get(tag) == "fandom":
+                db.set_tag_media_type(DB_PATH, tag, media_type)
     return RedirectResponse(
         url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
     )
