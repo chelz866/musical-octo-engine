@@ -18,6 +18,22 @@ the exact log.jsonl format this app's own scanner already parses. That
 means a failed download shows up on this app's Issues page automatically,
 the same way a failure from a manual ao3downloader run already does --
 this module doesn't need its own separate failure-tracking to get that.
+
+A redownload (Queue/Incomplete Works "Download Selected" on a work you
+already have) only actually replaces the existing file in place if
+ao3downloader computes the exact same filename for it as last time --
+otherwise it just writes a second file under a different name, leaving
+the original (with its original, increasingly stale mtime) sitting there
+too. Since this app can't know for certain what FileNamePattern a given
+library's files were originally created with (a hand-run ao3downloader
+might have used the packaged default, a customized one, or been changed
+over time), Ao3Client.download() closes that gap itself afterward: it
+looks at every file matching this work_id (scanner.FILENAME_RE, the same
+"<id> or <id>_ prefix" rule the scanner itself uses) and removes all but
+the most recently written one, so a redownload can never silently leave
+a stale duplicate behind for the scanner to pick over the fresh copy.
+Nothing is removed unless the download actually produced a file --
+a failed attempt leaves the sole existing copy untouched.
 """
 
 import os
@@ -26,25 +42,60 @@ from ao3downloader.ao3 import Ao3
 from ao3downloader.fileio import FileOps
 from ao3downloader.repo import Repository
 
+from . import scanner
+
 # Sane, deliberately conservative pacing/retry defaults -- these mirror
 # ao3downloader's own packaged settings.ini (see its "MaxRetries"/
 # "MaxTimeouts" comments), except ExtraWaitTime: since this runs
 # unattended over a queue that can be thousands of works long, a small
 # baseline delay between requests (on top of ao3downloader's own
 # rate-limit backoff, which only kicks in once AO3 actually throttles)
-# is a more polite default than the packaged "0".
+# is a more polite default than the packaged "0". FileNamePattern matches
+# ao3downloader's own packaged default exactly (not a pattern of this
+# app's own invention) so a redownload is more likely to compute the same
+# filename an existing hand-run download already used -- see the "not
+# guaranteed" caveat above, which is what the post-download dedupe below
+# is actually for.
 _INI_TEMPLATE = """[settings]
 ExtraWaitTime={extra_wait}
 MaxRetries=30
 MaxTimeouts=3
 SavePassword=false
 FileNameLength=0
-FileNamePattern={{worknum}}_{{title}} - {{author}}
+FileNamePattern={{worknum}} {{title}} - {{author}}
 EnableDebugLogging=false
 DownloadFolder={download_dir}
 """
 
 DEFAULT_EXTRA_WAIT_SECONDS = 2
+
+
+def _work_id_from_url(url: str) -> str:
+    return url.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _remove_stale_duplicate_files(download_dir: str, work_id: str) -> None:
+    matches = []
+    try:
+        names = os.listdir(download_dir)
+    except OSError:
+        return
+    for name in names:
+        match = scanner.FILENAME_RE.match(name)
+        if match and match.group(1) == work_id:
+            path = os.path.join(download_dir, name)
+            try:
+                matches.append((os.path.getmtime(path), path))
+            except OSError:
+                continue
+    if len(matches) <= 1:
+        return
+    matches.sort(reverse=True)
+    for _, stale_path in matches[1:]:
+        try:
+            os.remove(stale_path)
+        except OSError:
+            pass
 
 
 class Ao3Client:
@@ -54,12 +105,14 @@ class Ao3Client:
     it holds an open requests.Session for the run's lifetime.
     """
 
-    def __init__(self, repo: Repository, ao3: Ao3):
+    def __init__(self, repo: Repository, ao3: Ao3, download_dir: str):
         self.repo = repo
         self.ao3 = ao3
+        self.download_dir = download_dir
 
     def download(self, url: str) -> None:
         self.ao3.download(url)
+        _remove_stale_duplicate_files(self.download_dir, _work_id_from_url(url))
 
     def close(self) -> None:
         self.repo.session.close()
@@ -104,4 +157,4 @@ def build_client(
         repo.login(username, password)
 
     ao3 = Ao3(repo, fileops, filetypes=["EPUB"], pages=None, series=False, images=False)
-    return Ao3Client(repo, ao3)
+    return Ao3Client(repo, ao3, download_dir)

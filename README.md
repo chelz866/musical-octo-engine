@@ -117,6 +117,20 @@ per-item success/failure is exactly what Home ("✓ on disk") and Issues (parse 
 failures) already surface, so this doesn't duplicate that tracking. Selecting a "may need update"
 row does a fresh full download, the same as a new one -- it isn't a true incremental update.
 
+**Keeping the dashboard in sync while it downloads**: the worker re-scans the downloads folder
+periodically (every `DOWNLOAD_WORKER_REFRESH_INTERVAL_SECONDS`, and always once more right when a
+batch finishes or is stopped) so newly-downloaded/redownloaded works show up on Home/Incomplete
+Works without waiting for a manual Refresh click. A redownload only actually replaces the existing
+file in place if ao3downloader computes the exact same filename for it as last time (its
+`FileNamePattern` setting) -- otherwise it just writes a second file under a different name,
+leaving the original sitting there with its original, increasingly stale-looking modified date.
+Since this app can't know for certain what pattern a given library's files were originally created
+with, the download worker closes that gap itself: after each download it looks for every file
+matching that work id and keeps only the most recently written one, so a redownload can never
+silently leave a stale duplicate for the scanner to show instead of the fresh copy. Nothing is ever
+removed unless the download actually produced a file -- a failed attempt leaves the sole existing
+copy untouched.
+
 ## Accounts, roles, and bookmarks
 
 Every page requires logging in. The first time the app starts, it seeds one admin account --

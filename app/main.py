@@ -2,6 +2,7 @@ import asyncio
 import math
 import os
 import re
+import time
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from urllib.parse import quote
@@ -63,9 +64,29 @@ DOWNLOAD_WORKER_CURRENT_KEY = "download_worker_current_title"
 _download_worker_task: asyncio.Task | None = None
 _download_worker_stop = asyncio.Event()
 
+# How often the worker re-scans the downloads folder while a batch is
+# running, so newly-downloaded/redownloaded files show up on Home/
+# Incomplete Works with their real (current) mtime instead of sitting on
+# whatever was cached from the last manual Refresh -- otherwise a work
+# downloaded mid-batch would keep showing stale info for as long as the
+# rest of the queue takes to drain. A full rescan isn't free, so this
+# throttles it rather than refreshing after every single item.
+DOWNLOAD_WORKER_REFRESH_INTERVAL_SECONDS = 60
+
 
 def _download_worker_running() -> bool:
     return _download_worker_task is not None and not _download_worker_task.done()
+
+
+async def _refresh_downloads_cache_safely() -> None:
+    """A refresh failure (e.g. a misconfigured Audiobookshelf path) should
+    never take down the download worker itself -- the batch just keeps
+    going and tries again next interval.
+    """
+    try:
+        await asyncio.to_thread(_refresh_downloads_cache_now)
+    except Exception:
+        pass
 
 
 async def _download_worker_loop():
@@ -83,6 +104,7 @@ async def _download_worker_loop():
         DOWNLOAD_DIR, LOG_PATH, os.path.dirname(DB_PATH),
         AO3_USERNAME, AO3_PASSWORD, AO3_EXTRA_WAIT_SECONDS,
     )
+    last_refresh = time.monotonic()
     try:
         while not _download_worker_stop.is_set():
             item = db.get_next_pending_download(DB_PATH)
@@ -95,7 +117,15 @@ async def _download_worker_loop():
             except Exception:
                 pass
             db.mark_download_status(DB_PATH, item["id"], "done", datetime.now().isoformat())
+
+            if time.monotonic() - last_refresh >= DOWNLOAD_WORKER_REFRESH_INTERVAL_SECONDS:
+                await _refresh_downloads_cache_safely()
+                last_refresh = time.monotonic()
     finally:
+        # A guaranteed catch-up refresh once the batch ends (drained or
+        # stopped) so the last few items -- fewer than a full interval's
+        # worth -- don't sit stale until someone happens to click Refresh.
+        await _refresh_downloads_cache_safely()
         db.set_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY, "")
         await asyncio.to_thread(client.close)
 
@@ -2024,8 +2054,7 @@ def toggle_auto_refresh(url: str = Form(...), enabled: bool = Form(...)):
     return RedirectResponse(url="/tracked", status_code=303)
 
 
-@app.post("/refresh")
-def refresh(next: str = Form("/")):
+def _refresh_downloads_cache_now() -> None:
     """Rescans the downloads folder/log only -- kept separate from feed
     refreshing (see /refresh/feeds) since walking a large downloads folder
     and hitting every tracked feed on every click was too much to always
@@ -2033,6 +2062,12 @@ def refresh(next: str = Form("/")):
     for matched works, Audiobookshelf's own already-scanned title/tags are
     used in place of parsing the epub file again (see scanner._scan_disk),
     so matches are loaded first and threaded into the same scan.
+
+    Shared by the manual /refresh route and the background download worker
+    (see _download_worker_loop) -- a work the worker just downloaded/
+    redownloaded would otherwise keep showing whatever stale mtime/absence
+    was in the cache from the last manual refresh, potentially for as long
+    as the current queue takes to drain.
     """
     abs_matches = {}
     if ABS_DB_PATH and ABS_LIBRARY_ID:
@@ -2048,6 +2083,11 @@ def refresh(next: str = Form("/")):
             finished = audiobookshelf.load_read_work_ids(ABS_DB_PATH, ABS_LIBRARY_ID, abs_username)
             db.save_abs_read_status(DB_PATH, user_id, finished)
     db.set_meta(DB_PATH, LAST_REFRESHED_KEY, datetime.now().isoformat())
+
+
+@app.post("/refresh")
+def refresh(next: str = Form("/")):
+    _refresh_downloads_cache_now()
     return RedirectResponse(url=next or "/", status_code=303)
 
 
