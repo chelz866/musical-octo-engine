@@ -421,6 +421,20 @@ def set_tag_categories(path: str, categories: dict[str, str]) -> None:
         )
 
 
+def remove_tag_categories(path: str, tags: list[str]) -> None:
+    """Reverts each of `tags` back to Unclassified -- the bulk "Unclassify"
+    action on Classify Tags. tag_flags has no other data worth keeping once
+    its category is gone (see set_tag_categories), so this deletes the row
+    outright rather than setting category back to NULL in place; any
+    Fandom/Media Type/Character association the tag already had is left
+    alone, same as switching a tag from one category to another already does.
+    """
+    if not tags:
+        return
+    with _connect(path) as conn:
+        conn.executemany("DELETE FROM tag_flags WHERE tag = ?", [(tag,) for tag in tags])
+
+
 def get_tag_synonyms(path: str) -> dict[str, str]:
     """tag -> canonical target, for relation='synonym' rows only. See
     scanner._resolve_tag_categories, which folds a synonym's tag into its

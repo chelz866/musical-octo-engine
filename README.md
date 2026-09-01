@@ -343,24 +343,47 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   it in one action, instead of a per-work correction on each of them. A real library can easily
   have thousands of unique tags, so checking a box per tag and reading through a dropdown per row
   doesn't scale -- instead, each row has a checkbox ("Select all" in the header selects only the
-  rows currently visible, respecting the filter tab, sort order, and the search box), and a bar
-  above the table applies one category to everything checked ("Set selected: Fandom/Character/
-  Relationship/Freeform") -- search for a name, select all, glance at the list, then set it in one
-  click. The search box (same one on the read-only Tags page) narrows the *whole* library before
-  pagination, not just whatever page happens to be open, so finding a specific tag or two doesn't
-  mean paging through hundreds of pages by hand first. The same sort dropdown as the read-only Tags
+  rows currently visible, respecting the filter tab, sort order, and the search box), and a "Set
+  selected as:" bar above the table applies one category to everything checked (Fandom/character/
+  relationship/freeform, or "unclassify" to revert every checked tag back to Unclassified) -- search
+  for a name, select all, glance at the list, then set it in one click. The search box (same one on
+  the read-only Tags page) always searches the *whole* library before pagination and regardless of
+  the current filter tab -- typing a search is one library-wide lookup, not a smaller search
+  confined to whatever tab or page happens to be open. The same sort dropdown as the read-only Tags
   page (Name A-Z/Z-A, Most/Fewest Works) is available here too, and is preserved through every bulk
-  action's redirect. Since
-  AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
-  this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
-  to select anything.
+  action's redirect. Since AO3 libraries are typically mostly Freeform tags, two further bulk actions
+  ("mark unclassified on this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep
+  the rest without needing to select anything.
+
+  Two checkboxes next to Sort narrow the list further, on top of the filter tab and search (neither
+  is reflected in the tab counts, same "always the full picture" convention the counts already
+  follow): "Show guessed"/"Show set" -- both unchecked (the default) shows everything, including
+  Unclassified; checking one or both narrows to already-classified tags only, split by *how* they
+  got classified -- "Show guessed" for a heuristic guess (Fandom/Relationship only, from tag order
+  or the "/"-or-"&amp;" convention -- see the read-only Tags page's own "(guessed)" marker), "Show
+  set" for an explicit human choice, checking both together shows any classified tag either way
+  (i.e. everything except Unclassified). "Incomplete items only" hides every tag that already has
+  every piece of classification data its category calls for, so working a big library down to zero
+  is a matter of repeatedly clearing this list instead of eyeballing every row for a gap: a Fandom is
+  incomplete without its own Fandom Category; a Character is incomplete without a Fandom association
+  (an explicit "No Fandom" counts as answered); a Relationship is incomplete without a Fandom and a
+  linked Character for every one of its name parts; a Freeform tag with no Parent/Child role of its
+  own (see the hierarchy below) is always complete as-is, but once it *is* a parent or child, it
+  needs a Fandom too -- and, unless that Fandom is "No Fandom" and this tag is the child (the
+  non-canonical one, which inherits its parent's completeness rather than needing its own), at least
+  one linked Character as well. Separately, any Freeform tag linked to a Relationship needs exactly
+  that Relationship's own party count in linked Characters, whether it has a Parent/Child role or
+  not -- so a Freeform tagged with "Harry/Draco" isn't quietly missing one side of it.
 
   This page also does AO3-style tag wrangling, split into two genuinely different mechanisms rather
   than one generic graph, matching how real AO3 wrangling separates a tag's "Parent Tag" from its
   "Fandom":
 
   **Same-category hierarchy** ("Merge selected into &rarr;" / "Make selected children of &rarr;")
-  -- "Merge selected into" folds every checked tag into one canonical tag everywhere (display,
+  -- the canonical/parent tag name box has its own "Find another..."-style autocomplete (type two or
+  more characters to see matching tags from anywhere in the library, any category; click one or
+  press Enter with exactly one match to fill it in) instead of typing a name blind and hoping it's
+  spelled the same way elsewhere. "Merge selected into" folds every checked tag into one canonical tag everywhere (display,
   Tags-page counts, classification), category-blind since two spellings of the same tag aren't a
   category question; it stops appearing here as its own row (undo it from the **Tag Wrangling**
   page under Admin -- see below). "Make selected children of" keeps each checked tag as itself but
@@ -386,8 +409,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   -- a completely separate, cross-category concept: every Character, Relationship, and Freeform tag
   gets its own "Fandom" dropdown (defaulting to "No Fandom"), a Relationship gets one Character
   dropdown per "/"-or-"&amp;"-separated name part in its own text (the Character's spelling can
-  differ from the literal substring), and a Freeform tag can be linked to any number of Characters
-  and Relationships via small add/remove chips. Every one of these dropdowns (and the bulk "Apply to
+  differ from the literal substring, set directly in the table -- the type of tag that gets to add a
+  Character/Relationship association right in the table is Relationship alone), and a Freeform tag
+  can be linked to any number of Characters and Relationships, shown here as small remove-only chips
+  -- adding one to a Freeform tag happens through the bulk "Apply to selected" tool below instead of
+  a per-row text box, so a typo can't quietly create a stray tag that was meant to reference an
+  existing one. Every one of these dropdowns (and the bulk "Apply to
   selected" trio below) lists its options depth-first through the same-category hierarchy above
   rather than one flat alphabetical list -- a parent tag is immediately followed by its own children,
   each indented one level further, so a same-category family stays visually grouped even inside a
@@ -414,8 +441,7 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   includes this auto-fill, the per-row controls, and the bulk "Apply to selected" tool -- since a
   tag meant to be fandom-agnostic (a universal trope, an OC with no canon) contradicts also being
   tied to one fandom's specific people. Clearing an association already there is always still
-  allowed, so setting "No Fandom" after the fact never traps a stale link; the Character(s)/
-  Relationship(s) columns show "(No Fandom -- can't add)" in place of the add controls as a reminder.
+  allowed, so setting "No Fandom" after the fact never traps a stale link.
 
   Setting the same association on many tags at once doesn't need a visit to each row: a Fandom/
   Character/Relationship/Media Type dropdown quartet plus "Apply to selected" (next to the other

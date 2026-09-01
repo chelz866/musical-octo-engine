@@ -1388,8 +1388,11 @@ def _tag_rows(
     of the whole library.
 
     `q`, when given, keeps only tags containing it (case-insensitive) --
-    applied after the category filter but, deliberately, not reflected in
-    bucket_counts (those stay whole-library totals, same "always the full
+    and, deliberately, searches the *whole* library regardless of the
+    current filter tab (a search is one library-wide lookup, not a smaller
+    search within whatever tab happens to be open) rather than narrowing
+    an already-tab-filtered list further. Not reflected in bucket_counts
+    either (those stay whole-library totals, same "always the full
     picture" convention the Fandoms page's media-type tab counts already
     use). Unlike the page's own client-side "filter tags on this page"
     box, this narrows the *whole* library before pagination, so a search
@@ -1443,11 +1446,11 @@ def _tag_rows(
         bucket_counts[effective_category(tag) or "unclassified"] += 1
 
     tags = [(tag, count, effective_category(tag)) for tag, count in counts.items()]
-    if filter != "all":
-        tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
     if q:
         q_lower = q.lower()
         tags = [(t, c, cat) for t, c, cat in tags if q_lower in t.lower()]
+    elif filter != "all":
+        tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
     tags = _sort_name_count_rows(tags, sort)
     return tags, bucket_counts, len(counts)
 
@@ -1733,6 +1736,9 @@ def tags_classify_page(
     organize_by: str = "",
     work_id: str = "",
     q: str = "",
+    show_guessed: bool = False,
+    show_set: bool = False,
+    incomplete_only: bool = False,
 ):
     """`work_id`, when set (see the Home page's "Edit" button, gated by
     the "Use Home as edit source" account setting), narrows this whole
@@ -1744,14 +1750,43 @@ def tags_classify_page(
     narrowed set. A work_id that doesn't match any entry (a stale link)
     leaves edit_source_entry None so the template can say so instead of
     silently showing the whole library.
+
+    `show_guessed`/`show_set` (both off by default) and `incomplete_only`
+    narrow the tag list further, same "on top of everything else, not
+    reflected in bucket_counts" treatment `q` already gets -- see
+    _matches_classification_source and _is_tag_complete for what each one
+    means.
     """
     result = scanner.load_cached(DB_PATH)
     edit_source_entry = next((e for e in result.entries if e.work_id == work_id), None) if work_id else None
     restrict_to = set(edit_source_entry.fandom_candidates) if edit_source_entry else None
     tags, bucket_counts, total_tags = _tag_rows(result, filter, sort, restrict_to, q)
+
+    explicit_categories = db.get_all_tag_categories(DB_PATH)
+    tag_fandoms = db.get_all_tag_fandoms(DB_PATH)
+    tag_media_types = db.get_all_tag_media_types(DB_PATH)
+    relationship_characters = db.get_all_relationship_characters(DB_PATH)
+    freeform_characters = db.get_all_freeform_characters(DB_PATH)
+    freeform_relationships = db.get_all_freeform_relationships(DB_PATH)
+    children_map = db.get_tag_children(DB_PATH)
+    parent_of = scanner.child_parent_map(children_map)
+
+    if show_guessed or show_set:
+        tags = [
+            (t, c, cat) for t, c, cat in tags
+            if _matches_classification_source(cat, t in explicit_categories, show_guessed, show_set)
+        ]
+    if incomplete_only:
+        tags = [
+            (t, c, cat) for t, c, cat in tags
+            if not _is_tag_complete(
+                t, cat, t in children_map and bool(children_map[t]), t in parent_of,
+                tag_fandoms, tag_media_types, relationship_characters, freeform_characters, freeform_relationships,
+            )
+        ]
+
     tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
-    children_map = db.get_tag_children(DB_PATH)
     return templates.TemplateResponse(
         "tags.html",
         {
@@ -1766,22 +1801,28 @@ def tags_classify_page(
             "sort_options": NAME_COUNT_SORT_LABELS,
             "organize_by": organize_by,
             "organize_by_options": ORGANIZE_BY_LABELS,
-            "explicit_categories": db.get_all_tag_categories(DB_PATH),
+            "explicit_categories": explicit_categories,
             "wranglings": db.get_all_tag_wranglings(DB_PATH),
-            "tag_fandoms": db.get_all_tag_fandoms(DB_PATH),
-            "tag_media_types": db.get_all_tag_media_types(DB_PATH),
+            "tag_fandoms": tag_fandoms,
+            "tag_media_types": tag_media_types,
             "media_type_options": FANDOM_MEDIA_TYPES,
             "known_fandoms": _flatten_tag_options(sorted({f for e in result.entries for f in e.fandoms}), children_map),
             "known_characters": _flatten_tag_options(sorted({c for e in result.entries for c in e.characters}), children_map),
             "known_relationships": _flatten_tag_options(sorted({r for e in result.entries for r in e.relationships}), children_map),
-            "relationship_characters": db.get_all_relationship_characters(DB_PATH),
-            "freeform_characters": db.get_all_freeform_characters(DB_PATH),
-            "freeform_relationships": db.get_all_freeform_relationships(DB_PATH),
+            "relationship_characters": relationship_characters,
+            "freeform_characters": freeform_characters,
+            "freeform_relationships": freeform_relationships,
             "relationship_name_parts": _relationship_name_parts,
             "work_id": work_id,
             "edit_source_entry": edit_source_entry,
             "q": q,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}&work_id={quote(work_id)}&q={quote(q)}",
+            "show_guessed": show_guessed,
+            "show_set": show_set,
+            "incomplete_only": incomplete_only,
+            "pager_qs": (
+                f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}&work_id={quote(work_id)}&q={quote(q)}"
+                f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+            ),
         },
     )
 
@@ -1842,6 +1883,9 @@ def wrangle_tags(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     """Bulk-wrangles every checked tag to `target`. 'synonym' is
     category-blind (two spellings of the same tag aren't a category
@@ -1892,8 +1936,29 @@ def wrangle_tags(
                 if new_category in ("character", "relationship"):
                     _auto_link_relationship_characters()
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
+
+
+@app.get("/tags/classify/search_tags")
+def search_classify_tags(q: str = ""):
+    """Backs the "Canonical/parent tag name" autocomplete -- a plain
+    case-insensitive substring match (not the typo-tolerant, per-facet
+    AutoComplete index _search_facet_tags uses, which is keyed to
+    Downloads' own five tag-shaped facets) over every tag currently in the
+    library, any category, since a merge/child target can be any existing
+    tag. Admin-only by virtue of sitting under /tags/classify (see
+    ADMIN_PATH_PREFIXES), same as the page it serves.
+    """
+    q = q.strip().lower()
+    if len(q) < 2:
+        return JSONResponse([])
+    all_tags = {t for e in scanner.load_cached(DB_PATH).entries for t in e.fandom_candidates}
+    return JSONResponse(sorted((t for t in all_tags if q in t.lower()), key=str.lower)[:20])
 
 
 @app.get("/tags/classify/wranglings", response_class=HTMLResponse)
@@ -1964,6 +2029,85 @@ def _relationship_name_parts(relationship_tag: str) -> list[str]:
     return [part.strip() for part in _RELATIONSHIP_SPLIT_RE.split(relationship_tag) if part.strip()]
 
 
+def _matches_classification_source(
+    category: str | None, is_explicit: bool, show_guessed: bool, show_set: bool
+) -> bool:
+    """The "Show guessed"/"Show set" checkboxes on Classify Tags -- both
+    off (the default) means no restriction at all, including Unclassified
+    rows. Checking one or both narrows to already-classified tags only
+    (Unclassified is neither guessed nor explicitly set, so it drops out
+    the moment either box is checked), matching whichever source(s) are
+    checked -- both checked together is "any classified tag, guessed or
+    not", i.e. everything except Unclassified.
+    """
+    if not show_guessed and not show_set:
+        return True
+    if category is None:
+        return False
+    return (show_guessed and not is_explicit) or (show_set and is_explicit)
+
+
+def _is_tag_complete(
+    tag: str,
+    category: str | None,
+    is_parent: bool,
+    is_child: bool,
+    tag_fandoms: dict[str, str],
+    tag_media_types: dict[str, str],
+    relationship_characters: dict[str, dict[int, str]],
+    freeform_characters: dict[str, set[str]],
+    freeform_relationships: dict[str, set[str]],
+) -> bool:
+    """Whether `tag` has every piece of classification data its category
+    calls for -- feeds the "Incomplete items only" checkbox on Classify
+    Tags:
+
+    - Fandom: needs its own AO3-style Fandom Category (media type) set.
+    - Character: needs a Fandom association set -- an explicit "No Fandom"
+      counts as complete too, since that's a real decision, not a gap.
+    - Relationship: needs a Fandom association, and (unless that Fandom is
+      explicitly "No Fandom", which the table itself refuses to attach
+      Characters to at all) a linked Character for every name part.
+    - Freeform: a tag with no wrangling role of its own (not a parent or
+      child of anything, see db.get_tag_children) is always complete --
+      Fandom/Character only start to matter once a Freeform tag is
+      actually organizing other tags. A parent or child Freeform tag needs
+      a Fandom association; if that Fandom isn't "No Fandom" and this tag
+      is the parent (not a child -- a child is the non-canonical one and
+      inherits the parent's own completeness rather than needing its own
+      Character), it also needs at least one linked Character. Separately
+      -- parent/child or not -- any Freeform tag linked to a Relationship
+      needs exactly that Relationship's own party count in linked
+      Characters, so a Freeform tagged with "Harry/Draco" isn't missing
+      one side of it.
+
+    Anything else (not yet classified at all) has nothing to check.
+    """
+    if category == "fandom":
+        return tag in tag_media_types
+    if category == "character":
+        return tag in tag_fandoms
+    if category == "relationship":
+        if tag not in tag_fandoms:
+            return False
+        if tag_fandoms[tag] == "No Fandom":
+            return True
+        linked = relationship_characters.get(tag, {})
+        parts = _relationship_name_parts(tag)
+        return bool(parts) and all(i in linked for i in range(len(parts)))
+    if category == "freeform":
+        if is_parent or is_child:
+            if tag not in tag_fandoms:
+                return False
+            if tag_fandoms[tag] != "No Fandom" and not is_child and not freeform_characters.get(tag):
+                return False
+        for relationship_tag in freeform_relationships.get(tag, ()):
+            if len(freeform_characters.get(tag, ())) != len(_relationship_name_parts(relationship_tag)):
+                return False
+        return True
+    return True
+
+
 def _tag_has_no_fandom(tag: str) -> bool:
     """True once a tag has the explicit, terminal "No Fandom" choice set
     on it (see db.set_tag_fandom) -- as opposed to simply never having had
@@ -2008,6 +2152,9 @@ def set_tag_fandom_route(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     """Sets tag's own Fandom association -- 'No Fandom' is a real,
     explicit choice (it stops inheritance from an ancestor same-category
@@ -2021,7 +2168,11 @@ def set_tag_fandom_route(
     else:
         db.remove_tag_fandom(DB_PATH, tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2034,6 +2185,9 @@ def set_tag_media_type_route(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     """Sets tag's own AO3-style media type -- see set_tag_fandom_route,
     same "empty clears the explicit choice, a real value (including the
@@ -2047,7 +2201,11 @@ def set_tag_media_type_route(
     else:
         db.remove_tag_media_type(DB_PATH, tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2061,6 +2219,9 @@ def set_relationship_character_route(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     """Links one of relationship_tag's "/"-or-"&"-separated name parts to
     an actual Character tag -- the Character's own spelling can differ
@@ -2078,25 +2239,11 @@ def set_relationship_character_route(
     else:
         db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
-    )
-
-
-@app.post("/tags/classify/add_freeform_character")
-def add_freeform_character_route(
-    freeform_tag: str = Form(...),
-    character_tag: str = Form(...),
-    filter: str = Form("all"),
-    page: int = Form(1),
-    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
-    work_id: str = Form(""),
-    q: str = Form(""),
-):
-    character_tag = character_tag.strip()
-    if character_tag and not _tag_has_no_fandom(freeform_tag):
-        db.add_freeform_character(DB_PATH, freeform_tag, character_tag)
-    return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2109,28 +2256,17 @@ def remove_freeform_character_route(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
-    )
-
-
-@app.post("/tags/classify/add_freeform_relationship")
-def add_freeform_relationship_route(
-    freeform_tag: str = Form(...),
-    relationship_tag: str = Form(...),
-    filter: str = Form("all"),
-    page: int = Form(1),
-    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
-    work_id: str = Form(""),
-    q: str = Form(""),
-):
-    relationship_tag = relationship_tag.strip()
-    if relationship_tag and not _tag_has_no_fandom(freeform_tag):
-        db.add_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
-    return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2143,10 +2279,17 @@ def remove_freeform_relationship_route(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2162,6 +2305,9 @@ def apply_associations(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     """Bulk-applies whichever of Fandom/Character/Relationship/Media Type
     were picked (each blank means "don't touch that one") to every
@@ -2196,7 +2342,11 @@ def apply_associations(
             if media_type and explicit_categories.get(tag) == "fandom":
                 db.set_tag_media_type(DB_PATH, tag, media_type)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2209,13 +2359,22 @@ def set_selected_tags(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
         if category in ("character", "relationship"):
             _auto_link_relationship_characters()
+    elif category == "unclassify" and tags:
+        db.remove_tag_categories(DB_PATH, tags)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 
@@ -2227,11 +2386,18 @@ def mark_page_freeform(
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
     q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
 ):
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
     )
 
 

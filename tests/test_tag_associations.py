@@ -15,10 +15,9 @@ from app.main import (
     _auto_link_relationship_characters,
     _tag_has_no_fandom,
     _tag_rows,
-    add_freeform_character_route,
-    add_freeform_relationship_route,
     apply_associations,
     set_relationship_character_route,
+    set_selected_tags,
     wrangle_tags,
 )
 from app.scanner import WorkEntry, _entry_to_row
@@ -52,7 +51,10 @@ def _seed_candidate_tags(path: str, tags: list[str]) -> None:
     db.save_works_cache(path, [_entry_to_row(entry)])
 
 
-_WRANGLE_DEFAULTS = dict(filter="all", page=1, sort="count_desc", work_id="", q="")
+_WRANGLE_DEFAULTS = dict(
+    filter="all", page=1, sort="count_desc", work_id="", q="",
+    show_guessed=False, show_set=False, incomplete_only=False,
+)
 
 
 def test_tag_has_no_fandom_false_when_never_set():
@@ -143,6 +145,7 @@ def test_set_relationship_character_route_refuses_to_add_when_no_fandom():
         set_relationship_character_route(
             relationship_tag="A/B", part_index=0, character_tag="A",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_relationship_characters(path) == {}
@@ -156,42 +159,10 @@ def test_set_relationship_character_route_still_allows_clearing_when_no_fandom()
         set_relationship_character_route(
             relationship_tag="A/B", part_index=0, character_tag="",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_relationship_characters(path) == {}
-
-
-def test_add_freeform_character_route_refuses_when_no_fandom():
-    with _temp_db() as path:
-        db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
-
-        add_freeform_character_route(
-            freeform_tag="Coffee Shop AU", character_tag="Harry Potter",
-            filter="all", page=1, sort="count_desc", work_id="", q="",
-        )
-
-        assert db.get_all_freeform_characters(path) == {}
-
-
-def test_add_freeform_character_route_allows_it_without_no_fandom():
-    with _temp_db() as path:
-        add_freeform_character_route(
-            freeform_tag="Coffee Shop AU", character_tag="Harry Potter",
-            filter="all", page=1, sort="count_desc", work_id="", q="",
-        )
-        assert db.get_all_freeform_characters(path) == {"Coffee Shop AU": {"Harry Potter"}}
-
-
-def test_add_freeform_relationship_route_refuses_when_no_fandom():
-    with _temp_db() as path:
-        db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
-
-        add_freeform_relationship_route(
-            freeform_tag="Coffee Shop AU", relationship_tag="A/B",
-            filter="all", page=1, sort="count_desc", work_id="", q="",
-        )
-
-        assert db.get_all_freeform_relationships(path) == {}
 
 
 def test_apply_associations_adds_character_and_relationship_when_not_no_fandom():
@@ -205,6 +176,7 @@ def test_apply_associations_adds_character_and_relationship_when_not_no_fandom()
         apply_associations(
             tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B", media_type="",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_freeform_characters(path) == {"Coffee Shop AU": {"Harry Potter"}}
@@ -220,6 +192,7 @@ def test_apply_associations_skips_no_fandom_tags_for_character_and_relationship(
         apply_associations(
             tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B", media_type="",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_freeform_characters(path) == {}
@@ -237,6 +210,7 @@ def test_apply_associations_still_allows_fandom_on_a_no_fandom_tag():
         apply_associations(
             tags=["Coffee Shop AU"], fandom="Harry Potter", character="", relationship="", media_type="",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_tag_fandoms(path)["Coffee Shop AU"] == "Harry Potter"
@@ -250,6 +224,7 @@ def test_apply_associations_bulk_sets_media_type_on_explicitly_classified_fandom
         apply_associations(
             tags=["Doctor Who", "Harry Potter"], fandom="", character="", relationship="", media_type="TV Shows",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows", "Harry Potter": "TV Shows"}
@@ -267,6 +242,7 @@ def test_apply_associations_skips_media_type_on_a_merely_guessed_fandom():
         apply_associations(
             tags=["Guessed Fandom"], fandom="", character="", relationship="", media_type="TV Shows",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_tag_media_types(path) == {}
@@ -281,6 +257,7 @@ def test_apply_associations_media_type_dont_change_leaves_existing_value_alone()
         apply_associations(
             tags=["Doctor Who"], fandom="", character="", relationship="", media_type="",
             filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
         )
 
         assert db.get_all_tag_media_types(path) == {"Doctor Who": "TV Shows"}
@@ -400,3 +377,58 @@ def test_tag_rows_q_does_not_affect_bucket_counts():
 
         assert bucket_counts["character"] == 2
         assert total_tags == 2
+
+
+def test_tag_rows_q_searches_the_whole_library_even_from_a_narrower_filter_tab():
+    # The bug this guards: typing into the search box used to search only
+    # within whatever filter tab was currently open, so finding a tag of a
+    # different category meant switching tabs first. q now overrides the
+    # tab entirely -- a search is one library-wide lookup.
+    with _temp_db() as path:
+        _seed_candidate_tags(path, ["Harry Potter", "Hermione Granger"])
+        db.set_tag_categories(path, {"Harry Potter": "fandom", "Hermione Granger": "character"})
+        result = scanner.load_cached(path)
+
+        tags, _, _ = _tag_rows(result, "character", "count_desc", q="potter")
+
+        assert [t for t, _, _ in tags] == ["Harry Potter"]
+
+
+def test_remove_tag_categories_reverts_to_unclassified():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform", "Harry Potter": "fandom"})
+
+        db.remove_tag_categories(path, ["Coffee Shop AU"])
+
+        assert db.get_all_tag_categories(path) == {"Harry Potter": "fandom"}
+
+
+def test_remove_tag_categories_empty_list_is_a_no_op():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.remove_tag_categories(path, [])
+        assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}
+
+
+def test_set_selected_tags_unclassify_reverts_selected_tags():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform", "Harry Potter": "fandom"})
+
+        set_selected_tags(
+            tags=["Coffee Shop AU"], category="unclassify", filter="all", page=1, sort="count_desc",
+            work_id="", q="", show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_categories(path) == {"Harry Potter": "fandom"}
+
+
+def test_set_selected_tags_unclassify_with_no_tags_selected_is_a_no_op():
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+
+        set_selected_tags(
+            tags=[], category="unclassify", filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+
+        assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}

@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) %}
+{% macro filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) %}
+<input type="hidden" name="filter" value="{{ filter }}">
+<input type="hidden" name="page" value="{{ page }}">
+<input type="hidden" name="sort" value="{{ sort }}">
+<input type="hidden" name="work_id" value="{{ work_id }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="show_guessed" value="{{ 'true' if show_guessed else 'false' }}">
+<input type="hidden" name="show_set" value="{{ 'true' if show_set else 'false' }}">
+<input type="hidden" name="incomplete_only" value="{{ 'true' if incomplete_only else 'false' }}">
+{% endmacro %}
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) %}
 <tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
@@ -27,27 +37,19 @@
     {% if row.category in ("character", "relationship", "freeform") %}
     <form method="post" action="/tags/classify/set_fandom" class="inline-form">
       <input type="hidden" name="tag" value="{{ row.tag }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <select name="fandom" onchange="this.form.submit()">
         <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
         <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
         {% for f, d in known_fandoms %}
-        <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ f }}</option>
+        <option value="{{ f }}" {% if tag_fandoms.get(row.tag) == f %}selected{% endif %}>{{ "  " * d }}{% if d > 0 %}- {% endif %}{{ f }}</option>
         {% endfor %}
       </select>
     </form>
     {% elif row.category == "fandom" and row.tag in explicit_categories %}
     <form method="post" action="/tags/classify/set_media_type" class="inline-form">
       <input type="hidden" name="tag" value="{{ row.tag }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <select name="media_type" onchange="this.form.submit()">
         <option value="" {% if row.tag not in tag_media_types %}selected{% endif %}>Uncategorized Fandoms (auto)</option>
         {% for mt in media_type_options %}
@@ -71,11 +73,7 @@
     <form method="post" action="/tags/classify/set_relationship_character" class="inline-form">
       <input type="hidden" name="relationship_tag" value="{{ row.tag }}">
       <input type="hidden" name="part_index" value="{{ part_index }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <label class="hint">{{ part }}:
         <select name="character_tag" onchange="this.form.submit()">
           <option value="">&mdash;</option>
@@ -97,27 +95,12 @@
     <form method="post" action="/tags/classify/remove_freeform_character" class="inline-form">
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="character_tag" value="{{ c }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <button type="submit" class="chip-remove">{{ c }} &times;</button>
     </form>
     {% endfor %}
-    {% if no_fandom %}
-    <span class="hint">(No Fandom -- can't add)</span>
-    {% else %}
-    <form method="post" action="/tags/classify/add_freeform_character" class="inline-form">
-      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
-      <input type="text" name="character_tag" placeholder="Add character&hellip;" class="fandom-other tag-mini-input">
-      <button type="submit">+</button>
-    </form>
+    {% if not freeform_characters.get(row.tag) %}
+    <span class="hint">(add via "Apply to selected" below)</span>
     {% endif %}
     {% endif %}
   </td>
@@ -127,33 +110,18 @@
     <form method="post" action="/tags/classify/remove_freeform_relationship" class="inline-form">
       <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
       <input type="hidden" name="relationship_tag" value="{{ r }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <button type="submit" class="chip-remove">{{ r }} &times;</button>
     </form>
     {% endfor %}
-    {% if no_fandom %}
-    <span class="hint">(No Fandom -- can't add)</span>
-    {% else %}
-    <form method="post" action="/tags/classify/add_freeform_relationship" class="inline-form">
-      <input type="hidden" name="freeform_tag" value="{{ row.tag }}">
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
-      <input type="text" name="relationship_tag" placeholder="Add relationship&hellip;" class="fandom-other tag-mini-input">
-      <button type="submit">+</button>
-    </form>
+    {% if not freeform_relationships.get(row.tag) %}
+    <span class="hint">(add via "Apply to selected" below)</span>
     {% endif %}
     {% endif %}
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -161,10 +129,10 @@
 <input type="hidden" name="tags" value="{{ row.tag }}">{{ hidden_tags_flat(row.children) }}
 {%- endfor -%}
 {% endmacro %}
-{% block title %}Tags - Archive Of My Own{% endblock %}
+{% block title %}Classify Tags - Archive Of My Own{% endblock %}
 {% block content %}
   <header>
-    <h1>Tags</h1>
+    <h1>Classify Tags</h1>
   </header>
 
   {% if work_id %}
@@ -175,17 +143,17 @@
     {% else %}
     That work could not be found -- it may have been removed since you followed this link.
     {% endif %}
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&q={{ q | urlencode }}">(clear, show every tag)</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}">(clear, show every tag)</a>
   </p>
   {% endif %}
 
   <nav class="tag-filter-tabs">
-    <a href="/tags/classify?filter=all&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags/classify?filter=fandom&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags/classify?filter=character&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags/classify?filter=relationship&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags/classify?filter=freeform&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags/classify?filter=unclassified&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags/classify?filter=all&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags/classify?filter=fandom&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags/classify?filter=character&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=relationship&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags/classify?filter=freeform&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags/classify?filter=unclassified&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
 
   <form method="get" action="/tags/classify" id="sort-form" class="tag-sort-form">
@@ -200,13 +168,16 @@
         {% endfor %}
       </select>
     </label>
+    <label class="hint"><input type="checkbox" name="show_guessed" value="true" {% if show_guessed %}checked{% endif %} onchange="document.getElementById('sort-form').submit()"> Show guessed</label>
+    <label class="hint"><input type="checkbox" name="show_set" value="true" {% if show_set %}checked{% endif %} onchange="document.getElementById('sort-form').submit()"> Show set</label>
+    <label class="hint"><input type="checkbox" name="incomplete_only" value="true" {% if incomplete_only %}checked{% endif %} onchange="document.getElementById('sort-form').submit()"> Incomplete items only</label>
   </form>
 
   <nav class="tag-filter-tabs">
     <span class="hint">Organize by:</span>
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if not organize_by %}active{% endif %}">None</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if not organize_by %}active{% endif %}">None</a>
     {% for value, label in organize_by_options.items() %}
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}&work_id={{ work_id }}&q={{ q | urlencode }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
     {% endfor %}
   </nav>
 
@@ -215,28 +186,32 @@
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="organize_by" value="{{ organize_by }}">
     <input type="hidden" name="work_id" value="{{ work_id }}">
+    <input type="hidden" name="show_guessed" value="{{ 'true' if show_guessed else 'false' }}">
+    <input type="hidden" name="show_set" value="{{ 'true' if show_set else 'false' }}">
+    <input type="hidden" name="incomplete_only" value="{{ 'true' if incomplete_only else 'false' }}">
     <input type="search" name="q" value="{{ q }}" placeholder="Search all tags&hellip;" class="fandom-other" style="max-width: 320px;">
     <button type="submit">Search</button>
-    {% if q %}<a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&work_id={{ work_id }}">clear</a>{% endif %}
+    {% if q %}<a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&work_id={{ work_id }}&show_guessed={{ show_guessed }}&show_set={{ show_set }}&incomplete_only={{ incomplete_only }}">clear</a>{% endif %}
   </form>
 
   <form method="post" action="/tags/classify/set_selected" id="tag-form">
-    <input type="hidden" name="filter" value="{{ filter }}">
-    <input type="hidden" name="page" value="{{ page }}">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="work_id" value="{{ work_id }}">
-    <input type="hidden" name="q" value="{{ q }}">
+    {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
 
     <div class="tag-bulk-actions">
       <span class="hint" id="selected-count">0 selected</span>
-      <button type="submit" name="category" value="fandom" disabled>Set selected: Fandom</button>
-      <button type="submit" name="category" value="character" disabled>Set selected: Character</button>
-      <button type="submit" name="category" value="relationship" disabled>Set selected: Relationship</button>
-      <button type="submit" name="category" value="freeform" disabled>Set selected: Freeform</button>
+      <span class="hint">Set selected as:</span>
+      <button type="submit" name="category" value="fandom" disabled>Fandom</button>
+      <button type="submit" name="category" value="character" disabled>character</button>
+      <button type="submit" name="category" value="relationship" disabled>relationship</button>
+      <button type="submit" name="category" value="freeform" disabled>freeform</button>
+      <button type="submit" name="category" value="unclassify" disabled>unclassify</button>
     </div>
 
     <div class="tag-bulk-actions">
-      <input type="text" name="target" placeholder="Canonical/parent tag name&hellip;" class="fandom-other">
+      <div class="facet-autocomplete" style="display: inline-block; width: 260px; vertical-align: middle;">
+        <input type="text" name="target" placeholder="Canonical/parent tag name&hellip;" autocomplete="off" oninput="onTargetSearch(this)" onkeydown="onTargetKeydown(event, this)">
+        <div class="facet-suggestions" hidden></div>
+      </div>
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="synonym" disabled>Merge selected into &rarr;</button>
       <button type="submit" formaction="/tags/classify/wrangle" name="relation" value="child" disabled>Make selected children of &rarr;</button>
     </div>
@@ -271,9 +246,9 @@
     </div>
     <p class="hint">
       Fandom applies to every selected Character/Relationship/Freeform tag. Character/Relationship
-      only add to selected Freeform tags -- a Relationship's Characters are per-name-part slots, set
-      individually in its own row below. Media Type only applies to a selected tag already
-      explicitly classified Fandom.
+      only add to selected Freeform tags -- the table below can only remove one, not add one; a
+      Relationship's Characters are per-name-part slots, set individually in its own row below. Media
+      Type only applies to a selected tag already explicitly classified Fandom.
     </p>
   </form>
 
@@ -294,7 +269,7 @@
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) }}
         {% else %}
         <tr>
           <td colspan="7" class="empty">
@@ -311,11 +286,7 @@
   <div class="tag-bulk-actions">
     <form method="post" action="/tags/classify/mark_page_freeform">
       {{ hidden_tags_flat(tags) }}
-      <input type="hidden" name="filter" value="{{ filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <input type="hidden" name="work_id" value="{{ work_id }}">
-      <input type="hidden" name="q" value="{{ q }}">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
       <button type="submit">Mark unclassified on this page as Freeform</button>
     </form>
     <form method="post" action="/tags/classify/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
@@ -369,6 +340,55 @@
       document.querySelectorAll('#tag-form button[type="submit"]').forEach(function (button) {
         button.disabled = count === 0;
       });
+    }
+
+    function onTargetSearch(input) {
+      clearTimeout(input._debounce);
+      var q = input.value.trim();
+      var container = input.parentElement;
+      if (q.length < 2) { hideTargetSuggestions(container); return; }
+      input._debounce = setTimeout(function () {
+        fetch("/tags/classify/search_tags?q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (matches) { renderTargetSuggestions(container, matches); });
+      }, 200);
+    }
+
+    function renderTargetSuggestions(container, matches) {
+      var list = container.querySelector(".facet-suggestions");
+      list.textContent = "";
+      if (!matches.length) { list.hidden = true; return; }
+      matches.forEach(function (value) {
+        var item = document.createElement("div");
+        item.className = "facet-suggestion-item";
+        item.textContent = value;
+        // mousedown (not click) fires before the input's blur hides this
+        // list, on both mouse and touch input -- click alone fires too late.
+        item.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+          container.querySelector('input[type="text"]').value = value;
+          hideTargetSuggestions(container);
+        });
+        list.appendChild(item);
+      });
+      list.hidden = false;
+    }
+
+    function onTargetKeydown(event, input) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      var container = input.parentElement;
+      var items = container.querySelectorAll(".facet-suggestion-item");
+      if (items.length === 1) {
+        input.value = items[0].textContent;
+        hideTargetSuggestions(container);
+      }
+    }
+
+    function hideTargetSuggestions(container) {
+      var list = container.querySelector(".facet-suggestions");
+      list.hidden = true;
+      list.textContent = "";
     }
   </script>
 {% endblock %}

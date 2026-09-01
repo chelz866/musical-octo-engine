@@ -28,6 +28,8 @@ from app.main import (
     _flatten_tag_options,
     _group_tag_rows_by_association,
     _group_tag_rows_by_parent,
+    _is_tag_complete,
+    _matches_classification_source,
     _series_sort_key,
     _value_or_children_present,
     _sort_name_count_rows,
@@ -1218,6 +1220,96 @@ def test_group_tag_rows_by_association_media_type_groups_fandoms_and_their_own_t
     heading = next(r for r in grouped if r["children"])
     assert heading["tag"] == "Books & Literature"
     assert {c["tag"] for c in heading["children"]} == {"Harry Potter", "Dune", "Hermione Granger"}
+
+
+def test_matches_classification_source_both_unchecked_is_a_no_op():
+    assert _matches_classification_source("fandom", True, False, False) is True
+    assert _matches_classification_source("fandom", False, False, False) is True
+    assert _matches_classification_source(None, False, False, False) is True
+
+
+def test_matches_classification_source_excludes_unclassified_once_either_is_checked():
+    assert _matches_classification_source(None, False, True, False) is False
+    assert _matches_classification_source(None, False, False, True) is False
+
+
+def test_matches_classification_source_show_guessed_only():
+    assert _matches_classification_source("fandom", False, True, False) is True
+    assert _matches_classification_source("fandom", True, True, False) is False
+
+
+def test_matches_classification_source_show_set_only():
+    assert _matches_classification_source("fandom", True, False, True) is True
+    assert _matches_classification_source("fandom", False, False, True) is False
+
+
+def test_matches_classification_source_both_checked_matches_either():
+    assert _matches_classification_source("fandom", True, True, True) is True
+    assert _matches_classification_source("fandom", False, True, True) is True
+
+
+def test_is_tag_complete_fandom_needs_a_media_type():
+    assert _is_tag_complete("Harry Potter", "fandom", False, False, {}, {}, {}, {}, {}) is False
+    assert _is_tag_complete("Harry Potter", "fandom", False, False, {}, {"Harry Potter": "Books & Literature"}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_character_needs_any_fandom_answer_including_explicit_no_fandom():
+    assert _is_tag_complete("Hermione Granger", "character", False, False, {}, {}, {}, {}, {}) is False
+    assert _is_tag_complete("Hermione Granger", "character", False, False, {"Hermione Granger": "Harry Potter"}, {}, {}, {}, {}) is True
+    assert _is_tag_complete("Hermione Granger", "character", False, False, {"Hermione Granger": "No Fandom"}, {}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_relationship_needs_fandom_and_every_name_part_linked():
+    tag = "Harry Potter/Draco Malfoy"
+    assert _is_tag_complete(tag, "relationship", False, False, {}, {}, {}, {}, {}) is False
+    # Fandom set but only one of the two parts linked.
+    assert _is_tag_complete(tag, "relationship", False, False, {tag: "Harry Potter"}, {}, {tag: {0: "Harry Potter"}}, {}, {}) is False
+    assert _is_tag_complete(
+        tag, "relationship", False, False, {tag: "Harry Potter"}, {},
+        {tag: {0: "Harry Potter", 1: "Draco Malfoy"}}, {}, {},
+    ) is True
+
+
+def test_is_tag_complete_relationship_explicit_no_fandom_needs_nothing_more():
+    tag = "Harry Potter/Draco Malfoy"
+    assert _is_tag_complete(tag, "relationship", False, False, {tag: "No Fandom"}, {}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_freeform_standalone_is_always_complete():
+    # Not a parent or child of anything -- Fandom/Character don't matter yet.
+    assert _is_tag_complete("Angst", "freeform", False, False, {}, {}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_freeform_parent_needs_a_fandom():
+    assert _is_tag_complete("Angst", "freeform", True, False, {}, {}, {}, {}, {}) is False
+    assert _is_tag_complete("Angst", "freeform", True, False, {"Angst": "No Fandom"}, {}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_freeform_parent_with_real_fandom_needs_a_character():
+    assert _is_tag_complete("Angst", "freeform", True, False, {"Angst": "Harry Potter"}, {}, {}, {}, {}) is False
+    assert _is_tag_complete(
+        "Angst", "freeform", True, False, {"Angst": "Harry Potter"}, {}, {}, {"Angst": {"Harry Potter"}}, {},
+    ) is True
+
+
+def test_is_tag_complete_freeform_child_is_exempt_from_the_character_requirement():
+    # A child is the non-canonical one -- it inherits the parent's own
+    # completeness rather than needing its own linked Character.
+    assert _is_tag_complete("Angst - Post-War", "freeform", False, True, {"Angst - Post-War": "Harry Potter"}, {}, {}, {}, {}) is True
+
+
+def test_is_tag_complete_freeform_relationship_link_must_match_its_party_count():
+    tag = "Enemies to Lovers"
+    relationship = "Harry Potter/Draco Malfoy"
+    # Standalone (not a parent/child), but linked to a Relationship -- the
+    # Character-count-must-match check still applies regardless.
+    assert _is_tag_complete(
+        tag, "freeform", False, False, {}, {}, {}, {tag: {"Harry Potter"}}, {tag: {relationship}},
+    ) is False
+    assert _is_tag_complete(
+        tag, "freeform", False, False, {}, {},
+        {}, {tag: {"Harry Potter", "Draco Malfoy"}}, {tag: {relationship}},
+    ) is True
 
 
 def test_flatten_tag_options_lists_a_parent_immediately_followed_by_its_children():
