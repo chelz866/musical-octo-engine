@@ -227,6 +227,25 @@ def init_db(path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS download_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_id TEXT NOT NULL UNIQUE,
+                url TEXT NOT NULL,
+                title TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                added_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+            """
+        )
+        # A 'downloading' row means the background worker died mid-item on
+        # a previous run of the app (nothing can still be in flight right
+        # after a fresh start) -- put it back to pending so it's picked up
+        # again instead of sitting stuck forever. Idempotent: a no-op once
+        # nothing is actually stuck.
+        conn.execute("UPDATE download_queue SET status = 'pending' WHERE status = 'downloading'")
         _ensure_column(conn, "works_cache", "fandom_candidates")
         _ensure_column(conn, "works_cache", "summary")
         _ensure_column(conn, "works_cache", "language")
@@ -936,3 +955,65 @@ def get_abs_read_work_ids(path: str, user_id: int) -> set[str]:
     with _connect(path) as conn:
         rows = conn.execute("SELECT work_id FROM abs_read_status WHERE user_id = ?", (user_id,)).fetchall()
     return {row[0] for row in rows}
+
+
+def enqueue_downloads(path: str, items: list[tuple[str, str, str | None]], added_at: str) -> int:
+    """Adds (work_id, url, title) rows for the background download worker
+    to pick up. A work_id already anywhere in the queue -- pending,
+    currently downloading, or already finished -- is left alone instead
+    of re-queued, so re-selecting the same Queue rows more than once is a
+    harmless no-op rather than a duplicate download. Returns how many were
+    actually newly added.
+    """
+    added = 0
+    with _connect(path) as conn:
+        for work_id, url, title in items:
+            cursor = conn.execute(
+                """
+                INSERT INTO download_queue (work_id, url, title, status, added_at)
+                VALUES (?, ?, ?, 'pending', ?)
+                ON CONFLICT(work_id) DO NOTHING
+                """,
+                (work_id, url, title, added_at),
+            )
+            added += cursor.rowcount
+    return added
+
+
+def get_next_pending_download(path: str) -> dict | None:
+    """The oldest still-pending item, for the worker to pick up next --
+    None once the queue is drained (see main.py's download worker loop,
+    which exits when this returns None and restarts on the next enqueue).
+    """
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT id, work_id, url, title FROM download_queue WHERE status = 'pending' ORDER BY id LIMIT 1"
+        ).fetchone()
+    return {"id": row[0], "work_id": row[1], "url": row[2], "title": row[3]} if row else None
+
+
+def mark_download_status(path: str, item_id: int, status: str, finished_at: str | None = None) -> None:
+    with _connect(path) as conn:
+        conn.execute(
+            "UPDATE download_queue SET status = ?, finished_at = ? WHERE id = ?",
+            (status, finished_at, item_id),
+        )
+
+
+def get_download_queue_counts(path: str) -> dict[str, int]:
+    counts = {"pending": 0, "downloading": 0, "done": 0}
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT status, COUNT(*) FROM download_queue GROUP BY status").fetchall()
+    counts.update(dict(rows))
+    return counts
+
+
+def clear_finished_downloads(path: str) -> None:
+    """Drops every 'done' row so the Queue page's count can reset once
+    you've confirmed a batch actually landed (via Downloads/Issues) --
+    'done' here just means the worker attempted it, not that it
+    necessarily succeeded (see app/ao3_client.py's module docstring for
+    why per-item success/failure isn't tracked separately here).
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM download_queue WHERE status = 'done'")

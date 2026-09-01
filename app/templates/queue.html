@@ -7,7 +7,9 @@
       Works from your <a href="/tracked">tracked feeds</a> that aren't downloaded yet, or may have
       updated since you last downloaded them. Not downloaded is certain; "may need update" is the
       same best-effort hint as the Tracked Feeds page (last-updated time, not an exact chapter
-      count) &mdash; see <a href="/tracked">Tracked Feeds</a> for the full picture per feed.
+      count) &mdash; see <a href="/tracked">Tracked Feeds</a> for the full picture per feed. Note
+      that selecting a "may need update" row below does a fresh full download, the same as a new
+      one -- it isn't a true incremental update.
     </p>
     <form method="post" action="/refresh/feeds" class="refresh-form">
       <input type="hidden" name="next" value="/queue">
@@ -19,41 +21,101 @@
     </form>
   </header>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Title</th>
-        <th>Author</th>
-        <th>Chapters</th>
-        <th>Status</th>
-        <th>From feed</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in items %}
-      <tr>
-        <td>
-          <a href="https://archiveofourown.org/works/{{ item.entry.work_id }}" target="_blank" rel="noopener">
-            {{ item.entry.title or "(unknown title)" }}
-          </a>
-        </td>
-        <td>{{ item.entry.author or "—" }}</td>
-        <td>
-          {% if item.entry.chapters_have is not none %}
-            {{ item.entry.chapters_have }}/{{ item.entry.chapters_total if item.entry.chapters_total is not none else "?" }}
-          {% else %}—{% endif %}
-        </td>
-        <td>
-          {% if item.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
-          {% else %}<span class="badge badge-warn">may need update</span>{% endif %}
-        </td>
-        <td>{{ item.feed_titles | join(", ") }}</td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="5" class="empty">Nothing in the queue &mdash; everything tracked is downloaded and up to date.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-value">{{ download_queue_counts.pending }}</div>
+      <div class="stat-label">queued to download</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ download_queue_counts.done }}</div>
+      <div class="stat-label">attempted this batch</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ "Running" if download_worker_running else "Stopped" }}</div>
+      <div class="stat-label">download worker</div>
+    </div>
+  </section>
+
+  <p class="paths">
+    {% if download_worker_current %}
+    Currently downloading: <strong>{{ download_worker_current }}</strong>
+    {% elif download_worker_running %}
+    Waiting for the next queued item&hellip;
+    {% else %}
+    Not running &mdash; select rows below and click "Download Selected" to start it.
+    {% endif %}
+    Successes and failures show up on <a href="/">Home</a> and <a href="/issues">Issues</a> as
+    they land, same as a manual ao3downloader run -- this just drives it in the background.
+  </p>
+
+  <div class="tag-bulk-actions">
+    <form method="post" action="/queue/stop_downloads" class="inline-form">
+      <button type="submit" {% if not download_worker_running %}disabled{% endif %}>Stop After Current Item</button>
+    </form>
+    <form method="post" action="/queue/clear_finished_downloads" class="inline-form">
+      <button type="submit" {% if not download_queue_counts.done %}disabled{% endif %}>Clear Attempted Count</button>
+    </form>
+  </div>
+
+  <form method="post" action="/queue/download" id="queue-download-form">
+    <div class="tag-bulk-actions">
+      <span class="hint" id="queue-selected-count">0 selected</span>
+      <button type="submit" id="queue-download-button" disabled>Download Selected</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="queue-select-all" onclick="toggleAllQueue(this)"></th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Chapters</th>
+          <th>Status</th>
+          <th>From feed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td><input type="checkbox" class="queue-checkbox" name="work_id" value="{{ item.entry.work_id }}" onchange="updateQueueSelectedCount()"></td>
+          <td>
+            <a href="https://archiveofourown.org/works/{{ item.entry.work_id }}" target="_blank" rel="noopener">
+              {{ item.entry.title or "(unknown title)" }}
+            </a>
+          </td>
+          <td>{{ item.entry.author or "—" }}</td>
+          <td>
+            {% if item.entry.chapters_have is not none %}
+              {{ item.entry.chapters_have }}/{{ item.entry.chapters_total if item.entry.chapters_total is not none else "?" }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if item.status == "not_downloaded" %}<span class="badge badge-missing">not downloaded</span>
+            {% else %}<span class="badge badge-warn">may need update</span>{% endif %}
+          </td>
+          <td>{{ item.feed_titles | join(", ") }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty">Nothing in the queue &mdash; everything tracked is downloaded and up to date.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
+
+  <script>
+    function updateQueueSelectedCount() {
+      var count = document.querySelectorAll(".queue-checkbox:checked").length;
+      document.getElementById("queue-selected-count").textContent = count + " selected";
+      document.getElementById("queue-download-button").disabled = count === 0;
+    }
+
+    function toggleAllQueue(selectAllBox) {
+      document.querySelectorAll(".queue-checkbox").forEach(function (checkbox) {
+        checkbox.checked = selectAllBox.checked;
+      });
+      updateQueueSelectedCount();
+    }
+  </script>
 {% endblock %}

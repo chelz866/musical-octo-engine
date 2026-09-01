@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import audiobookshelf, auth, db, rss, scanner
+from . import ao3_client, audiobookshelf, auth, db, rss, scanner
 from .epub_meta import looks_like_relationship
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
@@ -24,6 +24,13 @@ AUTO_REFRESH_INTERVAL_SECONDS = int(os.environ.get("AUTO_REFRESH_INTERVAL_SECOND
 DOWNLOADS_PAGE_SIZE = 25
 TAGS_PAGE_SIZE = 100
 FACET_SUGGESTION_COUNT = 10
+
+# Optional: only needed for restricted/mature-locked-behind-login works or
+# a logged-in user's own reading history -- a queue of ordinary public
+# works downloads fine with both left blank. See app/ao3_client.py.
+AO3_USERNAME = os.environ.get("AO3_USERNAME", "")
+AO3_PASSWORD = os.environ.get("AO3_PASSWORD", "")
+AO3_EXTRA_WAIT_SECONDS = int(os.environ.get("AO3_EXTRA_WAIT_SECONDS", ao3_client.DEFAULT_EXTRA_WAIT_SECONDS))
 
 # Optional: link downloaded works to their Audiobookshelf copy, if any.
 # All three unset (the default) disables the integration entirely.
@@ -51,6 +58,55 @@ async def _auto_refresh_loop():
         await asyncio.to_thread(rss.refresh_auto_feeds, FEEDS_DB_PATH)
 
 
+DOWNLOAD_WORKER_CURRENT_KEY = "download_worker_current_title"
+
+_download_worker_task: asyncio.Task | None = None
+_download_worker_stop = asyncio.Event()
+
+
+def _download_worker_running() -> bool:
+    return _download_worker_task is not None and not _download_worker_task.done()
+
+
+async def _download_worker_loop():
+    """Walks db.download_queue's pending items one at a time, calling into
+    ao3_client for each -- exits once the queue is drained rather than
+    polling forever, since _ensure_download_worker_running restarts it the
+    next time something's enqueued. A per-item failure never raises out of
+    Ao3.download() itself (it logs its own failure and moves on -- see
+    ao3_client's module docstring), so the try/except here is only a
+    safety net against a bug in this glue code, not the normal way a bad
+    download shows up.
+    """
+    client = await asyncio.to_thread(
+        ao3_client.build_client,
+        DOWNLOAD_DIR, LOG_PATH, os.path.dirname(DB_PATH),
+        AO3_USERNAME, AO3_PASSWORD, AO3_EXTRA_WAIT_SECONDS,
+    )
+    try:
+        while not _download_worker_stop.is_set():
+            item = db.get_next_pending_download(DB_PATH)
+            if item is None:
+                break
+            db.mark_download_status(DB_PATH, item["id"], "downloading")
+            db.set_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY, item["title"] or item["url"])
+            try:
+                await asyncio.to_thread(client.download, item["url"])
+            except Exception:
+                pass
+            db.mark_download_status(DB_PATH, item["id"], "done", datetime.now().isoformat())
+    finally:
+        db.set_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY, "")
+        await asyncio.to_thread(client.close)
+
+
+def _ensure_download_worker_running():
+    global _download_worker_task
+    if not _download_worker_running():
+        _download_worker_stop.clear()
+        _download_worker_task = asyncio.create_task(_download_worker_loop())
+
+
 @app.on_event("startup")
 async def _startup():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -67,6 +123,12 @@ async def _startup():
             rss.add_tracked_feed(FEEDS_DB_PATH, url, label)
         except rss.FeedRefreshError:
             pass  # best-effort; the user can re-add manually if a URL is stale
+
+    if db.get_next_pending_download(DB_PATH) is not None:
+        # Items were left queued from before a restart -- pick back up
+        # instead of stranding them until someone revisits Queue and
+        # re-selects the same rows.
+        _ensure_download_worker_running()
 
     asyncio.create_task(_auto_refresh_loop())
 
@@ -1805,8 +1867,7 @@ def tracked(request: Request):
     )
 
 
-@app.get("/queue", response_class=HTMLResponse)
-def queue(request: Request):
+def _queue_items() -> list[dict]:
     """Tracked-feed entries that still need attention: not downloaded at
     all, or possibly out of date. A first cut over the same status rss
     already computes for the Tracked Feeds page -- expected to grow.
@@ -1838,14 +1899,55 @@ def queue(request: Request):
 
     items = list(by_work_id.values())
     items.sort(key=lambda item: (status_order[item["status"]], (item["entry"].title or "").lower()))
+    return items
 
+
+@app.get("/queue", response_class=HTMLResponse)
+def queue(request: Request):
     return templates.TemplateResponse(
         "queue.html",
         {
             **_base_context(request),
-            "items": items,
+            "items": _queue_items(),
+            "download_queue_counts": db.get_download_queue_counts(DB_PATH),
+            "download_worker_running": _download_worker_running(),
+            "download_worker_current": db.get_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY) or "",
         },
     )
+
+
+@app.post("/queue/download")
+async def download_selected_queue_items(work_id: list[str] = Form([])):
+    """Enqueues the checked Queue rows for the background download worker
+    (see _download_worker_loop) and makes sure it's running to pick them
+    up. Looks the URL/title back up from the same tracked-feed data the
+    Queue page itself renders from, so the browser only ever has to post
+    back a work_id, not a full AO3 URL.
+    """
+    if work_id:
+        wanted = set(work_id)
+        selected = [
+            (item["entry"].work_id, f"https://archiveofourown.org/works/{item['entry'].work_id}", item["entry"].title)
+            for item in _queue_items() if item["entry"].work_id in wanted
+        ]
+        db.enqueue_downloads(DB_PATH, selected, datetime.now().isoformat())
+        _ensure_download_worker_running()
+    return RedirectResponse(url="/queue", status_code=303)
+
+
+@app.post("/queue/stop_downloads")
+async def stop_download_worker():
+    """Lets the current in-flight item finish rather than aborting it
+    mid-download -- the loop only checks this flag between items.
+    """
+    _download_worker_stop.set()
+    return RedirectResponse(url="/queue", status_code=303)
+
+
+@app.post("/queue/clear_finished_downloads")
+def clear_finished_downloads_route():
+    db.clear_finished_downloads(DB_PATH)
+    return RedirectResponse(url="/queue", status_code=303)
 
 
 @app.post("/tracked/add")

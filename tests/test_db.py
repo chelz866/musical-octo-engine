@@ -748,6 +748,96 @@ def test_user_home_edit_source_round_trip():
         assert db.get_user_home_edit_source(path, user_id) is False
 
 
+def test_enqueue_downloads_adds_new_items_and_reports_count():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        added = db.enqueue_downloads(
+            path,
+            [("1", "https://archiveofourown.org/works/1", "Work One"), ("2", "https://archiveofourown.org/works/2", "Work Two")],
+            "2026-01-01T00:00:00",
+        )
+        assert added == 2
+        assert db.get_download_queue_counts(path) == {"pending": 2, "downloading": 0, "done": 0}
+
+
+def test_enqueue_downloads_skips_a_work_id_already_in_the_queue():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        db.enqueue_downloads(path, [("1", "https://archiveofourown.org/works/1", "Work One")], "2026-01-01T00:00:00")
+        added_again = db.enqueue_downloads(path, [("1", "https://archiveofourown.org/works/1", "Work One")], "2026-01-01T00:00:01")
+
+        assert added_again == 0
+        assert db.get_download_queue_counts(path)["pending"] == 1
+
+
+def test_get_next_pending_download_returns_oldest_first_and_none_when_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        assert db.get_next_pending_download(path) is None
+
+        db.enqueue_downloads(path, [("1", "https://archiveofourown.org/works/1", "First")], "2026-01-01T00:00:00")
+        db.enqueue_downloads(path, [("2", "https://archiveofourown.org/works/2", "Second")], "2026-01-01T00:00:01")
+
+        item = db.get_next_pending_download(path)
+        assert item["work_id"] == "1"
+        assert item["title"] == "First"
+
+
+def test_mark_download_status_moves_an_item_out_of_pending():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+
+        db.enqueue_downloads(path, [("1", "https://archiveofourown.org/works/1", "Work One")], "2026-01-01T00:00:00")
+        item = db.get_next_pending_download(path)
+
+        db.mark_download_status(path, item["id"], "downloading")
+        assert db.get_download_queue_counts(path) == {"pending": 0, "downloading": 1, "done": 0}
+        assert db.get_next_pending_download(path) is None
+
+        db.mark_download_status(path, item["id"], "done", "2026-01-01T00:05:00")
+        assert db.get_download_queue_counts(path) == {"pending": 0, "downloading": 0, "done": 1}
+
+
+def test_a_stuck_downloading_row_resets_to_pending_on_init_db():
+    # Simulates the app dying mid-item on a previous run -- init_db's
+    # startup migration should put it back to pending so the worker
+    # picks it up again instead of leaving it stuck forever.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.enqueue_downloads(path, [("1", "https://archiveofourown.org/works/1", "Work One")], "2026-01-01T00:00:00")
+        item = db.get_next_pending_download(path)
+        db.mark_download_status(path, item["id"], "downloading")
+
+        db.init_db(path)  # re-running init_db performs the one-time-per-boot reset
+
+        assert db.get_download_queue_counts(path) == {"pending": 1, "downloading": 0, "done": 0}
+
+
+def test_clear_finished_downloads_removes_only_done_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.enqueue_downloads(
+            path,
+            [("1", "https://archiveofourown.org/works/1", "Done"), ("2", "https://archiveofourown.org/works/2", "Still Pending")],
+            "2026-01-01T00:00:00",
+        )
+        done_item = db.get_next_pending_download(path)
+        db.mark_download_status(path, done_item["id"], "done", "2026-01-01T00:05:00")
+
+        db.clear_finished_downloads(path)
+
+        assert db.get_download_queue_counts(path) == {"pending": 1, "downloading": 0, "done": 0}
+
+
 def test_user_abs_username_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

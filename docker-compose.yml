@@ -11,9 +11,18 @@ services:
       # Optional Audiobookshelf integration -- see README. Blank disables it.
       - ABS_BASE_URL=${ABS_BASE_URL:-}
       - ABS_LIBRARY_ID=${ABS_LIBRARY_ID:-}
+      # Optional: lets the Queue page's download worker log in to AO3 --
+      # see README. Blank downloads only public works, unauthenticated.
+      - AO3_USERNAME=${AO3_USERNAME:-}
+      - AO3_PASSWORD=${AO3_PASSWORD:-}
+      - AO3_EXTRA_WAIT_SECONDS=${AO3_EXTRA_WAIT_SECONDS:-2}
     volumes:
-      - ${DOWNLOAD_DIR}:/downloads:ro
-      - ${LOG_DIR}:/logs:ro
+      # No longer read-only: the app can now download works itself (see
+      # the Queue page and AO3_USERNAME/AO3_PASSWORD in README) and writes
+      # new .epub files and log.jsonl entries into these same folders,
+      # exactly like a manual ao3downloader run would.
+      - ${DOWNLOAD_DIR}:/downloads
+      - ${LOG_DIR}:/logs
       - ${DATA_DIR}:/data
       # Uncomment and set ABS_DB_HOST_PATH in .env to enable Audiobookshelf
       # linking (a read-only mount of its absdatabase.sqlite):

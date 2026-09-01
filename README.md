@@ -5,9 +5,12 @@ downloaded. It scans your downloads folder, reads embedded epub metadata (title,
 category, relationships, a best-effort fandom guess), and cross-checks against ao3downloader's
 own `log.jsonl` to flag anything logged as downloaded but missing on disk, or logged as a failure.
 
-It does not trigger downloads -- it only looks at files already on disk, the existing log, and a
-small local SQLite file for manual corrections and tracked feeds you add yourself. The one
-exception is the Tracked Feeds page, which does fetch AO3 Atom feed URLs you explicitly add.
+Mostly it only looks at files already on disk, the existing log, and a small local SQLite file for
+manual corrections and tracked feeds you add yourself -- the Tracked Feeds page is one exception,
+fetching AO3 Atom feed URLs you explicitly add, and the Queue page's "Download Selected" is the
+other, actually downloading works you pick in the background using ao3downloader's own internals
+(see "Optional: downloading from within the app" below) rather than only reading what a separate,
+manually-run ao3downloader already produced.
 
 Everything is cached and only updated on request -- there's no background polling for the
 downloads folder/log. The **Refresh** button (on the Admin Dashboard) re-scans the downloads
@@ -70,6 +73,49 @@ It's entirely optional and off by default; set all of `ABS_DB_HOST_PATH`, `ABS_L
 `ABS_BASE_URL` in `.env` (see `.env.example` for the exact meaning of each) and uncomment the
 matching volume line in `docker-compose.yml` to turn it on. Matching runs as part of the regular
 (manual) Refresh, reading Audiobookshelf's sqlite file read-only -- this app never writes to it.
+
+## Optional: downloading from within the app
+
+The Queue page (`/queue`) can actually fetch the works you select, in the background, instead of
+only telling you what's missing. This is meant for exactly the situation of a large backlog (a
+freshly-added tracked feed, hundreds or thousands of works) that would otherwise mean running
+ao3downloader by hand and babysitting it -- select rows, click "Download Selected", and it keeps
+going on its own while you do something else in the app (classify tags, browse, whatever).
+
+**How it works**: [ao3downloader](https://github.com/nianeyna/ao3downloader) itself is a menu-driven
+interactive CLI with no non-interactive mode -- every one of its actions prompts through `input()`/
+`getpass()` and has no command-line flags at all. Underneath that menu, though, its actual
+scrape-and-save logic (`Repository`, `FileOps`, `Ao3`) is plain, ordinary, non-interactive Python --
+the prompting lives entirely in a thin CLI shell around those classes. This app
+depends on `ao3downloader` as a library and drives those classes directly (see `app/ao3_client.py`),
+bypassing its menu shell entirely, so there's nothing to script or automate at the terminal level.
+Downloaded files and log entries land in the exact same `DOWNLOAD_DIR`/`LOG_DIR` folders (and the
+exact same `log.jsonl` format) a manual ao3downloader run already uses -- this app's own scanner
+picks them up on the next Refresh with no extra wiring, and any failure shows up on the Issues page
+exactly like a failure from a manual run would, since it's ao3downloader's own logging doing that,
+not something this app tracks separately.
+
+**Setup**: `DOWNLOAD_DIR` and `LOG_DIR` are mounted read-write now (not read-only), since this
+feature writes into them. Login is optional -- set `AO3_USERNAME`/`AO3_PASSWORD` in `.env` only if
+you need restricted/mature-locked-behind-login works or your own reading history; ordinary public
+works download fine with both left blank, unauthenticated. `AO3_EXTRA_WAIT_SECONDS` (default 2) adds
+a small delay between each download on top of ao3downloader's own rate-limit backoff (which only
+kicks in once AO3 actually throttles a request) -- a deliberately conservative default given this
+can run unattended over a queue thousands of works long.
+
+**How the queue behaves**: selecting rows and clicking "Download Selected" adds them to a small
+persistent queue (a work id already anywhere in it, pending or finished, is left alone rather than
+re-queued, so re-selecting the same rows twice is harmless) and starts a background worker if one
+isn't already running. The worker works through it one item at a time, stops on its own once it's
+empty, and picks back up automatically if the app restarts partway through a big batch. "Stop After
+Current Item" lets whatever's mid-download finish rather than aborting it, then halts; "Clear
+Attempted Count" just resets the Queue page's own counter once you've confirmed a batch actually
+landed (via Home/Issues) -- it doesn't affect the real downloaded files or log.jsonl.
+
+A row's "attempted" status only means the worker got to it, not that it necessarily succeeded --
+per-item success/failure is exactly what Home ("✓ on disk") and Issues (parse errors, logged
+failures) already surface, so this doesn't duplicate that tracking. Selecting a "may need update"
+row does a fresh full download, the same as a new one -- it isn't a true incremental update.
 
 ## Accounts, roles, and bookmarks
 
@@ -324,8 +370,12 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   a work doesn't disappear from your tracked list just because newer works pushed it off the feed.
   Each feed also has its own "Auto-refresh: on/off" toggle (see above).
 - **Queue** (`/queue`) -- every tracked-feed work that isn't downloaded yet, or may have updated
-  since you downloaded it, across all feeds, sorted with not-downloaded first. A first cut over
-  the same status the Tracked Feeds page shows per feed; expected to grow.
+  since you downloaded it, across all feeds, sorted with not-downloaded first. Select any rows and
+  click "Download Selected" to actually fetch them, in the background, so a big batch (hundreds or
+  thousands of works) runs on its own while you do something else in the app -- see "Optional:
+  downloading from within the app" above for how that works and what it needs. Successes and
+  failures land on Home and Issues exactly like a manual ao3downloader run would, since it's driving
+  the same underlying download logic.
 
 Fandom is classified per *tag*, not per work (see `scanner._resolve_fandoms`). Downloads and Issues
 have the same checkbox picker under the Fandom column ("edit", admin-only -- hidden entirely for a
@@ -351,9 +401,10 @@ own tags, but saving it sets the same global classification the Classify Tags pa
   the epub metadata and no consistent tag ordering across works, so it's a best-effort heuristic
   (see `app/epub_meta.py`) that can occasionally include a character name or miss a fandom -- use
   the Tags page (or the per-work picker) to correct it, which fixes every work sharing that tag.
-- The downloads folder and log file are mounted read-only; only the small `/data` SQLite file
-  (manual overrides/dismissals/cache/tracked feeds) is writable, and nothing here downloads or
-  modifies your fics.
+- The downloads folder and log file are mounted read-write, since the Queue page's "Download
+  Selected" (see "Optional: downloading from within the app" above) writes new `.epub` files and
+  log entries into them, the same as a manual ao3downloader run would -- nothing here ever modifies
+  or deletes an existing file, only adds new ones.
 - Refresh of the downloads folder/log is entirely manual. Tracked feeds are the one exception:
   each has its own opt-in auto-refresh toggle, polled in the background every
   `AUTO_REFRESH_INTERVAL_SECONDS` (default 1 hour) regardless of whether anyone clicks Refresh.
