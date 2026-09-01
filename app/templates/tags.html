@@ -10,8 +10,9 @@
 <input type="hidden" name="show_set" value="{{ 'true' if show_set else 'false' }}">
 <input type="hidden" name="incomplete_only" value="{{ 'true' if incomplete_only else 'false' }}">
 {% endmacro %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) %}
-<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only, verified_tags) %}
+{% set is_synthetic_heading = organize_by and row.children and not row.category %}
+<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}{% if row.tag in verified_tags %} tag-row-verified{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
     {% if row.children %}
@@ -119,9 +120,19 @@
     {% endif %}
     {% endif %}
   </td>
+  <td>
+    {% if not is_synthetic_heading %}
+    <form method="post" action="/tags/classify/set_verified" class="inline-form">
+      <input type="hidden" name="tag" value="{{ row.tag }}">
+      <input type="hidden" name="verified" value="false">
+      {{ filter_state_fields(filter, page, sort, work_id, q, show_guessed, show_set, incomplete_only) }}
+      <input type="checkbox" name="verified" value="true" {% if row.tag in verified_tags %}checked{% endif %} onchange="this.form.submit()">
+    </form>
+    {% endif %}
+  </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only, verified_tags) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -265,14 +276,15 @@
           <th>Fandom</th>
           <th>Character(s)</th>
           <th>Relationship(s)</th>
+          <th>Verified</th>
         </tr>
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q, show_guessed, show_set, incomplete_only, verified_tags) }}
         {% else %}
         <tr>
-          <td colspan="7" class="empty">
+          <td colspan="8" class="empty">
             {% if last_refreshed %}No tags found.{% else %}No data yet &mdash; click Refresh above.{% endif %}
           </td>
         </tr>

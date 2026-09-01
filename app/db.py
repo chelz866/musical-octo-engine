@@ -149,6 +149,13 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS tag_verified (
+                tag TEXT PRIMARY KEY
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS relationship_characters (
                 relationship_tag TEXT NOT NULL,
                 part_index INTEGER NOT NULL,
@@ -600,6 +607,27 @@ def remove_tag_media_type(path: str, tag: str) -> None:
     """
     with _connect(path) as conn:
         conn.execute("DELETE FROM tag_media_types WHERE tag = ?", (tag,))
+
+
+def get_all_verified_tags(path: str) -> set[str]:
+    """Every tag someone has manually reviewed and confirmed correct on
+    Classify Tags -- purely a personal checklist over classification
+    that's otherwise already saved (Fandom/Character/Relationship/
+    Freeform, its associations, its Fandom Category); nothing else in the
+    app reads this, and re-classifying a tag doesn't clear it, since
+    "verified" tracks whether *someone looked*, not what the answer was.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT tag FROM tag_verified").fetchall()
+    return {row[0] for row in rows}
+
+
+def set_tag_verified(path: str, tag: str, verified: bool) -> None:
+    with _connect(path) as conn:
+        if verified:
+            conn.execute("INSERT INTO tag_verified (tag) VALUES (?) ON CONFLICT(tag) DO NOTHING", (tag,))
+        else:
+            conn.execute("DELETE FROM tag_verified WHERE tag = ?", (tag,))
 
 
 def get_all_relationship_characters(path: str) -> dict[str, dict[int, str]]:

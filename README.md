@@ -482,6 +482,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   alongside the real Fandom headings, while a tag nobody's classified either way yet stays a
   standalone top-level row instead of being swept into that heading -- so "grouped under No Fandom"
   only ever means someone confirmed there really is none, not "still undecided."
+
+  A **Verified** checkbox sits in its own column at the right of every row -- a personal checklist
+  independent of classification itself (nothing else in the app reads it, and reclassifying or
+  re-associating a tag never clears it): tick it once you've looked at a row and confirmed it's
+  right, and its whole row gets a distinct highlight so already-reviewed tags stand out from the
+  rest at a glance while working through a long list. A synthetic Organize-by group heading has no
+  checkbox of its own (it isn't a real tag), same as it has no Category dropdown either.
 - **Tag Wrangling** (`/tags/classify/wranglings`, under Admin) -- the full same-category "Merged
   into"/"Child of" list (see Classify Tags above), split onto its own page once it got too long to
   sit at the bottom of that one -- a text box filters the list by tag or target as you type. This is

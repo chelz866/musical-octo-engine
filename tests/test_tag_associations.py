@@ -18,6 +18,7 @@ from app.main import (
     apply_associations,
     set_relationship_character_route,
     set_selected_tags,
+    set_tag_verified_route,
     wrangle_tags,
 )
 from app.scanner import WorkEntry, _entry_to_row
@@ -432,3 +433,41 @@ def test_set_selected_tags_unclassify_with_no_tags_selected_is_a_no_op():
         )
 
         assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}
+
+
+def test_set_tag_verified_round_trip():
+    with _temp_db() as path:
+        assert db.get_all_verified_tags(path) == set()
+
+        db.set_tag_verified(path, "Harry Potter", True)
+        assert db.get_all_verified_tags(path) == {"Harry Potter"}
+
+        db.set_tag_verified(path, "Harry Potter", False)
+        assert db.get_all_verified_tags(path) == set()
+
+
+def test_set_tag_verified_is_independent_of_classification():
+    # Verified is a personal checklist over classification, not part of it
+    # -- reclassifying a tag doesn't clear its verified flag.
+    with _temp_db() as path:
+        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        db.set_tag_verified(path, "Coffee Shop AU", True)
+
+        db.set_tag_categories(path, {"Coffee Shop AU": "fandom"})
+
+        assert db.get_all_verified_tags(path) == {"Coffee Shop AU"}
+
+
+def test_set_tag_verified_route_checks_and_unchecks():
+    with _temp_db() as path:
+        set_tag_verified_route(
+            tag="Harry Potter", verified=True, filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+        assert db.get_all_verified_tags(path) == {"Harry Potter"}
+
+        set_tag_verified_route(
+            tag="Harry Potter", verified=False, filter="all", page=1, sort="count_desc", work_id="", q="",
+            show_guessed=False, show_set=False, incomplete_only=False,
+        )
+        assert db.get_all_verified_tags(path) == set()

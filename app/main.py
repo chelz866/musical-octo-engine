@@ -1813,6 +1813,7 @@ def tags_classify_page(
             "freeform_characters": freeform_characters,
             "freeform_relationships": freeform_relationships,
             "relationship_name_parts": _relationship_name_parts,
+            "verified_tags": db.get_all_verified_tags(DB_PATH),
             "work_id": work_id,
             "edit_source_entry": edit_source_entry,
             "q": q,
@@ -2200,6 +2201,34 @@ def set_tag_media_type_route(
         db.set_tag_media_type(DB_PATH, tag, media_type)
     else:
         db.remove_tag_media_type(DB_PATH, tag)
+    return RedirectResponse(
+        url=(
+            f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
+            f"&show_guessed={str(show_guessed).lower()}&show_set={str(show_set).lower()}&incomplete_only={str(incomplete_only).lower()}"
+        ),
+        status_code=303,
+    )
+
+
+@app.post("/tags/classify/set_verified")
+def set_tag_verified_route(
+    tag: str = Form(...),
+    verified: bool = Form(False),
+    filter: str = Form("all"),
+    page: int = Form(1),
+    sort: str = Form(DEFAULT_NAME_COUNT_SORT),
+    work_id: str = Form(""),
+    q: str = Form(""),
+    show_guessed: bool = Form(False),
+    show_set: bool = Form(False),
+    incomplete_only: bool = Form(False),
+):
+    """Toggles the "Verified" checkbox -- a personal checklist over
+    classification that's independent of it (see db.get_all_verified_tags):
+    ticking it doesn't change a tag's category/Fandom/associations at all,
+    just marks that someone looked at this row and confirmed it's right.
+    """
+    db.set_tag_verified(DB_PATH, tag, verified)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
