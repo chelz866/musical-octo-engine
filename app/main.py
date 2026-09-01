@@ -128,10 +128,16 @@ async def _download_worker_loop():
                 break
             db.mark_download_status(DB_PATH, item["id"], "downloading")
             db.set_meta(DB_PATH, DOWNLOAD_WORKER_CURRENT_KEY, item["title"] or item["url"])
-            try:
-                await asyncio.to_thread(client.download, item["url"])
-            except Exception:
-                pass
+            # A fresh filesystem check, not the (possibly stale) scanner
+            # cache the Queue/Incomplete Works views that fed this item
+            # were built from -- skips a needless redownload (and the risk
+            # of a spurious logged failure) of a work that's actually
+            # already on disk. See ao3_client.work_id_on_disk.
+            if not await asyncio.to_thread(ao3_client.work_id_on_disk, DOWNLOAD_DIR, item["work_id"]):
+                try:
+                    await asyncio.to_thread(client.download, item["url"])
+                except Exception:
+                    pass
             db.mark_download_status(DB_PATH, item["id"], "done", datetime.now().isoformat())
 
             if time.monotonic() - last_refresh >= DOWNLOAD_WORKER_REFRESH_INTERVAL_SECONDS:
@@ -1368,7 +1374,7 @@ def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children
 
 
 def _tag_rows(
-    result, filter: str, sort: str, restrict_to: set[str] | None = None
+    result, filter: str, sort: str, restrict_to: set[str] | None = None, q: str = ""
 ) -> tuple[list[tuple[str, int, str | None]], dict[str, int], int]:
     """Returns (tags, bucket_counts, total_tags) for the given filter tab --
     tags is (tag, work_count, category). Shared by the admin classification
@@ -1380,6 +1386,15 @@ def _tag_rows(
     "edit source" view (a single work's own fandom_candidates) so the
     filter tabs and their counts describe just that work's tags instead
     of the whole library.
+
+    `q`, when given, keeps only tags containing it (case-insensitive) --
+    applied after the category filter but, deliberately, not reflected in
+    bucket_counts (those stay whole-library totals, same "always the full
+    picture" convention the Fandoms page's media-type tab counts already
+    use). Unlike the page's own client-side "filter tags on this page"
+    box, this narrows the *whole* library before pagination, so a search
+    actually reaches every page instead of just whichever one happens to
+    be open -- the reason this parameter exists at all.
 
     `category` is a tag's effective Fandom/Relationship bucket, not just
     its explicit one: a heuristically guessed Fandom or Relationship
@@ -1430,6 +1445,9 @@ def _tag_rows(
     tags = [(tag, count, effective_category(tag)) for tag, count in counts.items()]
     if filter != "all":
         tags = [(t, c, cat) for t, c, cat in tags if (cat or "unclassified") == filter]
+    if q:
+        q_lower = q.lower()
+        tags = [(t, c, cat) for t, c, cat in tags if q_lower in t.lower()]
     tags = _sort_name_count_rows(tags, sort)
     return tags, bucket_counts, len(counts)
 
@@ -1633,13 +1651,14 @@ def tags_browse(
     sort: str = DEFAULT_NAME_COUNT_SORT,
     letter: str = "all",
     organize_by: str = "",
+    q: str = "",
 ):
     """Read-only tag browsing under Browse -- anyone logged in can see
     this, unlike /tags/classify (admin-only, see the module-level
     ADMIN_PATH_PREFIXES) which actually changes the shared classification.
     """
     result = scanner.load_cached(DB_PATH)
-    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort, q=q)
     tags = _filter_by_letter(tags, letter)
     tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
@@ -1660,7 +1679,8 @@ def tags_browse(
             "organize_by": organize_by,
             "organize_by_options": ORGANIZE_BY_LABELS,
             "explicit_categories": db.get_all_tag_categories(DB_PATH),
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}&organize_by={quote(organize_by)}",
+            "q": q,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&letter={quote(letter)}&organize_by={quote(organize_by)}&q={quote(q)}",
         },
     )
 
@@ -1673,6 +1693,7 @@ def tags_classify_page(
     sort: str = DEFAULT_NAME_COUNT_SORT,
     organize_by: str = "",
     work_id: str = "",
+    q: str = "",
 ):
     """`work_id`, when set (see the Home page's "Edit" button, gated by
     the "Use Home as edit source" account setting), narrows this whole
@@ -1688,7 +1709,7 @@ def tags_classify_page(
     result = scanner.load_cached(DB_PATH)
     edit_source_entry = next((e for e in result.entries if e.work_id == work_id), None) if work_id else None
     restrict_to = set(edit_source_entry.fandom_candidates) if edit_source_entry else None
-    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort, restrict_to)
+    tags, bucket_counts, total_tags = _tag_rows(result, filter, sort, restrict_to, q)
     tags = _grouped_tag_rows(tags, organize_by, sort)
     page_tags, page, total_pages = paginate(tags, page, TAGS_PAGE_SIZE)
     children_map = db.get_tag_children(DB_PATH)
@@ -1720,7 +1741,8 @@ def tags_classify_page(
             "relationship_name_parts": _relationship_name_parts,
             "work_id": work_id,
             "edit_source_entry": edit_source_entry,
-            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}&work_id={quote(work_id)}",
+            "q": q,
+            "pager_qs": f"&filter={quote(filter)}&sort={quote(sort)}&organize_by={quote(organize_by)}&work_id={quote(work_id)}&q={quote(q)}",
         },
     )
 
@@ -1780,6 +1802,7 @@ def wrangle_tags(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     """Bulk-wrangles every checked tag to `target`. 'synonym' is
     category-blind (two spellings of the same tag aren't a category
@@ -1830,7 +1853,7 @@ def wrangle_tags(
                 if new_category in ("character", "relationship"):
                     _auto_link_relationship_characters()
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -1945,6 +1968,7 @@ def set_tag_fandom_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     """Sets tag's own Fandom association -- 'No Fandom' is a real,
     explicit choice (it stops inheritance from an ancestor same-category
@@ -1958,7 +1982,7 @@ def set_tag_fandom_route(
     else:
         db.remove_tag_fandom(DB_PATH, tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -1970,6 +1994,7 @@ def set_tag_media_type_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     """Sets tag's own AO3-style media type -- see set_tag_fandom_route,
     same "empty clears the explicit choice, a real value (including the
@@ -1983,7 +2008,7 @@ def set_tag_media_type_route(
     else:
         db.remove_tag_media_type(DB_PATH, tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -1996,6 +2021,7 @@ def set_relationship_character_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     """Links one of relationship_tag's "/"-or-"&"-separated name parts to
     an actual Character tag -- the Character's own spelling can differ
@@ -2013,7 +2039,7 @@ def set_relationship_character_route(
     else:
         db.remove_relationship_character(DB_PATH, relationship_tag, part_index)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2025,12 +2051,13 @@ def add_freeform_character_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     character_tag = character_tag.strip()
     if character_tag and not _tag_has_no_fandom(freeform_tag):
         db.add_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2042,10 +2069,11 @@ def remove_freeform_character_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     db.remove_freeform_character(DB_PATH, freeform_tag, character_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2057,12 +2085,13 @@ def add_freeform_relationship_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     relationship_tag = relationship_tag.strip()
     if relationship_tag and not _tag_has_no_fandom(freeform_tag):
         db.add_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2074,10 +2103,11 @@ def remove_freeform_relationship_route(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     db.remove_freeform_relationship(DB_PATH, freeform_tag, relationship_tag)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2092,6 +2122,7 @@ def apply_associations(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     """Bulk-applies whichever of Fandom/Character/Relationship/Media Type
     were picked (each blank means "don't touch that one") to every
@@ -2126,7 +2157,7 @@ def apply_associations(
             if media_type and explicit_categories.get(tag) == "fandom":
                 db.set_tag_media_type(DB_PATH, tag, media_type)
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2138,13 +2169,14 @@ def set_selected_tags(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     if category in ("fandom", "character", "relationship", "freeform") and tags:
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
         if category in ("character", "relationship"):
             _auto_link_relationship_characters()
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 
@@ -2155,11 +2187,12 @@ def mark_page_freeform(
     page: int = Form(1),
     sort: str = Form(DEFAULT_NAME_COUNT_SORT),
     work_id: str = Form(""),
+    q: str = Form(""),
 ):
     explicit = db.get_all_tag_categories(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit})
     return RedirectResponse(
-        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}", status_code=303
+        url=f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}", status_code=303
     )
 
 

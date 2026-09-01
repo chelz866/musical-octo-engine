@@ -26,6 +26,26 @@ from .log_reader import LogRecord, parse_log
 FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
 
 
+def find_files_for_work_id(download_dir: str, work_id: str) -> list[str]:
+    """Every file in download_dir whose name matches the "<id> or <id>_"
+    convention for this specific work_id, as full paths -- an empty list
+    if the folder can't be listed or nothing matches. Shared by
+    ao3_client's pre-download "already on disk" check and its
+    post-download stale-duplicate cleanup, both of which need the exact
+    same filename matching this app's own scanner already uses.
+    """
+    try:
+        names = os.listdir(download_dir)
+    except OSError:
+        return []
+    matches = []
+    for name in names:
+        match = FILENAME_RE.match(name)
+        if match and match.group(1) == work_id:
+            matches.append(os.path.join(download_dir, name))
+    return matches
+
+
 @dataclass
 class WorkEntry:
     work_id: str

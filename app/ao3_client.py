@@ -34,6 +34,14 @@ the most recently written one, so a redownload can never silently leave
 a stale duplicate behind for the scanner to pick over the fresh copy.
 Nothing is removed unless the download actually produced a file --
 a failed attempt leaves the sole existing copy untouched.
+
+work_id_on_disk() covers a related gap: the Queue/Incomplete Works views
+that feed the download worker are built from the scanner's own cached
+view, which can be stale (e.g. a manual link added for a work that was
+actually already downloaded moments before the last Refresh) -- queueing
+a needless redownload of it. The worker re-checks the real filesystem
+for the specific work_id it's about to fetch, right before fetching it,
+and skips the network call entirely if a file's already there.
 """
 
 import os
@@ -74,20 +82,23 @@ def _work_id_from_url(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1]
 
 
+def work_id_on_disk(download_dir: str, work_id: str) -> bool:
+    """A fresh filesystem check (not the scanner's cached view, which can
+    be stale) for whether work_id already has a file in download_dir --
+    used to skip re-downloading something already on disk (see
+    main.py's download worker) instead of needlessly hitting AO3 for it.
+    """
+    return bool(scanner.find_files_for_work_id(download_dir, work_id))
+
+
 def _remove_stale_duplicate_files(download_dir: str, work_id: str) -> None:
+    paths = scanner.find_files_for_work_id(download_dir, work_id)
     matches = []
-    try:
-        names = os.listdir(download_dir)
-    except OSError:
-        return
-    for name in names:
-        match = scanner.FILENAME_RE.match(name)
-        if match and match.group(1) == work_id:
-            path = os.path.join(download_dir, name)
-            try:
-                matches.append((os.path.getmtime(path), path))
-            except OSError:
-                continue
+    for path in paths:
+        try:
+            matches.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
     if len(matches) <= 1:
         return
     matches.sort(reverse=True)

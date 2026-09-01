@@ -24,11 +24,6 @@
 
   <h2>Time Zone</h2>
   {% if saved == "timezone" %}<p class="badge badge-ok">Time zone saved.</p>{% endif %}
-  <p class="paths">
-    Every time shown in this app (downloaded dates, last refreshed, viewed history, and so on) is
-    converted to this zone for display -- it never changes what's actually recorded, just how you
-    see it. Leave this on "Server time" to see times exactly as this app's server records them.
-  </p>
   <form method="post" action="/account/timezone" class="stacked-form">
     <label>Time zone
       <select name="timezone">
@@ -43,11 +38,6 @@
 
   <h2>Audiobookshelf</h2>
   {% if saved == "abs_username" %}<p class="badge badge-ok">Audiobookshelf username saved.</p>{% endif %}
-  <p class="paths">
-    If you also read these in Audiobookshelf, pair your account with your Audiobookshelf username
-    and the next Refresh will mark a work read here once you've finished it there. Leave this
-    blank to skip Audiobookshelf entirely and just use the manual Read/Unread toggle on Downloads.
-  </p>
   <form method="post" action="/account/abs_username" class="stacked-form">
     <label>Audiobookshelf username
       <input type="text" name="abs_username" value="{{ abs_username }}" autocomplete="off">
@@ -59,15 +49,6 @@
   {% if saved == "theme" %}<p class="badge badge-ok">Theme saved.</p>{% endif %}
   {% if saved == "theme_active" %}<p class="badge badge-ok">Active theme changed.</p>{% endif %}
   {% if saved == "theme_deleted" %}<p class="badge badge-ok">Theme deleted.</p>{% endif %}
-  <p class="paths">
-    Save as many named themes as you like and switch between them freely -- picking a different one
-    to use never loses the others. Paste custom CSS to restyle your own view of this app. This app's
-    pages reuse AO3's own ids and classes directly (<code>#header</code>, <code>#main</code>,
-    tag/blurb markup), so most of a real AO3 skin applies as-is with no translation. A couple of
-    AO3-specific things with no real equivalent here (like <code>.splash</code>) are mapped onto the
-    closest stand-in; anything else with no equivalent simply does nothing. Only you see this; it has
-    no effect on anyone else's account.
-  </p>
 
   <p class="paths">
     Currently using:

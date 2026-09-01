@@ -3,13 +3,6 @@
 {% block content %}
   <header>
     <h1>Incomplete Works</h1>
-    <p class="paths">
-      Every already-downloaded work that's still a WIP, across your whole library -- not just ones
-      you're tracking through a feed. Sorted oldest-checked first (when you last downloaded or
-      refreshed the file, since a plain epub carries no AO3-side "last updated" date of its own),
-      so anything you haven't redownloaded in a long time -- and might quietly have new chapters
-      waiting -- surfaces at the top.
-    </p>
   </header>
 
   <section class="stats">
@@ -33,11 +26,8 @@
     {% elif download_worker_running %}
     Waiting for the next queued item&hellip;
     {% else %}
-    Not running &mdash; select rows below and click "Download Selected" to start it.
+    Not running
     {% endif %}
-    Successes and failures show up on <a href="/">Home</a> and <a href="/issues">Issues</a> as they
-    land, same as the <a href="/queue">Queue</a> page's download worker -- they share one worker and
-    queue.
   </p>
 
   <div class="tag-bulk-actions">

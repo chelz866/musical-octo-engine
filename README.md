@@ -138,6 +138,13 @@ silently leave a stale duplicate for the scanner to show instead of the fresh co
 removed unless the download actually produced a file -- a failed attempt leaves the sole existing
 copy untouched.
 
+**Skipping what's already on disk**: the Queue and Incomplete Works lists that feed the worker are
+built from the scanner's own cached view, which can go stale between refreshes -- for example, a
+work added by pasting its link may already have been downloaded moments earlier. Right before
+fetching each item, the worker does a fresh filesystem check (not the cached scanner view) for a
+file matching that work id, and skips the network call entirely if one's already there, instead of
+needlessly re-downloading it (or logging a spurious failure if it turns out to already exist).
+
 ## Accounts, roles, and bookmarks
 
 Every page requires logging in. The first time the app starts, it seeds one admin account --
@@ -336,11 +343,14 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   it in one action, instead of a per-work correction on each of them. A real library can easily
   have thousands of unique tags, so checking a box per tag and reading through a dropdown per row
   doesn't scale -- instead, each row has a checkbox ("Select all" in the header selects only the
-  rows currently visible, respecting the filter tab, sort order, and the on-page text search), and
-  a bar above the table applies one category to everything checked ("Set selected: Fandom/Character/
+  rows currently visible, respecting the filter tab, sort order, and the search box), and a bar
+  above the table applies one category to everything checked ("Set selected: Fandom/Character/
   Relationship/Freeform") -- search for a name, select all, glance at the list, then set it in one
-  click. The same sort dropdown as the read-only Tags page (Name A-Z/Z-A, Most/Fewest Works) is
-  available here too, and is preserved through every bulk action's redirect. Since
+  click. The search box (same one on the read-only Tags page) narrows the *whole* library before
+  pagination, not just whatever page happens to be open, so finding a specific tag or two doesn't
+  mean paging through hundreds of pages by hand first. The same sort dropdown as the read-only Tags
+  page (Name A-Z/Z-A, Most/Fewest Works) is available here too, and is preserved through every bulk
+  action's redirect. Since
   AO3 libraries are typically mostly Freeform tags, two further bulk actions ("mark unclassified on
   this page as Freeform" / "mark ALL unclassified tags as Freeform") sweep the rest without needing
   to select anything.

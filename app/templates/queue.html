@@ -3,14 +3,6 @@
 {% block content %}
   <header>
     <h1>Queue</h1>
-    <p class="paths">
-      Works from your <a href="/tracked">tracked feeds</a> that aren't downloaded yet, or may have
-      updated since you last downloaded them. Not downloaded is certain; "may need update" is the
-      same best-effort hint as the Tracked Feeds page (last-updated time, not an exact chapter
-      count) &mdash; see <a href="/tracked">Tracked Feeds</a> for the full picture per feed. Note
-      that selecting a "may need update" row below does a fresh full download, the same as a new
-      one -- it isn't a true incremental update.
-    </p>
     <form method="post" action="/refresh/feeds" class="refresh-form">
       <input type="hidden" name="next" value="/queue">
       <button type="submit">Refresh feeds</button>
@@ -47,10 +39,8 @@
     {% elif download_worker_running %}
     Waiting for the next queued item&hellip;
     {% else %}
-    Not running &mdash; select rows below and click "Download Selected" to start it.
+    Not running
     {% endif %}
-    Successes and failures show up on <a href="/">Home</a> and <a href="/issues">Issues</a> as
-    they land, same as a manual ao3downloader run -- this just drives it in the background.
   </p>
 
   <div class="tag-bulk-actions">

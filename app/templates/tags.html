@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_pager.html" as pagination %}
-{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) %}
-<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-tag="{{ row.tag | lower }}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
+{% macro render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, parent_tag, depth, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) %}
+<tr class="tag-row {% if depth > 0 %}tag-child-row{% endif %}" data-group="{{ row.tag }}" {% if parent_tag %}data-parent-group="{{ parent_tag }}"{% endif %} {% if depth > 0 %}hidden{% endif %}>
   <td><input type="checkbox" class="tag-checkbox" name="tags" value="{{ row.tag }}" form="tag-form" onchange="updateSelectedCount()"></td>
   <td style="padding-left: {{ depth * 1.25 }}rem">
     {% if row.children %}
@@ -31,6 +31,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <select name="fandom" onchange="this.form.submit()">
         <option value="" {% if row.tag not in tag_fandoms %}selected{% endif %}>No Fandom (auto)</option>
         <option value="No Fandom" {% if tag_fandoms.get(row.tag) == "No Fandom" %}selected{% endif %}>No Fandom</option>
@@ -46,6 +47,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <select name="media_type" onchange="this.form.submit()">
         <option value="" {% if row.tag not in tag_media_types %}selected{% endif %}>Uncategorized Fandoms (auto)</option>
         {% for mt in media_type_options %}
@@ -73,6 +75,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <label class="hint">{{ part }}:
         <select name="character_tag" onchange="this.form.submit()">
           <option value="">&mdash;</option>
@@ -98,6 +101,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <button type="submit" class="chip-remove">{{ c }} &times;</button>
     </form>
     {% endfor %}
@@ -110,6 +114,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <input type="text" name="character_tag" placeholder="Add character&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
@@ -126,6 +131,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <button type="submit" class="chip-remove">{{ r }} &times;</button>
     </form>
     {% endfor %}
@@ -138,6 +144,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <input type="text" name="relationship_tag" placeholder="Add relationship&hellip;" class="fandom-other tag-mini-input">
       <button type="submit">+</button>
     </form>
@@ -146,7 +153,7 @@
   </td>
 </tr>
 {% for child in row.children %}
-{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) }}
+{{ render_tag_row(child, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, row.tag, depth + 1, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) }}
 {% endfor %}
 {% endmacro %}
 {% macro hidden_tags_flat(rows) %}
@@ -158,32 +165,6 @@
 {% block content %}
   <header>
     <h1>Tags</h1>
-    <p class="paths">
-      Every untyped tag found across your library (fandom, character,
-      relationship, and freeform tags all mixed together -- there's no way
-      to tell them apart from the file alone; relationship tags start out
-      guessed from the "/" or "&amp;" convention between names, which can
-      misfire on an ordinary tag like "Hurt/Comfort" -- reclassify those
-      here). Classifying one here applies to every work that has it.
-    </p>
-    <p class="paths">
-      Tag wrangling links a same-category hierarchy: "Merge selected into" folds every checked tag
-      into one canonical tag everywhere -- display, Tags-page counts, and classification -- so it
-      stops appearing here as its own row (undo it from the "Wrangled Tags" list below). "Make
-      selected children of" keeps each checked tag as itself but requires the parent to be the same
-      category (a Fandom's parent is always a Fandom, a Freeform tag's parent always Freeform, etc)
-      -- filtering or excluding Downloads by the parent also matches works only tagged with the
-      child, at any depth in the chain.
-    </p>
-    <p class="paths">
-      Fandom/Character/Relationship association is separate from that hierarchy, and cross-category
-      by design: every Character, Relationship, and Freeform tag has its own "Fandom" dropdown
-      (defaulting to "No Fandom", inherited down a same-category chain unless a tag sets its own),
-      a Relationship gets one Character dropdown per "/"-or-"&amp;" name part, and a Freeform tag can
-      be linked to any number of Characters and Relationships. Once a Fandom is set, Downloads
-      filtering by that Fandom also matches works using the associated Character/Relationship/
-      Freeform tag, even when the epub's own raw tags never mention the Fandom directly.
-    </p>
   </header>
 
   {% if work_id %}
@@ -194,23 +175,24 @@
     {% else %}
     That work could not be found -- it may have been removed since you followed this link.
     {% endif %}
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}">(clear, show every tag)</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&q={{ q | urlencode }}">(clear, show every tag)</a>
   </p>
   {% endif %}
 
   <nav class="tag-filter-tabs">
-    <a href="/tags/classify?filter=all&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags/classify?filter=fandom&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags/classify?filter=character&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags/classify?filter=relationship&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags/classify?filter=freeform&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags/classify?filter=unclassified&sort={{ sort }}&work_id={{ work_id }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags/classify?filter=all&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags/classify?filter=fandom&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags/classify?filter=character&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags/classify?filter=relationship&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags/classify?filter=freeform&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags/classify?filter=unclassified&sort={{ sort }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
 
   <form method="get" action="/tags/classify" id="sort-form" class="tag-sort-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="organize_by" value="{{ organize_by }}">
     <input type="hidden" name="work_id" value="{{ work_id }}">
+    <input type="hidden" name="q" value="{{ q }}">
     <label class="hint" for="tag-sort">Sort:
       <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}
@@ -222,24 +204,28 @@
 
   <nav class="tag-filter-tabs">
     <span class="hint">Organize by:</span>
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=&work_id={{ work_id }}" class="{% if not organize_by %}active{% endif %}">None</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by=&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if not organize_by %}active{% endif %}">None</a>
     {% for value, label in organize_by_options.items() %}
-    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}&work_id={{ work_id }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    <a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ value }}&work_id={{ work_id }}&q={{ q | urlencode }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
     {% endfor %}
   </nav>
 
-  <input type="search" id="tag-filter" placeholder="Filter tags on this page&hellip;" class="fandom-other" style="max-width: 320px;" oninput="filterTags(this.value)">
-  <p class="hint">
-    Only searches the tags currently shown on this page -- change the page or filter above to search
-    elsewhere. Narrowing it down also narrows what "Select all" below selects, so you can search for
-    a name, select-all, and double check before setting a category on just that handful.
-  </p>
+  <form method="get" action="/tags/classify" class="tag-sort-form">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="organize_by" value="{{ organize_by }}">
+    <input type="hidden" name="work_id" value="{{ work_id }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search all tags&hellip;" class="fandom-other" style="max-width: 320px;">
+    <button type="submit">Search</button>
+    {% if q %}<a href="/tags/classify?filter={{ filter }}&sort={{ sort }}&organize_by={{ organize_by }}&work_id={{ work_id }}">clear</a>{% endif %}
+  </form>
 
   <form method="post" action="/tags/classify/set_selected" id="tag-form">
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="page" value="{{ page }}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="work_id" value="{{ work_id }}">
+    <input type="hidden" name="q" value="{{ q }}">
 
     <div class="tag-bulk-actions">
       <span class="hint" id="selected-count">0 selected</span>
@@ -308,7 +294,7 @@
       </thead>
       <tbody>
         {% for row in tags %}
-        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options) }}
+        {{ render_tag_row(row, wranglings, tag_fandoms, known_fandoms, known_characters, known_relationships, relationship_characters, freeform_characters, freeform_relationships, relationship_name_parts, filter, page, sort, none, 0, organize_by, organize_by_options, explicit_categories, work_id, tag_media_types, media_type_options, q) }}
         {% else %}
         <tr>
           <td colspan="7" class="empty">
@@ -329,6 +315,7 @@
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="work_id" value="{{ work_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
       <button type="submit">Mark unclassified on this page as Freeform</button>
     </form>
     <form method="post" action="/tags/classify/mark_all_unclassified_freeform" onsubmit="return confirm('Mark every unclassified tag in your whole library as Freeform? This does not touch tags already classified as Fandom or Character.');">
@@ -344,35 +331,9 @@
   </p>
 
   <script>
-    function filterTags(query) {
-      query = query.toLowerCase();
-      document.querySelectorAll(".tag-row").forEach(function (row) {
-        var matches = row.dataset.tag.includes(query);
-        row.style.display = matches ? "" : "none";
-        if (matches && query) {
-          expandAncestors(row);
-        }
-      });
-    }
-
-    function expandAncestors(row) {
-      // Walks up as many levels as it takes (a match could be a
-      // grandchild or deeper) so a search hit is never left hidden behind
-      // a collapsed ancestor.
-      var parentGroup = row.dataset.parentGroup;
-      while (parentGroup) {
-        var toggle = document.querySelector('.tag-toggle[data-group="' + CSS.escape(parentGroup) + '"]');
-        if (toggle && toggle.getAttribute("aria-expanded") !== "true") {
-          toggleChildren(toggle);
-        }
-        var parentRow = document.querySelector('.tag-row[data-group="' + CSS.escape(parentGroup) + '"]');
-        parentGroup = parentRow ? parentRow.dataset.parentGroup : null;
-      }
-    }
-
     function visibleCheckboxes() {
       return Array.from(document.querySelectorAll(".tag-row")).filter(function (row) {
-        return row.style.display !== "none" && !row.hidden;
+        return !row.hidden;
       }).map(function (row) {
         return row.querySelector(".tag-checkbox");
       });

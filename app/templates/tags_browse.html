@@ -33,23 +33,20 @@
 {% block content %}
   <header>
     <h1>Tags</h1>
-    <p class="paths">
-      Every tag found across your library. Click one to filter Downloads to just those works.
-    </p>
   </header>
 
   <nav class="tag-filter-tabs">
-    <a href="/tags?filter=all&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
-    <a href="/tags?filter=fandom&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
-    <a href="/tags?filter=character&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
-    <a href="/tags?filter=relationship&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
-    <a href="/tags?filter=freeform&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
-    <a href="/tags?filter=unclassified&sort={{ sort }}&letter={{ letter }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
+    <a href="/tags?filter=all&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'all' %}active{% endif %}">All ({{ total_tags }})</a>
+    <a href="/tags?filter=fandom&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'fandom' %}active{% endif %}">Fandom ({{ bucket_counts.fandom }})</a>
+    <a href="/tags?filter=character&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'character' %}active{% endif %}">Character ({{ bucket_counts.character }})</a>
+    <a href="/tags?filter=relationship&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'relationship' %}active{% endif %}">Relationship ({{ bucket_counts.relationship }})</a>
+    <a href="/tags?filter=freeform&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'freeform' %}active{% endif %}">Freeform ({{ bucket_counts.freeform }})</a>
+    <a href="/tags?filter=unclassified&sort={{ sort }}&letter={{ letter }}&q={{ q | urlencode }}" class="{% if filter == 'unclassified' %}active{% endif %}">Unclassified ({{ bucket_counts.unclassified }})</a>
   </nav>
 
   <nav class="letter-filter">
     {% for l in letter_options %}
-    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ l }}" class="{% if letter == l %}active{% endif %}">{{ "All" if l == "all" else l }}</a>
+    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ l }}&q={{ q | urlencode }}" class="{% if letter == l %}active{% endif %}">{{ "All" if l == "all" else l }}</a>
     {% endfor %}
   </nav>
 
@@ -57,6 +54,7 @@
     <input type="hidden" name="filter" value="{{ filter }}">
     <input type="hidden" name="letter" value="{{ letter }}">
     <input type="hidden" name="organize_by" value="{{ organize_by }}">
+    <input type="hidden" name="q" value="{{ q }}">
     <label class="hint" for="tag-sort">Sort:
       <select name="sort" id="tag-sort" onchange="document.getElementById('sort-form').submit()">
         {% for value, label in sort_options.items() %}
@@ -68,11 +66,21 @@
 
   <nav class="tag-filter-tabs">
     <span class="hint">Organize by:</span>
-    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by=" class="{% if not organize_by %}active{% endif %}">None</a>
+    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by=&q={{ q | urlencode }}" class="{% if not organize_by %}active{% endif %}">None</a>
     {% for value, label in organize_by_options.items() %}
-    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by={{ value }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
+    <a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by={{ value }}&q={{ q | urlencode }}" class="{% if organize_by == value %}active{% endif %}">{{ label }}</a>
     {% endfor %}
   </nav>
+
+  <form method="get" action="/tags" class="tag-sort-form">
+    <input type="hidden" name="filter" value="{{ filter }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="letter" value="{{ letter }}">
+    <input type="hidden" name="organize_by" value="{{ organize_by }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search all tags&hellip;" class="fandom-other" style="max-width: 320px;">
+    <button type="submit">Search</button>
+    {% if q %}<a href="/tags?filter={{ filter }}&sort={{ sort }}&letter={{ letter }}&organize_by={{ organize_by }}">clear</a>{% endif %}
+  </form>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 

@@ -10,6 +10,7 @@ from app.scanner import (
     _resolve_associated_fandoms,
     _resolve_tag_categories,
     child_parent_map,
+    find_files_for_work_id,
     load_cached,
     refresh_cache,
     resolve_tag_fandom,
@@ -110,6 +111,37 @@ def test_matches_space_separated_filenames():
         result = scan(tmp, None)
     assert {e.work_id for e in result.entries} == {"1011406"}
     assert result.stats.total_on_disk == 1
+
+
+def test_find_files_for_work_id_matches_underscore_and_space_separated():
+    with tempfile.TemporaryDirectory() as tmp:
+        underscore_path = os.path.join(tmp, "7773_The_Business - Author.epub")
+        space_path = os.path.join(tmp, "7773 The Business - Author.epub")
+        open(underscore_path, "w").close()
+        open(space_path, "w").close()
+
+        found = find_files_for_work_id(tmp, "7773")
+
+        assert sorted(found) == sorted([underscore_path, space_path])
+
+
+def test_find_files_for_work_id_only_matches_the_given_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        wanted_path = os.path.join(tmp, "7773_The_Business - Author.epub")
+        other_path = os.path.join(tmp, "9999_Unrelated - Author.epub")
+        open(wanted_path, "w").close()
+        open(other_path, "w").close()
+
+        assert find_files_for_work_id(tmp, "7773") == [wanted_path]
+
+
+def test_find_files_for_work_id_empty_when_nothing_matches():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert find_files_for_work_id(tmp, "7773") == []
+
+
+def test_find_files_for_work_id_empty_for_a_nonexistent_directory():
+    assert find_files_for_work_id("/no/such/directory", "7773") == []
 
 
 def test_ignores_non_epub_and_non_matching_files():

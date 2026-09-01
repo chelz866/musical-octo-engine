@@ -3,7 +3,7 @@ import tempfile
 import time
 from unittest.mock import patch
 
-from app.ao3_client import Repository, _remove_stale_duplicate_files, _work_id_from_url, build_client
+from app.ao3_client import Repository, _remove_stale_duplicate_files, _work_id_from_url, build_client, work_id_on_disk
 
 
 def test_work_id_from_url_extracts_the_trailing_id():
@@ -87,3 +87,21 @@ def test_build_client_survives_a_failed_login_instead_of_raising():
             client = build_client(downloads, os.path.join(state, "log.jsonl"), state, "user", "wrong-pass")
         assert client.login_error == "Invalid username or password."
         assert client.ao3 is not None
+
+
+def test_work_id_on_disk_true_when_a_matching_file_exists():
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "12345_Some Title - Author.epub"), "w").close()
+        assert work_id_on_disk(tmp, "12345") is True
+
+
+def test_work_id_on_disk_false_when_nothing_matches():
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "99999_Unrelated - Author.epub"), "w").close()
+        assert work_id_on_disk(tmp, "12345") is False
+
+
+def test_work_id_on_disk_false_for_an_empty_or_missing_directory():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert work_id_on_disk(tmp, "12345") is False
+    assert work_id_on_disk("/no/such/directory", "12345") is False
