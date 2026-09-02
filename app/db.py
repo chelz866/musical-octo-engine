@@ -1104,7 +1104,15 @@ def save_catalog_work_tags(path: str, work_ids: list[str], rows: list[tuple[str,
         placeholders = ", ".join("?" for _ in work_ids)
         conn.execute(f"DELETE FROM catalog_work_tags WHERE work_id IN ({placeholders})", work_ids)
         if rows:
-            conn.executemany("INSERT INTO catalog_work_tags (work_id, category, tag) VALUES (?, ?, ?)", rows)
+            # OR IGNORE: a duplicate (work_id, category, tag) triple within
+            # `rows` is a harmless no-op, not an error -- it happens
+            # whenever the source table has more than one row for the same
+            # work (common in a personal tracking DB: re-bookmarked,
+            # tracked under multiple tags, etc.) or a tag repeated within
+            # one row's own column.
+            conn.executemany(
+                "INSERT OR IGNORE INTO catalog_work_tags (work_id, category, tag) VALUES (?, ?, ?)", rows
+            )
 
 
 def get_catalog_tag_values(path: str, category: str) -> set[str]:

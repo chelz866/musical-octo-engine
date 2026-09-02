@@ -600,6 +600,21 @@ def test_save_catalog_work_tags_empty_work_ids_is_a_no_op():
         assert db.get_catalog_tag_values(path, "fandom") == set()
 
 
+def test_save_catalog_work_tags_tolerates_a_duplicate_triple_in_one_call():
+    # Regression: a source table with more than one row for the same work
+    # (or a tag repeated within one row's own column) used to crash the
+    # whole import with a UNIQUE constraint error instead of just no-op'ing
+    # the harmless duplicate.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_catalog_work_tags(path, ["1"], [
+            ("1", "fandom", "Doctor Who"),
+            ("1", "fandom", "Doctor Who"),
+        ])
+        assert db.get_catalog_tag_values(path, "fandom") == {"Doctor Who"}
+
+
 def test_search_catalog_works_finds_matches_and_paginates():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

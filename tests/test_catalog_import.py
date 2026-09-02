@@ -176,6 +176,24 @@ def test_import_from_sqlite_batches_across_multiple_rows():
         assert db.count_catalog_works(db_path) == 5
 
 
+def test_import_from_sqlite_tolerates_duplicate_rows_for_the_same_work():
+    # Regression: a source table (a personal tracking DB, not a clean
+    # one-row-per-work export) can have more than one row for the same
+    # AO3 work -- re-bookmarked, tracked under a different tag, etc. That
+    # used to crash the whole import with a UNIQUE constraint error on
+    # catalog_work_tags instead of just importing it once.
+    with tempfile.TemporaryDirectory() as tmp:
+        source_path = _make_source_db(tmp, [_SAMPLE_ROW, _SAMPLE_ROW])
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+
+        imported, skipped = catalog_import.import_from_sqlite(db_path, source_path)
+
+        assert (imported, skipped) == (2, 0)
+        assert db.count_catalog_works(db_path) == 1
+        assert db.get_catalog_tag_values(db_path, "fandom") == {"Tokyo Revengers (Anime)", "Tokyo Revengers (Manga)"}
+
+
 def test_tag_rows_for_record_flattens_every_list_field():
     record = {
         "work_id": "1",
