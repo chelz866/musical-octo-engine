@@ -189,6 +189,13 @@ async def _startup():
     # made reactively as new classifications happen.
     _auto_link_relationship_characters()
 
+    # Ensures work_tags reflects the current works_cache/classification/
+    # wrangling/association state right away -- otherwise a container
+    # started from an existing DB predating this table would show every
+    # work with no resolved tags until the next refresh or classification
+    # edit (see scanner.rebuild_work_tags's own callers for the reactive case).
+    scanner.rebuild_work_tags(DB_PATH)
+
     asyncio.create_task(_auto_refresh_loop())
 
 
@@ -1256,6 +1263,7 @@ def set_work_fandom(
             categories[extra] = "fandom"
 
     db.set_tag_categories(DB_PATH, categories)
+    scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(url=next or "/", status_code=303)
 
 
@@ -1936,6 +1944,7 @@ def wrangle_tags(
                 db.set_tag_categories(DB_PATH, {target: new_category})
                 if new_category in ("character", "relationship"):
                     _auto_link_relationship_characters()
+        scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -1988,6 +1997,7 @@ def unwrangle_tag(tag: str = Form(...)):
     """
     if tag not in db.get_all_verified_tags(DB_PATH):
         db.remove_tag_wrangling(DB_PATH, tag)
+        scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(url="/tags/classify/wranglings", status_code=303)
 
 
@@ -2373,6 +2383,7 @@ def set_tag_fandom_route(
             db.set_tag_fandom(DB_PATH, tag, fandom)
         else:
             db.remove_tag_fandom(DB_PATH, tag)
+        scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2589,6 +2600,8 @@ def apply_associations(
                 db.add_freeform_relationship(DB_PATH, tag, relationship)
             if media_type and explicit_categories.get(tag) == "fandom":
                 db.set_tag_media_types(DB_PATH, tag, tag_media_types.get(tag, set()) | {media_type})
+        if fandom:
+            scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2616,8 +2629,10 @@ def set_selected_tags(
         db.set_tag_categories(DB_PATH, {t: category for t in tags})
         if category in ("character", "relationship"):
             _auto_link_relationship_characters()
+        scanner.rebuild_work_tags(DB_PATH)
     elif category == "unclassify" and tags:
         db.remove_tag_categories(DB_PATH, tags)
+        scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2642,6 +2657,7 @@ def mark_page_freeform(
     explicit = db.get_all_tag_categories(DB_PATH)
     verified = db.get_all_verified_tags(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in tags if t not in explicit and t not in verified})
+    scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(
         url=(
             f"/tags/classify?filter={quote(filter)}&page={page}&sort={quote(sort)}&work_id={quote(work_id)}&q={quote(q)}"
@@ -2658,6 +2674,7 @@ def mark_all_unclassified_freeform(work_id: str = Form("")):
     explicit = db.get_all_tag_categories(DB_PATH)
     verified = db.get_all_verified_tags(DB_PATH)
     db.set_tag_categories(DB_PATH, {t: "freeform" for t in all_tags if t not in explicit and t not in verified})
+    scanner.rebuild_work_tags(DB_PATH)
     return RedirectResponse(url=f"/tags/classify?work_id={quote(work_id)}", status_code=303)
 
 

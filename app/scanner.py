@@ -7,6 +7,13 @@ fresh as the last manual refresh). Manual overrides are applied at read time
 in both paths, never baked into the cache, so editing a work on the Issues
 page shows up immediately without needing a refresh.
 
+Each entry's resolved tag categories (fandom/character/relationship/freeform)
+and Fandom associations are themselves precomputed into db's work_tags table
+-- by `refresh_cache()` after a disk rescan, and by `rebuild_work_tags()`
+after any tag classification/wrangling/association edit -- so `load_cached()`
+just reads that result back instead of re-resolving every work's tags on
+every page load. See `_finalize`'s `precomputed_tags` param.
+
 Reconciliation is keyed by AO3 work id, extracted both from the
 `<id>_...epub` / `<id> ...epub` filename convention and from log.jsonl's
 work URLs. ao3downloader's settings.ini can customize the filename pattern,
@@ -370,14 +377,42 @@ def _resolve_associated_fandoms(
     return found
 
 
+WORK_TAG_KINDS = ("candidate", "fandom", "character", "relationship", "freeform")
+
+
+def _work_tags_rows(entries: list[WorkEntry]) -> list[tuple[str, str, str]]:
+    """Flattens each entry's resolved fandom_candidates/fandoms/characters/
+    relationships/freeform_tags into (work_id, category, tag) triples for
+    db.save_work_tags -- the precomputed form db.load_work_tags later
+    hands back to _finalize instead of it having to resolve them live.
+    """
+    rows = []
+    for entry in entries:
+        for kind, tags in zip(
+            WORK_TAG_KINDS,
+            (entry.fandom_candidates, entry.fandoms, entry.characters, entry.relationships, entry.freeform_tags),
+        ):
+            rows.extend((entry.work_id, kind, tag) for tag in tags)
+    return rows
+
+
 def _finalize(
     entries: list[WorkEntry],
     overrides: dict[str, db.Override],
-    tag_categories: dict[str, str],
-    tag_synonyms: dict[str, str],
-    same_category_parent_of: dict[str, str],
-    tag_fandoms: dict[str, str],
+    tag_categories: dict[str, str] | None = None,
+    tag_synonyms: dict[str, str] | None = None,
+    same_category_parent_of: dict[str, str] | None = None,
+    tag_fandoms: dict[str, str] | None = None,
+    precomputed_tags: dict[str, dict[str, list[str]]] | None = None,
 ) -> ScanResult:
+    """Resolves each entry's tag categories/associations either live (the
+    default -- walks tag_categories/tag_synonyms/same_category_parent_of/
+    tag_fandoms via _resolve_tag_categories/_resolve_associated_fandoms,
+    used by scan()/refresh_cache()/rebuild_work_tags(), which all need a
+    fresh answer) or, when `precomputed_tags` is given (db.load_work_tags'
+    shape -- used by load_cached()), by simply reading the already-resolved
+    result back instead of re-walking those tables on every page load.
+    """
     stats = ScanStats()
     result_entries: list[WorkEntry] = []
 
@@ -389,19 +424,27 @@ def _finalize(
         if entry is None:
             entry = WorkEntry(work_id=work_id, on_disk=False)
 
-        (
-            entry.fandom_candidates,
-            entry.fandoms,
-            entry.characters,
-            entry.relationships,
-            entry.freeform_tags,
-        ) = _resolve_tag_categories(entry, tag_categories, tag_synonyms)
+        if precomputed_tags is not None:
+            tags = precomputed_tags.get(work_id, {})
+            entry.fandom_candidates = tags.get("candidate", [])
+            entry.fandoms = tags.get("fandom", [])
+            entry.characters = tags.get("character", [])
+            entry.relationships = tags.get("relationship", [])
+            entry.freeform_tags = tags.get("freeform", [])
+        else:
+            (
+                entry.fandom_candidates,
+                entry.fandoms,
+                entry.characters,
+                entry.relationships,
+                entry.freeform_tags,
+            ) = _resolve_tag_categories(entry, tag_categories, tag_synonyms)
 
-        for fandom in _resolve_associated_fandoms(
-            entry.characters, entry.relationships, entry.freeform_tags, same_category_parent_of, tag_fandoms
-        ):
-            if fandom not in entry.fandoms:
-                entry.fandoms.append(fandom)
+            for fandom in _resolve_associated_fandoms(
+                entry.characters, entry.relationships, entry.freeform_tags, same_category_parent_of, tag_fandoms
+            ):
+                if fandom not in entry.fandoms:
+                    entry.fandoms.append(fandom)
 
         override = overrides.get(work_id)
         if override:
@@ -453,19 +496,35 @@ def refresh_cache(
 ) -> ScanResult:
     entries = scan_raw(download_dir, log_path, abs_matches)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
-    return _finalize(
+    result = _finalize(
         entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
         child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
     )
+    db.save_work_tags(db_path, _work_tags_rows(result.entries))
+    return result
+
+
+def rebuild_work_tags(db_path: str) -> None:
+    """Recomputes every work's resolved tag categories/associations from
+    the already-cached works_cache rows (no filesystem/epub work, unlike
+    refresh_cache) and persists the result via db.save_work_tags. Call this
+    after any write that could change that resolution -- tag
+    classification, wrangling, or Fandom association -- so load_cached's
+    precomputed_tags stay in sync with the tables it's derived from.
+    """
+    rows = db.load_works_cache(db_path)
+    entries = [_row_to_entry(row) for row in rows]
+    result = _finalize(
+        entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
+        child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
+    )
+    db.save_work_tags(db_path, _work_tags_rows(result.entries))
 
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
     entries = [_row_to_entry(row) for row in rows]
-    return _finalize(
-        entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
-        child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
-    )
+    return _finalize(entries, db.get_all_overrides(db_path), precomputed_tags=db.load_work_tags(db_path))
 
 
 def _join(values: list[str]) -> str | None:

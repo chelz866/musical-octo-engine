@@ -456,6 +456,43 @@ def test_save_works_cache_replaces_previous_snapshot():
         assert {r["work_id"] for r in rows} == {"2"}
 
 
+def test_save_and_load_work_tags_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_work_tags(path, [
+            ("1", "candidate", "Harry Potter"),
+            ("1", "candidate", "Hermione Granger"),
+            ("1", "fandom", "Harry Potter"),
+            ("1", "character", "Hermione Granger"),
+            ("2", "candidate", "Angst"),
+            ("2", "freeform", "Angst"),
+        ])
+
+        tags = db.load_work_tags(path)
+        assert tags["1"]["candidate"] == ["Harry Potter", "Hermione Granger"]
+        assert tags["1"]["fandom"] == ["Harry Potter"]
+        assert tags["1"]["character"] == ["Hermione Granger"]
+        assert tags["2"] == {"candidate": ["Angst"], "freeform": ["Angst"]}
+
+
+def test_save_work_tags_replaces_previous_snapshot():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_work_tags(path, [("1", "candidate", "Angst")])
+        db.save_work_tags(path, [("2", "candidate", "Whump")])
+
+        assert db.load_work_tags(path) == {"2": {"candidate": ["Whump"]}}
+
+
+def test_load_work_tags_omits_a_work_with_no_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.load_work_tags(path) == {}
+
+
 def test_pop_legacy_tracked_feeds_returns_empty_when_no_legacy_table(tmp_path):
     path = str(tmp_path / "app.db")
     db.init_db(path)

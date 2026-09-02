@@ -12,6 +12,7 @@ from app.scanner import (
     child_parent_map,
     find_files_for_work_id,
     load_cached,
+    rebuild_work_tags,
     refresh_cache,
     resolve_tag_fandom,
     resolve_tag_fandom_explicit,
@@ -282,6 +283,41 @@ def test_load_cached_does_not_reflect_filesystem_changes_until_refreshed_again()
         assert load_cached(db_path).stats.total_on_disk == 1
 
 
+def test_load_cached_does_not_reflect_a_classification_change_until_rebuilt():
+    # load_cached reads the work_tags precompute, not a live resolution --
+    # a tag_flags write alone doesn't retroactively change what it returns.
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "Ianto Jones"])
+        refresh_cache(downloads, None, db_path)
+
+        db.set_tag_categories(db_path, {"Ianto Jones": "character"})
+        assert "Ianto Jones" not in load_cached(db_path).entries[0].characters
+
+        rebuild_work_tags(db_path)
+        assert "Ianto Jones" in load_cached(db_path).entries[0].characters
+
+
+def test_rebuild_work_tags_does_not_require_a_disk_rescan():
+    # Unlike refresh_cache, rebuild_work_tags only re-derives from the
+    # already-cached works_cache rows -- no filesystem/epub work needed.
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        path = os.path.join(downloads, "1_A.epub")
+        _build_epub(path, ["Fanworks", "Ianto Jones"])
+        refresh_cache(downloads, None, db_path)
+        os.remove(path)
+
+        db.set_tag_categories(db_path, {"Ianto Jones": "character"})
+        rebuild_work_tags(db_path)
+
+        entry = load_cached(db_path).entries[0]
+    assert "Ianto Jones" in entry.characters
+    assert entry.on_disk  # untouched by rebuild_work_tags -- still reflects the last refresh_cache
+
+
 def test_load_cached_applies_overrides_same_as_live_scan():
     with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
         db_path = os.path.join(other, "app.db")
@@ -386,6 +422,7 @@ def test_tag_flag_overrides_heuristic_guess_for_one_work():
         )
         refresh_cache(downloads, None, db_path)
         db.set_tag_categories(db_path, {"Torchwood": "freeform", "Ianto Jones": "fandom"})  # user corrects the guess
+        rebuild_work_tags(db_path)
 
         entry = load_cached(db_path).entries[0]
     assert entry.fandoms == ["Ianto Jones"]
@@ -665,6 +702,7 @@ def test_tag_flag_applies_to_every_work_sharing_that_tag():
         assert "Ianto Jones" not in before["2"].fandoms
 
         db.set_tag_categories(db_path, {"Ianto Jones": "fandom"})
+        rebuild_work_tags(db_path)
 
         entries = {e.work_id: e for e in load_cached(db_path).entries}
     assert "Ianto Jones" in entries["1"].fandoms
@@ -686,6 +724,7 @@ def test_character_classification_applies_to_every_work_sharing_that_tag():
         assert "Ianto Jones" in before["2"].freeform_tags
 
         db.set_tag_categories(db_path, {"Ianto Jones": "character"})
+        rebuild_work_tags(db_path)
 
         entries = {e.work_id: e for e in load_cached(db_path).entries}
     assert "Ianto Jones" in entries["1"].characters
@@ -811,9 +850,11 @@ def test_end_to_end_fandom_association_folds_into_entry_fandoms():
         refresh_cache(downloads, None, db_path)
 
         db.set_tag_categories(db_path, {"The Doctor": "character"})
+        rebuild_work_tags(db_path)
         before = load_cached(db_path).entries[0]
         assert "Doctor Who" not in before.fandoms
 
         db.set_tag_fandom(db_path, "The Doctor", "Doctor Who")
+        rebuild_work_tags(db_path)
         after = load_cached(db_path).entries[0]
     assert "Doctor Who" in after.fandoms

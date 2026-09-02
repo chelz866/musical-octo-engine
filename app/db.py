@@ -133,6 +133,16 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS work_tags (
+                work_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (work_id, category, tag)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS tag_descendants (
                 ancestor TEXT NOT NULL,
                 descendant TEXT NOT NULL,
@@ -930,6 +940,35 @@ def load_works_cache(path: str) -> list[dict]:
     with _connect(path) as conn:
         rows = conn.execute(f"SELECT {', '.join(cols)} FROM works_cache").fetchall()
     return [dict(zip(cols, row)) for row in rows]
+
+
+def save_work_tags(path: str, rows: list[tuple[str, str, str]]) -> None:
+    """Replaces the whole work_tags table with `rows` ((work_id, category,
+    tag) triples, category one of 'candidate'/'fandom'/'character'/
+    'relationship'/'freeform') -- the precomputed result of
+    scanner._resolve_tag_categories/_resolve_associated_fandoms for every
+    work, done once by scanner.rebuild_work_tags (and by refresh_cache's
+    own scan) instead of live on every scanner.load_cached call. Same
+    replace-all-on-write approach as save_works_cache -- cheap at this
+    app's scale, and correctness-simple compared to diffing.
+    """
+    with _connect(path) as conn:
+        conn.execute("DELETE FROM work_tags")
+        conn.executemany("INSERT INTO work_tags (work_id, category, tag) VALUES (?, ?, ?)", rows)
+
+
+def load_work_tags(path: str) -> dict[str, dict[str, list[str]]]:
+    """work_id -> {category -> [tags]}, as precomputed by save_work_tags.
+    A work_id absent here (never scanned, or scanned with no candidate
+    tags) simply has no entry -- callers should treat that the same as
+    every category being empty.
+    """
+    result: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT work_id, category, tag FROM work_tags").fetchall()
+    for work_id, category, tag in rows:
+        result[work_id][category].append(tag)
+    return {work_id: dict(categories) for work_id, categories in result.items()}
 
 
 def save_abs_matches(path: str, matches: dict[str, str]) -> None:

@@ -58,6 +58,16 @@ def _seed_candidate_tag(path: str, tag: str) -> None:
 def _seed_candidate_tags(path: str, tags: list[str]) -> None:
     entry = WorkEntry(work_id="1", fandom_candidates=tags)
     db.save_works_cache(path, [_entry_to_row(entry)])
+    scanner.rebuild_work_tags(path)
+
+
+def _reclassify(path: str, categories: dict[str, str]) -> None:
+    """db.set_tag_categories, then refreshes the work_tags precompute so
+    scanner.load_cached (which every route under test here reads) actually
+    reflects it -- see scanner.rebuild_work_tags's own docstring.
+    """
+    db.set_tag_categories(path, categories)
+    scanner.rebuild_work_tags(path)
 
 
 _WRANGLE_DEFAULTS = dict(
@@ -180,7 +190,7 @@ def test_apply_associations_adds_character_and_relationship_when_not_no_fandom()
     # positive case adds the associations in the first place.
     with _temp_db() as path:
         _seed_candidate_tag(path, "Coffee Shop AU")
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
 
         apply_associations(
             tags=["Coffee Shop AU"], fandom="", character="Harry Potter", relationship="A/B", media_type="",
@@ -195,7 +205,7 @@ def test_apply_associations_adds_character_and_relationship_when_not_no_fandom()
 def test_apply_associations_skips_no_fandom_tags_for_character_and_relationship():
     with _temp_db() as path:
         _seed_candidate_tag(path, "Coffee Shop AU")
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
 
         apply_associations(
@@ -213,7 +223,7 @@ def test_apply_associations_still_allows_fandom_on_a_no_fandom_tag():
     # first place -- only Character/Relationship association is blocked.
     with _temp_db() as path:
         _seed_candidate_tag(path, "Coffee Shop AU")
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.set_tag_fandom(path, "Coffee Shop AU", "No Fandom")
 
         apply_associations(
@@ -398,7 +408,7 @@ def test_tag_rows_q_does_not_affect_bucket_counts():
     # page's media-type tab counts.
     with _temp_db() as path:
         _seed_candidate_tags(path, ["Harry Potter", "Draco Malfoy"])
-        db.set_tag_categories(path, {"Harry Potter": "character", "Draco Malfoy": "character"})
+        _reclassify(path, {"Harry Potter": "character", "Draco Malfoy": "character"})
         result = scanner.load_cached(path)
 
         _, bucket_counts, total_tags = _tag_rows(result, "all", "count_desc", q="potter")
@@ -414,7 +424,7 @@ def test_tag_rows_q_searches_the_whole_library_even_from_a_narrower_filter_tab()
     # tab entirely -- a search is one library-wide lookup.
     with _temp_db() as path:
         _seed_candidate_tags(path, ["Harry Potter", "Hermione Granger"])
-        db.set_tag_categories(path, {"Harry Potter": "fandom", "Hermione Granger": "character"})
+        _reclassify(path, {"Harry Potter": "fandom", "Hermione Granger": "character"})
         result = scanner.load_cached(path)
 
         tags, _, _ = _tag_rows(result, "character", "count_desc", q="potter")
@@ -433,7 +443,7 @@ def test_remove_tag_categories_reverts_to_unclassified():
 
 def test_remove_tag_categories_empty_list_is_a_no_op():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.remove_tag_categories(path, [])
         assert db.get_all_tag_categories(path) == {"Coffee Shop AU": "freeform"}
 
@@ -452,7 +462,7 @@ def test_set_selected_tags_unclassify_reverts_selected_tags():
 
 def test_set_selected_tags_unclassify_with_no_tags_selected_is_a_no_op():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
 
         set_selected_tags(
             tags=[], category="unclassify", filter="all", page=1, sort="count_desc", work_id="", q="",
@@ -477,7 +487,7 @@ def test_set_tag_verified_is_independent_of_classification():
     # Verified is a personal checklist over classification, not part of it
     # -- reclassifying a tag doesn't clear its verified flag.
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.set_tag_verified(path, "Coffee Shop AU", True)
 
         db.set_tag_categories(path, {"Coffee Shop AU": "fandom"})
@@ -546,7 +556,7 @@ def test_set_tag_media_type_route_refuses_on_a_verified_tag():
 
 def test_remove_freeform_character_route_refuses_on_a_verified_tag():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.add_freeform_character(path, "Coffee Shop AU", "Harry Potter")
         db.set_tag_verified(path, "Coffee Shop AU", True)
 
@@ -560,7 +570,7 @@ def test_remove_freeform_character_route_refuses_on_a_verified_tag():
 
 def test_remove_freeform_relationship_route_refuses_on_a_verified_tag():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.add_freeform_relationship(path, "Coffee Shop AU", "A/B")
         db.set_tag_verified(path, "Coffee Shop AU", True)
 
@@ -605,7 +615,7 @@ def test_apply_associations_skips_a_verified_tag_in_the_batch():
 
 def test_set_selected_tags_skips_a_verified_tag_when_reclassifying():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.set_tag_verified(path, "Coffee Shop AU", True)
 
         set_selected_tags(
@@ -618,7 +628,7 @@ def test_set_selected_tags_skips_a_verified_tag_when_reclassifying():
 
 def test_set_selected_tags_skips_a_verified_tag_when_unclassifying():
     with _temp_db() as path:
-        db.set_tag_categories(path, {"Coffee Shop AU": "freeform"})
+        _reclassify(path, {"Coffee Shop AU": "freeform"})
         db.set_tag_verified(path, "Coffee Shop AU", True)
 
         set_selected_tags(
