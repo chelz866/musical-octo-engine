@@ -189,7 +189,21 @@ def _run_catalog_import(source_db_path: str, table_name: str | None) -> None:
     all recorded via db.set_meta so /admin/catalog can poll them across
     requests without holding any of this in Python state itself.
     """
+    last_update = 0.0
+
     def progress(imported: int, skipped: int) -> None:
+        # Throttled to roughly once every 5 seconds of wall time, not every
+        # batch -- a multi-million-row import can mean thousands of
+        # batches, and a separate write transaction to app.db per batch
+        # was itself a source of lock contention against ordinary page
+        # loads (see _connect's own timeout bump for the other half of
+        # that fix). The page is only ever checked by a manual refresh
+        # anyway, so finer-grained updates than this buy nothing.
+        nonlocal last_update
+        now = time.monotonic()
+        if now - last_update < 5:
+            return
+        last_update = now
         db.set_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY, f"{imported} imported, {skipped} skipped so far")
 
     try:

@@ -459,7 +459,14 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: s
 
 @contextmanager
 def _connect(path: str):
-    conn = sqlite3.connect(path)
+    # timeout=30 (SQLite's busy-wait, not this function's own concern) --
+    # the default of 5s was too easily exceeded by a concurrent long-running
+    # write (e.g. catalog_import's own batched upserts) under real I/O
+    # pressure, surfacing as "database is locked" for ordinary page loads
+    # instead of just a brief wait. 30s means a caller waits, at worst,
+    # rather than failing outright, for anything short of a genuinely stuck
+    # writer.
+    conn = sqlite3.connect(path, timeout=30)
     try:
         yield conn
         conn.commit()
