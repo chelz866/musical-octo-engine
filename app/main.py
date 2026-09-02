@@ -655,25 +655,10 @@ def _build_fandom_scope(children: dict[str, set[str]], explicit_fandoms: dict[st
     return scope
 
 
-def _expand_children_transitively(children: dict[str, set[str]]) -> dict[str, set[str]]:
-    """`children` (direct parent -> direct children only, see
-    db.get_tag_children) expanded so each parent maps to EVERY descendant
-    at any depth instead of just its direct children -- computed once per
-    request so Downloads filter matching (_entry_matches /
-    _value_or_children_present) and virtual-parent counts
-    (_add_virtual_parent_counts) don't re-walk the graph for every
-    (entry, value) pair. Nesting display (_group_tag_rows_by_parent)
-    deliberately keeps using the raw, un-expanded map instead, since it
-    needs the real tree shape (each level nested under its own direct
-    parent), not a flattened one.
-    """
-    return {parent: _all_descendants(parent, children) for parent in children}
-
-
 def _value_or_children_present(value: str, entry_values: set[str], children: dict[str, set[str]]) -> bool:
     """True if `value` itself is one of entry_values, or if entry_values
     contains any descendant of `value` at any depth (see
-    _expand_children_transitively -- `children` here is expected to
+    db.get_all_tag_descendants -- `children` here is expected to
     already be the transitive-closure map, not raw direct edges) -- a
     descendant keeps its own name/category, but filtering by an ancestor
     should match it too, same as real AO3 wrangling (searching "Alternate
@@ -696,7 +681,7 @@ def _entry_matches(entry, filters: dict, skip_include: str | None = None, skip_e
     can have both an active Include and an active Exclude at once.
 
     `filters["children"]` (parent tag -> set of ALL descendants at any
-    depth, already expanded by _expand_children_transitively; absent/empty
+    depth, from db.get_all_tag_descendants; absent/empty
     when there's no wrangling) expands each selected value to also match a
     work tagged with any of that value's descendants -- see
     _value_or_children_present.
@@ -939,7 +924,7 @@ def dashboard(request: Request, page: int = 1):
     result = scanner.load_cached(DB_PATH)
     filters = _parse_filters(request)
     raw_children = db.get_tag_children(DB_PATH)
-    filters["children"] = _expand_children_transitively(raw_children)
+    filters["children"] = db.get_all_tag_descendants(DB_PATH)
     filters["fandom_scope"] = _build_fandom_scope(raw_children, db.get_all_tag_fandoms(DB_PATH))
     # Facet suggestion/count computation needs the *whole* library, not the
     # already-filtered list below -- each facet's own counts are computed
@@ -1358,7 +1343,7 @@ def _add_virtual_parent_counts(counts: Counter, entries: list, tags_of, children
     admin created purely to group existing descendants under (see
     db.set_tag_wrangling; the target of a 'child' wrangling never has to
     already exist as a literal tag). `children_map` is expected to already
-    be the transitive-closure map (see _expand_children_transitively), so
+    be the transitive-closure map (see db.get_all_tag_descendants), so
     a virtual grandparent's count reaches descendants at any depth, not
     just its direct children. The count itself is the number of distinct
     works matching ANY descendant -- the same "parent or any descendant"
@@ -1426,7 +1411,7 @@ def _tag_rows(
         for tag in entry.fandom_candidates:
             counts[tag] += 1
     _add_virtual_parent_counts(
-        counts, result.entries, lambda e: e.fandom_candidates, _expand_children_transitively(db.get_tag_children(DB_PATH))
+        counts, result.entries, lambda e: e.fandom_candidates, db.get_all_tag_descendants(DB_PATH)
     )
     if restrict_to is not None:
         counts = Counter({tag: count for tag, count in counts.items() if tag in restrict_to})
@@ -2684,7 +2669,7 @@ def fandoms(request: Request, sort: str = DEFAULT_NAME_COUNT_SORT, letter: str =
         for name in entry.fandoms:
             counts[name] += 1
     children_map = db.get_tag_children(DB_PATH)
-    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, _expand_children_transitively(children_map))
+    _add_virtual_parent_counts(counts, result.entries, lambda e: e.fandoms, db.get_all_tag_descendants(DB_PATH))
     parent_of = scanner.child_parent_map(children_map)
     explicit_media_types = db.get_all_tag_media_types(DB_PATH)
 

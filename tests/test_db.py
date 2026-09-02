@@ -337,6 +337,40 @@ def test_remove_tag_wrangling():
         assert db.get_all_tag_wranglings(path) == {"MCU": ("synonym", "Marvel Cinematic Universe")}
 
 
+def test_get_all_tag_descendants_flattens_multi_level_child_chains():
+    # Precomputed transitive closure of 'child' edges -- a grandparent
+    # should map directly to its grandchild, not just its own child.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "Harry Potter/Hermione Granger", "child", "Harry Potter")
+        db.set_tag_wrangling(path, "Hermione Granger", "child", "Harry Potter/Hermione Granger")
+
+        descendants = db.get_all_tag_descendants(path)
+        assert descendants["Harry Potter"] == {"Harry Potter/Hermione Granger", "Hermione Granger"}
+        assert descendants["Harry Potter/Hermione Granger"] == {"Hermione Granger"}
+        assert "Hermione Granger" not in descendants
+
+
+def test_get_all_tag_descendants_ignores_synonym_edges():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "MCU", "synonym", "Marvel Cinematic Universe")
+        assert db.get_all_tag_descendants(path) == {}
+
+
+def test_get_all_tag_descendants_updates_when_a_wrangling_is_removed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.set_tag_wrangling(path, "Alternate Reality - Canon Divergence", "child", "Alternate Reality")
+        assert db.get_all_tag_descendants(path) == {"Alternate Reality": {"Alternate Reality - Canon Divergence"}}
+
+        db.remove_tag_wrangling(path, "Alternate Reality - Canon Divergence")
+        assert db.get_all_tag_descendants(path) == {}
+
+
 def test_init_db_migrates_legacy_is_fandom_to_category():
     import sqlite3
 

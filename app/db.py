@@ -133,6 +133,15 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS tag_descendants (
+                ancestor TEXT NOT NULL,
+                descendant TEXT NOT NULL,
+                PRIMARY KEY (ancestor, descendant)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS tag_fandoms (
                 tag TEXT PRIMARY KEY,
                 fandom TEXT NOT NULL
@@ -368,6 +377,12 @@ def init_db(path: str) -> None:
             )
             conn.executemany("INSERT INTO tag_media_types (tag, media_type) VALUES (?, ?)", old_rows)
             conn.execute("DROP TABLE tag_media_types_old")
+        # Rebuilt unconditionally on every startup, not just when empty --
+        # cheap at this app's scale and self-healing if tag_descendants
+        # ever falls out of sync with tag_wranglings (e.g. an install
+        # upgrading from before this table existed, where 'child' edges
+        # were already there but never flattened).
+        _rebuild_tag_descendants(conn)
 
 
 def pop_legacy_tracked_feeds(path: str) -> list[tuple[str, str | None]]:
@@ -500,6 +515,52 @@ def get_tag_synonyms(path: str) -> dict[str, str]:
     return dict(rows)
 
 
+def _rebuild_tag_descendants(conn) -> None:
+    """Recomputes tag_descendants from scratch: every (ancestor, descendant)
+    pair reachable by following 'child' wrangling edges downward, at any
+    depth -- not just direct parent/child. Called after every
+    tag_wranglings write (set_tag_wrangling/remove_tag_wrangling) and once
+    at startup (init_db), so get_all_tag_descendants never has to walk the
+    edge graph itself. A full rebuild rather than an incremental diff is
+    fine here -- wrangling edits are rare admin actions, not per-request
+    work, so even a from-scratch pass over the whole table is cheap.
+    """
+    rows = conn.execute("SELECT tag, target FROM tag_wranglings WHERE relation = 'child'").fetchall()
+    children: dict[str, set[str]] = defaultdict(set)
+    for tag, target in rows:
+        children[target].add(tag)
+
+    pairs = []
+    for ancestor in children:
+        descendants: set[str] = set()
+        stack = list(children[ancestor])
+        while stack:
+            node = stack.pop()
+            if node in descendants:
+                continue
+            descendants.add(node)
+            stack.extend(children.get(node, ()))
+        pairs.extend((ancestor, descendant) for descendant in descendants)
+
+    conn.execute("DELETE FROM tag_descendants")
+    conn.executemany("INSERT INTO tag_descendants (ancestor, descendant) VALUES (?, ?)", pairs)
+
+
+def get_all_tag_descendants(path: str) -> dict[str, set[str]]:
+    """ancestor -> every descendant tag at any depth, precomputed by
+    _rebuild_tag_descendants whenever tag_wranglings changes. This is the
+    transitive closure of get_tag_children's direct edges -- read this
+    instead of walking get_tag_children yourself when what you need is
+    "does selecting X also match Y, however many wrangling hops apart."
+    """
+    descendants: dict[str, set[str]] = defaultdict(set)
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT ancestor, descendant FROM tag_descendants").fetchall()
+    for ancestor, descendant in rows:
+        descendants[ancestor].add(descendant)
+    return dict(descendants)
+
+
 def get_tag_children(path: str) -> dict[str, set[str]]:
     """parent tag -> set of its *direct* child tags only (relation='child'
     rows only) -- one edge per row, not the transitive closure. Since
@@ -565,11 +626,13 @@ def set_tag_wrangling(path: str, tag: str, relation: str, target: str) -> None:
             """,
             (tag, relation, target),
         )
+        _rebuild_tag_descendants(conn)
 
 
 def remove_tag_wrangling(path: str, tag: str) -> None:
     with _connect(path) as conn:
         conn.execute("DELETE FROM tag_wranglings WHERE tag = ?", (tag,))
+        _rebuild_tag_descendants(conn)
 
 
 def get_all_tag_fandoms(path: str) -> dict[str, str]:

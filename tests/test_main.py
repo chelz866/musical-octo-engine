@@ -23,7 +23,6 @@ from app.main import (
     _all_descendants,
     _association_parents,
     _build_fandom_scope,
-    _expand_children_transitively,
     _filter_by_letter,
     _flatten_tag_options,
     _group_tag_rows_by_association,
@@ -479,31 +478,23 @@ def test_all_descendants_of_a_leaf_is_empty():
     assert _all_descendants("Hermione Granger", children) == set()
 
 
-def test_expand_children_transitively_flattens_the_whole_chain_per_parent():
+def test_value_or_children_present_matches_a_grandchild_via_expanded_map():
+    # Already-flattened, as db.get_all_tag_descendants would return it --
+    # a grandparent maps directly to its grandchild, not just its own child.
     children = {
-        "Harry Potter": {"Harry Potter/Hermione Granger"},
+        "Harry Potter": {"Harry Potter/Hermione Granger", "Hermione Granger"},
         "Harry Potter/Hermione Granger": {"Hermione Granger"},
     }
-    expanded = _expand_children_transitively(children)
-    assert expanded["Harry Potter"] == {"Harry Potter/Hermione Granger", "Hermione Granger"}
-    assert expanded["Harry Potter/Hermione Granger"] == {"Hermione Granger"}
-
-
-def test_value_or_children_present_matches_a_grandchild_via_expanded_map():
-    children = _expand_children_transitively({
-        "Harry Potter": {"Harry Potter/Hermione Granger"},
-        "Harry Potter/Hermione Granger": {"Hermione Granger"},
-    })
     assert _value_or_children_present("Harry Potter", {"Hermione Granger"}, children) is True
 
 
 def test_add_virtual_parent_counts_reaches_grandchildren_via_expanded_map():
     entries = [WorkEntry(work_id="1", fandom_candidates=["Hermione Granger"])]
     counts = Counter({"Hermione Granger": 1})
-    expanded = _expand_children_transitively({
-        "Sci-Fi Ships": {"Harry Potter/Hermione Granger"},
+    expanded = {
+        "Sci-Fi Ships": {"Harry Potter/Hermione Granger", "Hermione Granger"},
         "Harry Potter/Hermione Granger": {"Hermione Granger"},
-    })
+    }
     _add_virtual_parent_counts(counts, entries, lambda e: e.fandom_candidates, expanded)
     assert counts["Sci-Fi Ships"] == 1
 
