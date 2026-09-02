@@ -545,9 +545,11 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 - **Catalog Import** (`/admin/catalog`, under Admin) -- bulk-imports work metadata (title, author,
   fandoms, relationships, freeform tags, rating, warnings, word count, chapters, summary, series,
   published date) from an external SQLite database, for works you haven't downloaded a file for --
-  e.g. an existing personal library database you already track elsewhere. Point it at the path to
-  the source `.db` file (inside the container, so it needs its own volume mount if it isn't already
-  under one you've mounted) and, if that file has more than one table, the table name to import from.
+  e.g. an existing personal library database you already track elsewhere. The source file needs its
+  own read-only volume mount (see `CATALOG_DB_HOST_PATH` in `.env.example`) since the app only reads
+  paths inside the container -- once mounted, enter `/catalog/source.db` (docker-compose.yml's own
+  fixed in-container path for it) on the Catalog Import page, plus the table name if that file has
+  more than one table.
   Imported works show up everywhere (Downloads, Tags, Fandoms) as not-yet-downloaded, going through
   the exact same tag classification as a real scanned work (see `app/scanner.py`'s
   `_merge_catalog_entries`) -- and once a real file for that work id shows up in `DOWNLOAD_DIR` or

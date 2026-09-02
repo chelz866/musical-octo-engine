@@ -40,4 +40,10 @@ services:
       # Uncomment and set MANUAL_DOWNLOAD_DIR in .env (and above) to scan a
       # second, read-only folder for manually-obtained files:
       # - ${MANUAL_DOWNLOAD_DIR}:/manual-downloads:ro
+      # Uncomment and set CATALOG_DB_HOST_PATH in .env to make an external
+      # SQLite export available for Catalog Import (Admin -> Catalog
+      # Import) -- a read-only mount, however large the file is, since the
+      # import only ever streams it in batches, never loads it whole. Once
+      # mounted, enter /catalog/source.db as the path on that admin page.
+      # - ${CATALOG_DB_HOST_PATH}:/catalog/source.db:ro
     restart: unless-stopped
