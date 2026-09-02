@@ -483,9 +483,46 @@ def _connect(path: str):
     # rather than failing outright, for anything short of a genuinely stuck
     # writer.
     conn = sqlite3.connect(path, timeout=30)
+    # WAL: readers no longer block behind a writer (or vice versa) the way
+    # the default rollback-journal mode does -- directly helps this app's
+    # actual shape, a handful of interactive page loads alongside a
+    # background download/import worker that can hold a write open for a
+    # while. journal_mode is persisted in the file header, so re-issuing
+    # this on a connection that's already WAL is a cheap no-op, not a
+    # real per-connection cost. synchronous=NORMAL is WAL's own recommended
+    # pairing (safe against app/OS crashes, just not a kill -9 mid-fsync of
+    # the underlying disk) and isn't persisted, so it needs setting every
+    # connection to actually take effect.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     try:
         yield conn
         conn.commit()
+    finally:
+        conn.close()
+
+
+def vacuum(path: str) -> None:
+    """Rewrites the database file compactly, reclaiming space SQLite's own
+    deletes leave behind as free pages rather than returning to the OS.
+    The standard remedy once a lot of write churn (a large catalog import,
+    especially one retried after a crash -- see catalog_import.py) has
+    made the file large and slow enough that every query against it,
+    including ones touching completely unrelated tables, feels it.
+
+    Runs on a plain autocommit connection, not through _connect's own
+    wrapper -- VACUUM can't run inside an explicit transaction, and
+    commit()ing one of its own afterward would be meaningless (VACUUM
+    commits its own work internally as part of the rebuild-and-swap).
+    Takes an exclusive lock on the whole database for its duration and
+    needs roughly the current file size again in free disk space, so
+    callers should run this off the request thread (see main.py's own
+    background-worker pattern for the download queue/catalog import) and
+    expect it to take a while against a multi-GB file.
+    """
+    conn = sqlite3.connect(path, timeout=30, isolation_level=None)
+    try:
+        conn.execute("VACUUM")
     finally:
         conn.close()
 

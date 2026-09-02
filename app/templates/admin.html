@@ -49,4 +49,17 @@
       Use Home as edit source
     </label>
   </form>
+
+  <h2>Database</h2>
+  {% if db_optimize_error %}<p class="badge badge-warn">Last optimize failed: {{ db_optimize_error }}</p>{% endif %}
+  <p class="hint">
+    Reclaims space SQLite leaves behind after a lot of deletes/rewrites (e.g. a large Catalog Import) --
+    worth running if pages feel slower than they used to. Takes an exclusive lock on the database for
+    however long it takes, so avoid running it while an import or a big download batch is in progress.
+  </p>
+  <form method="post" action="/admin/optimize_db" class="inline-form">
+    <button type="submit" {% if db_optimize_running %}disabled{% endif %}>
+      {{ "Optimizing…" if db_optimize_running else "Optimize Database" }}
+    </button>
+  </form>
 {% endblock %}

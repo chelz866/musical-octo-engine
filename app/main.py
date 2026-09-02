@@ -228,6 +228,33 @@ async def _catalog_import_worker(source_db_path: str, table_name: str | None) ->
     await asyncio.to_thread(_run_catalog_import, source_db_path, table_name)
 
 
+DB_OPTIMIZE_STATUS_KEY = "db_optimize_status"  # "" | "running" | "done" | "error"
+DB_OPTIMIZE_ERROR_KEY = "db_optimize_error"
+
+_db_optimize_task: asyncio.Task | None = None
+
+
+def _db_optimize_running() -> bool:
+    return _db_optimize_task is not None and not _db_optimize_task.done()
+
+
+def _run_db_optimize() -> None:
+    """VACUUM on a worker thread -- see db.vacuum's own docstring for why
+    this needs to run off the request thread (it holds an exclusive lock
+    for however long a multi-GB file takes to rewrite).
+    """
+    try:
+        db.vacuum(DB_PATH)
+        db.set_meta(DB_PATH, DB_OPTIMIZE_STATUS_KEY, "done")
+    except Exception as exc:
+        db.set_meta(DB_PATH, DB_OPTIMIZE_ERROR_KEY, str(exc))
+        db.set_meta(DB_PATH, DB_OPTIMIZE_STATUS_KEY, "error")
+
+
+async def _db_optimize_worker() -> None:
+    await asyncio.to_thread(_run_db_optimize)
+
+
 @app.on_event("startup")
 async def _startup():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -1278,8 +1305,27 @@ def admin(request: Request):
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
             "home_edit_source": db.get_user_home_edit_source(DB_PATH, request.state.user.id),
+            "db_optimize_running": _db_optimize_running(),
+            "db_optimize_status": db.get_meta(DB_PATH, DB_OPTIMIZE_STATUS_KEY) or "",
+            "db_optimize_error": db.get_meta(DB_PATH, DB_OPTIMIZE_ERROR_KEY) or "",
         },
     )
+
+
+@app.post("/admin/optimize_db")
+async def optimize_db():
+    """Triggers a one-off VACUUM (see db.vacuum) in the background -- the
+    standard remedy once a lot of write churn (a large Catalog Import, say)
+    has bloated app.db enough that every query against it, even ones
+    touching completely unrelated tables, gets slower. A no-op if one's
+    already running rather than queuing a second.
+    """
+    global _db_optimize_task
+    if not _db_optimize_running():
+        db.set_meta(DB_PATH, DB_OPTIMIZE_STATUS_KEY, "running")
+        db.set_meta(DB_PATH, DB_OPTIMIZE_ERROR_KEY, "")
+        _db_optimize_task = asyncio.create_task(_db_optimize_worker())
+    return RedirectResponse(url="/admin", status_code=303)
 
 
 @app.post("/admin/home_edit_source")

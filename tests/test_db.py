@@ -456,6 +456,26 @@ def test_save_works_cache_replaces_previous_snapshot():
         assert {r["work_id"] for r in rows} == {"2"}
 
 
+def test_connect_uses_wal_journal_mode():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        with db._connect(path) as conn:
+            assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+
+
+def test_vacuum_does_not_lose_data():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_works_cache(path, [_sample_work_row("1")])
+
+        db.vacuum(path)
+
+        rows = db.load_works_cache(path)
+        assert {r["work_id"] for r in rows} == {"1"}
+
+
 def test_save_and_load_work_tags_round_trip():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")

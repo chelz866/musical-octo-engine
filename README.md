@@ -290,7 +290,10 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   into Classify Tags, filtered to just that one work's own tags (a banner at the top says which work
   is loaded, with a "clear" link back to the whole library), instead of hunting for them in a
   library-wide list. Filter tabs, sort, and Organize-by still apply on top of that narrowed set, and
-  every action taken while a work is loaded keeps it loaded afterward.
+  every action taken while a work is loaded keeps it loaded afterward. An "Optimize Database" button
+  runs a one-off `VACUUM` in the background -- worth clicking if pages start feeling slower than they
+  used to, since SQLite never automatically reclaims space left behind by heavy write churn (a large
+  Catalog Import, especially one retried after a crash, is exactly this).
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. A logged failure shows ao3downloader's own exception message
   (e.g. "Work is only available to registered users of the Archive.") both as a hover tooltip on the
@@ -610,6 +613,10 @@ own tags, but saving it sets the same global classification the Classify Tags pa
 
 ## Scope of this version
 
+- `app.db` runs in SQLite's WAL journal mode, so an interactive page load doesn't block behind a
+  concurrent write (a Catalog Import, a download batch) the way the default rollback-journal mode
+  would. It still isn't a general-purpose database under heavy concurrent load; the Admin page's
+  "Optimize Database" button (`VACUUM`) is the fix if it starts feeling slow after a lot of writes.
 - Only `.epub` files matching ao3downloader's `<work_id>_...epub` naming (underscore or space
   after the id -- settings.ini can customize this) are parsed for metadata; other formats it can
   produce (pdf/mobi/azw3) aren't parsed yet.
