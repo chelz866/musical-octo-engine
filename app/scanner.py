@@ -39,15 +39,33 @@ from .epub_meta import EpubParseError, classify_subjects, looks_like_relationshi
 from .log_reader import LogRecord, parse_log
 
 FILENAME_RE = re.compile(r"^(\d+)[ _].*\.epub$", re.IGNORECASE)
+# A second, opt-in convention where the work id trails the filename instead
+# of leading it (e.g. "Title - Author - 35282845.epub") -- seen on exports
+# from other library tools, unlike ao3downloader's own leading-id default.
+# Only ever applied to MANUAL_DOWNLOAD_DIR (see _scan_disk's `extra_dirs`
+# and find_files_for_work_id's `allow_trailing_id`), never the primary
+# DOWNLOAD_DIR this app itself writes into with its own fixed convention.
+TRAILING_ID_FILENAME_RE = re.compile(r"^.+[-_ ](\d+)\.epub$", re.IGNORECASE)
 
 
-def find_files_for_work_id(download_dir: str, work_id: str) -> list[str]:
-    """Every file in download_dir whose name matches the "<id> or <id>_"
-    convention for this specific work_id, as full paths -- an empty list
-    if the folder can't be listed or nothing matches. Shared by
-    ao3_client's pre-download "already on disk" check and its
-    post-download stale-duplicate cleanup, both of which need the exact
-    same filename matching this app's own scanner already uses.
+def _match_filename(name: str, allow_trailing_id: bool) -> str | None:
+    match = FILENAME_RE.match(name)
+    if match:
+        return match.group(1)
+    if allow_trailing_id:
+        match = TRAILING_ID_FILENAME_RE.match(name)
+        if match:
+            return match.group(1)
+    return None
+
+
+def find_files_for_work_id(download_dir: str, work_id: str, allow_trailing_id: bool = False) -> list[str]:
+    """Every file in download_dir matching this specific work_id, as full
+    paths -- an empty list if the folder can't be listed or nothing
+    matches. Shared by ao3_client's pre-download "already on disk" check
+    (which passes allow_trailing_id=True for MANUAL_DOWNLOAD_DIR) and its
+    post-download stale-duplicate cleanup (always the leading-id
+    convention only, since that's the one this app itself ever writes).
     """
     try:
         names = os.listdir(download_dir)
@@ -55,8 +73,7 @@ def find_files_for_work_id(download_dir: str, work_id: str) -> list[str]:
         return []
     matches = []
     for name in names:
-        match = FILENAME_RE.match(name)
-        if match and match.group(1) == work_id:
+        if _match_filename(name, allow_trailing_id) == work_id:
             matches.append(os.path.join(download_dir, name))
     return matches
 
@@ -109,27 +126,33 @@ class ScanResult:
     stats: ScanStats
 
 
-def _scan_disk(download_dirs: list[str], abs_matches: dict[str, AbsBookMatch] | None = None) -> dict[str, WorkEntry]:
-    """Walks every directory in `download_dirs` in order, same "<id> or
-    <id>_" filename convention in each -- the primary DOWNLOAD_DIR first,
-    then any extra directories (see scan_raw's own `extra_dirs`, e.g. a
-    second location for manually-placed files this app never writes to
-    itself). A work_id already found in an earlier directory is left
-    alone if it turns up again in a later one -- the primary directory
-    always wins on a collision, same as scan_raw's own docstring says.
+def _scan_disk(
+    download_dir: str,
+    extra_dirs: list[str] | None = None,
+    abs_matches: dict[str, AbsBookMatch] | None = None,
+) -> dict[str, WorkEntry]:
+    """Walks `download_dir` first, then any `extra_dirs` (see scan_raw's
+    own `extra_dirs`, e.g. a second location for manually-placed files
+    this app never writes to itself) -- a work_id already found in an
+    earlier directory is left alone if it turns up again in a later one,
+    so `download_dir` always wins on a collision, same as scan_raw's own
+    docstring says. `download_dir` only ever recognizes the leading-id
+    convention this app itself writes; each of `extra_dirs` also accepts
+    the trailing-id convention (see TRAILING_ID_FILENAME_RE) some other
+    library tools use instead.
     """
     abs_matches = abs_matches or {}
     entries: dict[str, WorkEntry] = {}
-    for download_dir in download_dirs:
-        if not os.path.isdir(download_dir):
+    dirs_to_scan = [(download_dir, False)] + [(d, True) for d in (extra_dirs or [])]
+    for scan_dir, allow_trailing_id in dirs_to_scan:
+        if not os.path.isdir(scan_dir):
             continue
 
-        for root, _dirs, files in os.walk(download_dir):
+        for root, _dirs, files in os.walk(scan_dir):
             for name in files:
-                match = FILENAME_RE.match(name)
-                if not match:
+                work_id = _match_filename(name, allow_trailing_id)
+                if not work_id:
                     continue
-                work_id = match.group(1)
                 if work_id in entries:
                     continue
                 full_path = os.path.join(root, name)
@@ -258,7 +281,7 @@ def scan_raw(
     elsewhere) that this app never writes to itself. `download_dir` always
     wins on a work_id collision between directories -- see _scan_disk.
     """
-    disk_entries = _scan_disk([download_dir, *(extra_dirs or [])], abs_matches)
+    disk_entries = _scan_disk(download_dir, extra_dirs, abs_matches)
 
     log_records: dict[str, LogRecord] = {}
     if log_path and os.path.isfile(log_path):

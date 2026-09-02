@@ -82,13 +82,17 @@ def _work_id_from_url(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1]
 
 
-def work_id_on_disk(download_dir: str, work_id: str) -> bool:
+def work_id_on_disk(download_dir: str, work_id: str, allow_trailing_id: bool = False) -> bool:
     """A fresh filesystem check (not the scanner's cached view, which can
     be stale) for whether work_id already has a file in download_dir --
     used to skip re-downloading something already on disk (see
     main.py's download worker) instead of needlessly hitting AO3 for it.
+    `allow_trailing_id=True` also recognizes the trailing-id filename
+    convention (see scanner.TRAILING_ID_FILENAME_RE) -- pass it only when
+    checking a second, manually-populated location, never this app's own
+    DOWNLOAD_DIR.
     """
-    return bool(scanner.find_files_for_work_id(download_dir, work_id))
+    return bool(scanner.find_files_for_work_id(download_dir, work_id, allow_trailing_id))
 
 
 def _remove_stale_duplicate_files(download_dir: str, work_id: str) -> None:

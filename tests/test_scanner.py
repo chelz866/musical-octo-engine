@@ -147,6 +147,35 @@ def test_find_files_for_work_id_empty_for_a_nonexistent_directory():
     assert find_files_for_work_id("/no/such/directory", "7773") == []
 
 
+def test_find_files_for_work_id_ignores_trailing_id_names_by_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        open(os.path.join(tmp, "glass in the park - itadorihoney - 35282845.epub"), "w").close()
+        assert find_files_for_work_id(tmp, "35282845") == []
+
+
+def test_find_files_for_work_id_matches_trailing_id_when_allowed():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "glass in the park - itadorihoney - 35282845.epub")
+        open(path, "w").close()
+        assert find_files_for_work_id(tmp, "35282845", allow_trailing_id=True) == [path]
+
+
+def test_scan_extra_dir_recognizes_trailing_id_filenames():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as manual:
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks"])
+        _build_epub(os.path.join(manual, "glass in the park - itadorihoney - 35282845.epub"), ["Fanworks"])
+        result = scan(downloads, None, extra_dirs=[manual])
+
+    assert {e.work_id for e in result.entries} == {"1", "35282845"}
+
+
+def test_scan_primary_dir_never_matches_trailing_id_filenames():
+    with tempfile.TemporaryDirectory() as downloads:
+        open(os.path.join(downloads, "glass in the park - itadorihoney - 35282845.epub"), "w").close()
+        result = scan(downloads, None)
+    assert result.entries == []
+
+
 def test_ignores_non_epub_and_non_matching_files():
     with tempfile.TemporaryDirectory() as tmp:
         open(os.path.join(tmp, "readme.txt"), "w").close()

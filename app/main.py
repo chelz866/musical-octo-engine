@@ -142,7 +142,7 @@ async def _download_worker_loop():
             already_on_disk = await asyncio.to_thread(ao3_client.work_id_on_disk, DOWNLOAD_DIR, item["work_id"])
             if not already_on_disk and MANUAL_DOWNLOAD_DIR:
                 already_on_disk = await asyncio.to_thread(
-                    ao3_client.work_id_on_disk, MANUAL_DOWNLOAD_DIR, item["work_id"]
+                    ao3_client.work_id_on_disk, MANUAL_DOWNLOAD_DIR, item["work_id"], True
                 )
             if not already_on_disk:
                 try:

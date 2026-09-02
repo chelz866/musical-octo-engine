@@ -613,9 +613,11 @@ own tags, but saving it sets the same global classification the Classify Tags pa
   or deletes an existing file, only adds new ones.
 - Optional `MANUAL_DOWNLOAD_DIR` (see `.env.example`): a second folder, scanned in addition to
   `DOWNLOAD_DIR` on every refresh, for files obtained some other way (manually downloaded, synced
-  in from elsewhere) -- same `<work_id>_...epub` naming convention, but mounted read-only, since
-  this app never writes to it itself. If the same work_id turns up in both folders, `DOWNLOAD_DIR`
-  wins.
+  in from elsewhere) -- mounted read-only, since this app never writes to it itself. If the same
+  work_id turns up in both folders, `DOWNLOAD_DIR` wins. Unlike `DOWNLOAD_DIR`, files here can use
+  *either* ao3downloader's own leading-id convention (`<work_id>_Title.epub`) *or* a trailing-id
+  convention some other library tools use instead (`Title - Author - <work_id>.epub`) -- handy for
+  files that already match a Catalog Import (see below), which are commonly named that way.
 - Refresh of the downloads folder/log is entirely manual. Tracked feeds are the one exception:
   each has its own opt-in auto-refresh toggle, polled in the background every
   `AUTO_REFRESH_INTERVAL_SECONDS` (default 1 hour) regardless of whether anyone clicks Refresh.
