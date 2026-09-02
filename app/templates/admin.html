@@ -5,6 +5,10 @@
     <h1>Admin Dashboard</h1>
     <p class="paths">
       downloads: <code>{{ download_dir }}</code>
+      {% if manual_download_dir %}
+      &middot;
+      manual downloads: <code>{{ manual_download_dir }}</code>
+      {% endif %}
       &middot;
       log: <code>{{ log_path }}</code>
       {% if not log_exists %}<span class="badge badge-warn">not found</span>{% endif %}

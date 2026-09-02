@@ -16,6 +16,10 @@ services:
       - AO3_USERNAME=${AO3_USERNAME:-}
       - AO3_PASSWORD=${AO3_PASSWORD:-}
       - AO3_EXTRA_WAIT_SECONDS=${AO3_EXTRA_WAIT_SECONDS:-2}
+      # Optional: a second, read-only downloads folder -- see
+      # MANUAL_DOWNLOAD_DIR in .env.example. Uncomment this and the
+      # matching volume line below to enable it.
+      # - MANUAL_DOWNLOAD_DIR=/manual-downloads
       # Zone this container's own clock runs in -- file mtimes and this
       # app's own recorded timestamps are all in this zone. Defaults to
       # UTC if unset. Each account's own *display* timezone is a separate
@@ -33,4 +37,7 @@ services:
       # Uncomment and set ABS_DB_HOST_PATH in .env to enable Audiobookshelf
       # linking (a read-only mount of its absdatabase.sqlite):
       # - ${ABS_DB_HOST_PATH}:/abs/absdatabase.sqlite:ro
+      # Uncomment and set MANUAL_DOWNLOAD_DIR in .env (and above) to scan a
+      # second, read-only folder for manually-obtained files:
+      # - ${MANUAL_DOWNLOAD_DIR}:/manual-downloads:ro
     restart: unless-stopped

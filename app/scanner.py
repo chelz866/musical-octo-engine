@@ -101,81 +101,103 @@ class ScanResult:
     stats: ScanStats
 
 
-def _scan_disk(download_dir: str, abs_matches: dict[str, AbsBookMatch] | None = None) -> dict[str, WorkEntry]:
+def _scan_disk(download_dirs: list[str], abs_matches: dict[str, AbsBookMatch] | None = None) -> dict[str, WorkEntry]:
+    """Walks every directory in `download_dirs` in order, same "<id> or
+    <id>_" filename convention in each -- the primary DOWNLOAD_DIR first,
+    then any extra directories (see scan_raw's own `extra_dirs`, e.g. a
+    second location for manually-placed files this app never writes to
+    itself). A work_id already found in an earlier directory is left
+    alone if it turns up again in a later one -- the primary directory
+    always wins on a collision, same as scan_raw's own docstring says.
+    """
     abs_matches = abs_matches or {}
     entries: dict[str, WorkEntry] = {}
-    if not os.path.isdir(download_dir):
-        return entries
+    for download_dir in download_dirs:
+        if not os.path.isdir(download_dir):
+            continue
 
-    for root, _dirs, files in os.walk(download_dir):
-        for name in files:
-            match = FILENAME_RE.match(name)
-            if not match:
-                continue
-            work_id = match.group(1)
-            full_path = os.path.join(root, name)
-            stat = os.stat(full_path)
-            entry = WorkEntry(
-                work_id=work_id,
-                file_path=full_path,
-                size_bytes=stat.st_size,
-                mtime=datetime.fromtimestamp(stat.st_mtime),
-                on_disk=True,
-            )
+        for root, _dirs, files in os.walk(download_dir):
+            for name in files:
+                match = FILENAME_RE.match(name)
+                if not match:
+                    continue
+                work_id = match.group(1)
+                if work_id in entries:
+                    continue
+                full_path = os.path.join(root, name)
+                stat = os.stat(full_path)
+                entry = WorkEntry(
+                    work_id=work_id,
+                    file_path=full_path,
+                    size_bytes=stat.st_size,
+                    mtime=datetime.fromtimestamp(stat.st_mtime),
+                    on_disk=True,
+                )
 
-            abs_match = abs_matches.get(work_id)
-            if abs_match is not None:
-                # Audiobookshelf already scanned this file's embedded
-                # metadata -- reuse it instead of unzipping/parsing the epub
-                # ourselves again.
-                entry.title = abs_match.title
-                entry.author = abs_match.author
-                entry.summary = abs_match.description
-                entry.language = abs_match.language
-                classification = classify_subjects(abs_match.genres)
-                entry.rating = classification.rating
-                entry.warnings = classification.warnings
-                entry.categories = classification.categories
-                entry.fandoms = classification.fandoms
-                entry.fandom_candidates = classification.fandom_candidates
-                entry.series = abs_match.series
-                entry.series_index = abs_match.series_index
-            else:
-                try:
-                    meta = parse_epub_metadata(full_path)
-                    entry.title = meta.title
-                    entry.author = meta.author
-                    entry.rating = meta.rating
-                    entry.warnings = meta.warnings
-                    entry.categories = meta.categories
-                    entry.fandoms = meta.fandoms
-                    entry.fandom_candidates = meta.fandom_candidates
-                    entry.series = meta.series
-                    entry.series_index = meta.series_index
-                    entry.published_date = meta.published_date
-                    entry.language = meta.language
-                except EpubParseError as exc:
-                    entry.parse_error = str(exc)
+                abs_match = abs_matches.get(work_id)
+                if abs_match is not None:
+                    # Audiobookshelf already scanned this file's embedded
+                    # metadata -- reuse it instead of unzipping/parsing the epub
+                    # ourselves again.
+                    entry.title = abs_match.title
+                    entry.author = abs_match.author
+                    entry.summary = abs_match.description
+                    entry.language = abs_match.language
+                    classification = classify_subjects(abs_match.genres)
+                    entry.rating = classification.rating
+                    entry.warnings = classification.warnings
+                    entry.categories = classification.categories
+                    entry.fandoms = classification.fandoms
+                    entry.fandom_candidates = classification.fandom_candidates
+                    entry.series = abs_match.series
+                    entry.series_index = abs_match.series_index
+                else:
+                    try:
+                        meta = parse_epub_metadata(full_path)
+                        entry.title = meta.title
+                        entry.author = meta.author
+                        entry.rating = meta.rating
+                        entry.warnings = meta.warnings
+                        entry.categories = meta.categories
+                        entry.fandoms = meta.fandoms
+                        entry.fandom_candidates = meta.fandom_candidates
+                        entry.series = meta.series
+                        entry.series_index = meta.series_index
+                        entry.published_date = meta.published_date
+                        entry.language = meta.language
+                    except EpubParseError as exc:
+                        entry.parse_error = str(exc)
 
-            # Word count/chapter progress live on the epub's own preface page
-            # (AO3's own embedded "Stats:" line), not in Audiobookshelf's
-            # schema or content.opf -- read regardless of whether an ABS
-            # match already supplied the rest of the metadata above.
-            stats = parse_epub_stats(full_path)
-            entry.word_count = stats.word_count
-            entry.chapters_have = stats.chapters_have
-            entry.chapters_total = stats.chapters_total
+                # Word count/chapter progress live on the epub's own preface page
+                # (AO3's own embedded "Stats:" line), not in Audiobookshelf's
+                # schema or content.opf -- read regardless of whether an ABS
+                # match already supplied the rest of the metadata above.
+                stats = parse_epub_stats(full_path)
+                entry.word_count = stats.word_count
+                entry.chapters_have = stats.chapters_have
+                entry.chapters_total = stats.chapters_total
 
-            entries[work_id] = entry
+                entries[work_id] = entry
 
     return entries
 
 
-def scan_raw(download_dir: str, log_path: str | None, abs_matches: dict[str, AbsBookMatch] | None = None) -> list[WorkEntry]:
+def scan_raw(
+    download_dir: str,
+    log_path: str | None,
+    abs_matches: dict[str, AbsBookMatch] | None = None,
+    extra_dirs: list[str] | None = None,
+) -> list[WorkEntry]:
     """Live disk+log merge with no overrides applied -- the expensive part
     (filesystem walk + epub parsing) that `refresh_cache` snapshots to SQLite.
+
+    `extra_dirs`, if given, are walked too (same filename convention),
+    after `download_dir` -- e.g. a second location for files obtained
+    outside this app's own download flow (manually placed, synced from
+    elsewhere) that this app never writes to itself. `download_dir` always
+    wins on a work_id collision between directories -- see _scan_disk.
     """
-    disk_entries = _scan_disk(download_dir, abs_matches)
+    disk_entries = _scan_disk([download_dir, *(extra_dirs or [])], abs_matches)
 
     log_records: dict[str, LogRecord] = {}
     if log_path and os.path.isfile(log_path):
@@ -476,6 +498,7 @@ def scan(
     log_path: str | None,
     db_path: str | None = None,
     abs_matches: dict[str, AbsBookMatch] | None = None,
+    extra_dirs: list[str] | None = None,
 ) -> ScanResult:
     overrides = db.get_all_overrides(db_path) if db_path else {}
     tag_categories = db.get_all_tag_categories(db_path) if db_path else {}
@@ -483,7 +506,7 @@ def scan(
     same_category_parent_of = child_parent_map(db.get_tag_children(db_path)) if db_path else {}
     tag_fandoms = db.get_all_tag_fandoms(db_path) if db_path else {}
     return _finalize(
-        scan_raw(download_dir, log_path, abs_matches), overrides, tag_categories, tag_synonyms,
+        scan_raw(download_dir, log_path, abs_matches, extra_dirs), overrides, tag_categories, tag_synonyms,
         same_category_parent_of, tag_fandoms,
     )
 
@@ -493,8 +516,9 @@ def refresh_cache(
     log_path: str | None,
     db_path: str,
     abs_matches: dict[str, AbsBookMatch] | None = None,
+    extra_dirs: list[str] | None = None,
 ) -> ScanResult:
-    entries = scan_raw(download_dir, log_path, abs_matches)
+    entries = scan_raw(download_dir, log_path, abs_matches, extra_dirs)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
     result = _finalize(
         entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),

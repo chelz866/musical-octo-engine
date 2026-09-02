@@ -165,6 +165,35 @@ def test_bad_epub_on_disk_is_flagged_as_parse_error_issue():
     assert entry.issue_type == "parse_error"
 
 
+def test_scan_finds_files_in_an_extra_dir():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as manual:
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks"])
+        _build_epub(os.path.join(manual, "2_B.epub"), ["Fanworks"])
+        result = scan(downloads, None, extra_dirs=[manual])
+
+    work_ids = {e.work_id for e in result.entries}
+    assert work_ids == {"1", "2"}
+    assert all(e.on_disk for e in result.entries)
+
+
+def test_scan_extra_dir_does_not_override_the_primary_dir_on_collision():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as manual:
+        _build_epub(os.path.join(downloads, "1_Primary.epub"), ["Fanworks"])
+        _build_epub(os.path.join(manual, "1_Manual.epub"), ["Fanworks"])
+        result = scan(downloads, None, extra_dirs=[manual])
+
+    assert len(result.entries) == 1
+    assert result.entries[0].file_path == os.path.join(downloads, "1_Primary.epub")
+
+
+def test_scan_with_no_extra_dirs_behaves_as_before():
+    with tempfile.TemporaryDirectory() as downloads:
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks"])
+        result = scan(downloads, None)
+
+    assert result.entries[0].work_id == "1"
+
+
 def test_logged_success_with_no_file_is_flagged_missing():
     with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as logs:
         log_path = _write_log(logs, [

@@ -597,6 +597,11 @@ own tags, but saving it sets the same global classification the Classify Tags pa
   Selected" (see "Optional: downloading from within the app" above) writes new `.epub` files and
   log entries into them, the same as a manual ao3downloader run would -- nothing here ever modifies
   or deletes an existing file, only adds new ones.
+- Optional `MANUAL_DOWNLOAD_DIR` (see `.env.example`): a second folder, scanned in addition to
+  `DOWNLOAD_DIR` on every refresh, for files obtained some other way (manually downloaded, synced
+  in from elsewhere) -- same `<work_id>_...epub` naming convention, but mounted read-only, since
+  this app never writes to it itself. If the same work_id turns up in both folders, `DOWNLOAD_DIR`
+  wins.
 - Refresh of the downloads folder/log is entirely manual. Tracked feeds are the one exception:
   each has its own opt-in auto-refresh toggle, polled in the background every
   `AUTO_REFRESH_INTERVAL_SECONDS` (default 1 hour) regardless of whether anyone clicks Refresh.

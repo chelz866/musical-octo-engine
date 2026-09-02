@@ -18,6 +18,12 @@ from . import ao3_client, audiobookshelf, auth, db, epub_reader, rss, scanner
 from .epub_meta import looks_like_relationship
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
+# Optional: a second, read-only location this app never writes to itself --
+# e.g. files obtained manually or synced in from elsewhere. Scanned in
+# addition to DOWNLOAD_DIR (see scanner.scan_raw's extra_dirs), using the
+# exact same "<id> or <id>_" filename convention. Blank (the default)
+# disables it entirely.
+MANUAL_DOWNLOAD_DIR = os.environ.get("MANUAL_DOWNLOAD_DIR", "")
 LOG_PATH = os.environ.get("LOG_PATH", "/logs/log.jsonl")
 DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
 FEEDS_DB_PATH = os.environ.get("FEEDS_DB_PATH", "/data/feeds.sqlite")
@@ -132,8 +138,13 @@ async def _download_worker_loop():
             # cache the Queue/Incomplete Works views that fed this item
             # were built from -- skips a needless redownload (and the risk
             # of a spurious logged failure) of a work that's actually
-            # already on disk. See ao3_client.work_id_on_disk.
-            if not await asyncio.to_thread(ao3_client.work_id_on_disk, DOWNLOAD_DIR, item["work_id"]):
+            # already on disk, in either location. See ao3_client.work_id_on_disk.
+            already_on_disk = await asyncio.to_thread(ao3_client.work_id_on_disk, DOWNLOAD_DIR, item["work_id"])
+            if not already_on_disk and MANUAL_DOWNLOAD_DIR:
+                already_on_disk = await asyncio.to_thread(
+                    ao3_client.work_id_on_disk, MANUAL_DOWNLOAD_DIR, item["work_id"]
+                )
+            if not already_on_disk:
                 try:
                     await asyncio.to_thread(client.download, item["url"])
                 except Exception:
@@ -1170,6 +1181,7 @@ def admin(request: Request):
             **_base_context(request),
             "stats": result.stats,
             "download_dir": DOWNLOAD_DIR,
+            "manual_download_dir": MANUAL_DOWNLOAD_DIR,
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
             "home_edit_source": db.get_user_home_edit_source(DB_PATH, request.state.user.id),
@@ -2995,7 +3007,10 @@ def _refresh_downloads_cache_now() -> None:
     if ABS_DB_PATH and ABS_LIBRARY_ID:
         abs_matches = audiobookshelf.load_matches(ABS_DB_PATH, ABS_LIBRARY_ID)
 
-    scanner.refresh_cache(DOWNLOAD_DIR, LOG_PATH, DB_PATH, abs_matches)
+    scanner.refresh_cache(
+        DOWNLOAD_DIR, LOG_PATH, DB_PATH, abs_matches,
+        extra_dirs=[MANUAL_DOWNLOAD_DIR] if MANUAL_DOWNLOAD_DIR else None,
+    )
     if ABS_DB_PATH and ABS_LIBRARY_ID:
         db.save_abs_matches(DB_PATH, {work_id: m.item_id for work_id, m in abs_matches.items()})
         # Read status is per-app-account, not shared like the match above --
