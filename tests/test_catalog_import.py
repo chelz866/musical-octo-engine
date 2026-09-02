@@ -176,6 +176,40 @@ def test_import_from_sqlite_batches_across_multiple_rows():
         assert db.count_catalog_works(db_path) == 5
 
 
+def test_tag_rows_for_record_flattens_every_list_field():
+    record = {
+        "work_id": "1",
+        "fandoms": ["Doctor Who", "Torchwood"],
+        "relationships": ["Ianto/Jack"],
+        "freeform": ["Angst"],
+        "warnings": ["No Archive Warnings Apply"],
+        "categories": ["Gen"],
+    }
+    rows = catalog_import._tag_rows_for_record(record)
+    assert set(rows) == {
+        ("1", "fandom", "Doctor Who"),
+        ("1", "fandom", "Torchwood"),
+        ("1", "relationship", "Ianto/Jack"),
+        ("1", "freeform", "Angst"),
+        ("1", "warning", "No Archive Warnings Apply"),
+        ("1", "category", "Gen"),
+    }
+
+
+def test_import_from_sqlite_populates_catalog_work_tags():
+    with tempfile.TemporaryDirectory() as tmp:
+        source_path = _make_source_db(tmp, [_SAMPLE_ROW])
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+
+        catalog_import.import_from_sqlite(db_path, source_path)
+
+        assert db.get_catalog_tag_values(db_path, "fandom") == {"Tokyo Revengers (Anime)", "Tokyo Revengers (Manga)"}
+        assert db.get_catalog_tag_values(db_path, "relationship") == {"Takemichi/Reader"}
+        works, _, _ = db.search_catalog_works(db_path, "fandom", "Tokyo Revengers (Anime)", 1, 25)
+        assert works[0]["work_id"] == "35282845"
+
+
 def test_imported_catalog_work_lands_in_catalog_works_not_load_cached():
     # catalog_works is deliberately never merged into scanner.py's
     # per-request WorkEntry pipeline (see scanner.py's own module

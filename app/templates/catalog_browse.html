@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% import "_pager.html" as pagination %}
+{% block title %}Catalog - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Catalog</h1>
+  </header>
+
+  <p class="hint">
+    {{ catalog_count }} works imported via Catalog Import that you haven't downloaded a file for yet.
+    Pick a fandom, relationship, or tag below to browse works with it -- this is a single indexed
+    lookup, not a full-library scan, so it stays fast no matter how large the catalog gets.
+  </p>
+
+  <form method="get" action="/catalog/browse" class="stacked-form">
+    <label>Browse by
+      <select name="category" onchange="document.getElementById('catalog-tag-input').value = ''; document.getElementById('catalog-tag-hidden').value = '';">
+        {% for value, label in category_labels.items() %}
+        <option value="{{ value }}" {% if value == category %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="facet-autocomplete" data-category="{{ category }}">
+      <input type="text" id="catalog-tag-input" placeholder="Type a {{ category_labels.get(category, 'tag') | lower }}&hellip;"
+             value="{{ tag }}" autocomplete="off" oninput="onCatalogTagSearch(this)" onkeydown="onCatalogTagKeydown(event, this)">
+      <input type="hidden" name="tag" id="catalog-tag-hidden" value="{{ tag }}">
+      <div class="facet-suggestions" hidden></div>
+    </div>
+    <button type="submit">Browse</button>
+  </form>
+
+  {% if tag %}
+  <h2>{{ category_labels.get(category, category) }}: {{ tag }}</h2>
+
+  {% if works %}
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Fandom</th>
+        <th>Rating</th>
+        <th>Words</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for work in works %}
+      <tr>
+        <td>
+          {% if work.story_url %}<a href="{{ work.story_url }}" target="_blank" rel="noopener">{{ work.title or "Untitled" }}</a>
+          {% else %}{{ work.title or "Untitled" }}{% endif %}
+        </td>
+        <td>{{ work.author or "" }}</td>
+        <td>{{ work.fandoms | join(", ") }}</td>
+        <td>{{ work.rating or "" }}</td>
+        <td>{{ work.word_count or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ pagination.pager(page, total_pages, "&category=" + (category | urlencode) + "&tag=" + (tag | urlencode)) }}
+  {% else %}
+  <p class="hint">No catalog works found for this {{ category_labels.get(category, category) | lower }}.</p>
+  {% endif %}
+  {% endif %}
+
+  <script>
+    function onCatalogTagSearch(input) {
+      clearTimeout(input._debounce);
+      var q = input.value.trim();
+      var container = input.parentElement;
+      document.getElementById("catalog-tag-hidden").value = input.value;
+      if (q.length < 2) { hideCatalogSuggestions(container); return; }
+      input._debounce = setTimeout(function () {
+        fetch("/catalog/browse/search?category=" + encodeURIComponent(container.dataset.category) + "&q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (matches) { renderCatalogSuggestions(container, matches); });
+      }, 200);
+    }
+
+    function renderCatalogSuggestions(container, matches) {
+      var list = container.querySelector(".facet-suggestions");
+      list.textContent = "";
+      if (!matches.length) { list.hidden = true; return; }
+      matches.forEach(function (value) {
+        var item = document.createElement("div");
+        item.className = "facet-suggestion-item";
+        item.textContent = value;
+        item.addEventListener("mousedown", function (e) { e.preventDefault(); chooseCatalogTag(container, value); });
+        list.appendChild(item);
+      });
+      list.hidden = false;
+    }
+
+    function onCatalogTagKeydown(event, input) {
+      if (event.key !== "Enter") return;
+      var items = input.parentElement.querySelectorAll(".facet-suggestion-item");
+      if (items.length === 1) {
+        event.preventDefault();
+        chooseCatalogTag(input.parentElement, items[0].textContent);
+      }
+    }
+
+    function chooseCatalogTag(container, value) {
+      document.getElementById("catalog-tag-input").value = value;
+      document.getElementById("catalog-tag-hidden").value = value;
+      hideCatalogSuggestions(container);
+      container.closest("form").submit();
+    }
+
+    function hideCatalogSuggestions(container) {
+      var list = container.querySelector(".facet-suggestions");
+      list.hidden = true;
+      list.textContent = "";
+    }
+  </script>
+{% endblock %}

@@ -20,6 +20,11 @@ whole table at once) so this is safe to run against an export with
 millions of rows without loading it all into memory -- see
 import_from_sqlite's own docstring for how a caller should run this off
 the request thread.
+
+Each row's list-valued fields are also flattened into db.catalog_work_tags
+(see _tag_rows_for_record) -- a normalized (work_id, category, tag) index
+kept in sync on every import, since catalog_works' own \x1f-joined columns
+can't be searched by an individual tag value without a full table scan.
 """
 
 import re
@@ -136,6 +141,24 @@ def _transform_row(row: sqlite3.Row, colmap: dict[str, str]) -> dict | None:
     }
 
 
+CATALOG_TAG_KINDS = ("fandom", "relationship", "freeform", "warning", "category")
+
+
+def _tag_rows_for_record(record: dict) -> list[tuple[str, str, str]]:
+    """Flattens one _transform_row record's list-valued fields into
+    (work_id, category, tag) triples for db.save_catalog_work_tags -- the
+    normalized index the Catalog Browse page queries, kept in sync with
+    catalog_works on every import.
+    """
+    rows = []
+    for kind, tags in zip(
+        CATALOG_TAG_KINDS,
+        (record["fandoms"], record["relationships"], record["freeform"], record["warnings"], record["categories"]),
+    ):
+        rows.extend((record["work_id"], kind, tag) for tag in tags)
+    return rows
+
+
 def import_from_sqlite(
     db_path: str,
     source_db_path: str,
@@ -185,6 +208,11 @@ def import_from_sqlite(
                 else:
                     transformed.append(record)
             db.save_catalog_works(db_path, transformed)
+            db.save_catalog_work_tags(
+                db_path,
+                [record["work_id"] for record in transformed],
+                [tag_row for record in transformed for tag_row in _tag_rows_for_record(record)],
+            )
             imported += len(transformed)
             if progress_cb:
                 progress_cb(imported, skipped)

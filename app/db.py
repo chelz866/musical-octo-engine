@@ -164,6 +164,22 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS catalog_work_tags (
+                work_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (work_id, category, tag)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_catalog_work_tags_by_tag
+            ON catalog_work_tags (category, tag)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS work_tags (
                 work_id TEXT NOT NULL,
                 category TEXT NOT NULL,
@@ -1069,6 +1085,77 @@ def get_all_catalog_works(path: str) -> dict[str, dict]:
 def count_catalog_works(path: str) -> int:
     with _connect(path) as conn:
         return conn.execute("SELECT COUNT(*) FROM catalog_works").fetchone()[0]
+
+
+def save_catalog_work_tags(path: str, work_ids: list[str], rows: list[tuple[str, str, str]]) -> None:
+    """Replaces the tag rows for exactly `work_ids` (typically one import
+    batch's worth, see catalog_import.import_from_sqlite) with `rows`
+    ((work_id, category, tag) triples) -- lets a re-imported work_id's
+    tags update in place without touching (or having to reload) rows for
+    every other work_id already in the table. This table exists purely so
+    "find every catalog work tagged X" is an indexed lookup
+    (idx_catalog_work_tags_by_tag) instead of a substring search over
+    catalog_works' own \\x1f-joined columns, which couldn't use an index
+    at all -- see search_catalog_works.
+    """
+    if not work_ids:
+        return
+    with _connect(path) as conn:
+        placeholders = ", ".join("?" for _ in work_ids)
+        conn.execute(f"DELETE FROM catalog_work_tags WHERE work_id IN ({placeholders})", work_ids)
+        if rows:
+            conn.executemany("INSERT INTO catalog_work_tags (work_id, category, tag) VALUES (?, ?, ?)", rows)
+
+
+def get_catalog_tag_values(path: str, category: str) -> set[str]:
+    """Every distinct tag value catalog_work_tags has for `category` --
+    the vocabulary size here is bounded by how many unique tags exist, not
+    by how many works reference them, so this stays cheap however large
+    catalog_works itself grows. Backs the Catalog Browse page's
+    autocomplete (see main.py's own tag-search cache, built the same way
+    as the Downloads filter panel's).
+    """
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT tag FROM catalog_work_tags WHERE category = ?", (category,)
+        ).fetchall()
+    return {row[0] for row in rows}
+
+
+def search_catalog_works(path: str, category: str, tag: str, page: int, page_size: int) -> tuple[list[dict], int, int]:
+    """(page_of_catalog_work_rows, clamped_page, total_pages) for catalog
+    works tagged `tag` in `category` -- an indexed lookup joined against
+    catalog_works, with SQL doing the counting and LIMIT/OFFSET pagination
+    itself. Never loads more than one page's worth of catalog_works rows
+    into Python, however many works match or how large the catalog is
+    overall -- see catalog_work_tags' own docstring for why this couldn't
+    be done as a plain substring search over catalog_works directly.
+    """
+    with _connect(path) as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM catalog_work_tags WHERE category = ? AND tag = ?", (category, tag)
+        ).fetchone()[0]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        offset = (page - 1) * page_size
+        cols = ", ".join(f"c.{c}" for c in _CATALOG_COLUMNS)
+        rows = conn.execute(
+            f"""
+            SELECT {cols} FROM catalog_work_tags t
+            JOIN catalog_works c ON c.work_id = t.work_id
+            WHERE t.category = ? AND t.tag = ?
+            ORDER BY c.title COLLATE NOCASE
+            LIMIT ? OFFSET ?
+            """,
+            (category, tag, page_size, offset),
+        ).fetchall()
+    results = []
+    for row in rows:
+        record = dict(zip(_CATALOG_COLUMNS, row))
+        for c in _CATALOG_LIST_COLUMNS:
+            record[c] = [v for v in (record[c] or "").split("\x1f") if v]
+        results.append(record)
+    return results, page, total_pages
 
 
 def save_abs_matches(path: str, matches: dict[str, str]) -> None:

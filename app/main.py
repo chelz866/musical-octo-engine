@@ -173,6 +173,7 @@ def _ensure_download_worker_running():
 CATALOG_IMPORT_STATUS_KEY = "catalog_import_status"  # "" | "running" | "done" | "error"
 CATALOG_IMPORT_PROGRESS_KEY = "catalog_import_progress"
 CATALOG_IMPORT_ERROR_KEY = "catalog_import_error"
+CATALOG_LAST_IMPORTED_KEY = "catalog_last_imported_at"
 
 _catalog_import_task: asyncio.Task | None = None
 
@@ -211,7 +212,12 @@ def _run_catalog_import(source_db_path: str, table_name: str | None) -> None:
             DB_PATH, source_db_path, table_name, progress_cb=progress
         )
         db.set_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY, f"{imported} imported, {skipped} skipped")
-        scanner.rebuild_work_tags(DB_PATH)
+        # Not scanner.rebuild_work_tags -- catalog_works/catalog_work_tags
+        # never participate in that pipeline (see scanner.py's own module
+        # docstring), so an import can't change any on-disk work's
+        # resolved tags. Only the Catalog Browse autocomplete cache
+        # (keyed off this) needs to know a fresher import landed.
+        db.set_meta(DB_PATH, CATALOG_LAST_IMPORTED_KEY, datetime.now().isoformat())
         db.set_meta(DB_PATH, CATALOG_IMPORT_STATUS_KEY, "done")
     except Exception as exc:
         db.set_meta(DB_PATH, CATALOG_IMPORT_ERROR_KEY, str(exc))
@@ -673,6 +679,41 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20, active_fandoms: set[
         # different fandom's tag past the scoping.
         scope = _build_fandom_scope(db.get_tag_children(DB_PATH), db.get_all_tag_fandoms(DB_PATH))
         matched = {tag for tag in matched if not scope.get(tag) or scope[tag] in active_fandoms}
+    return sorted(matched, key=str.lower)[:limit]
+
+
+CATALOG_BROWSE_PAGE_SIZE = 25
+_catalog_autocomplete_cache: dict[str, tuple[str | None, AutoComplete, dict[str, set[str]]]] = {}
+
+
+def _get_catalog_autocompleter(category: str) -> tuple[AutoComplete, dict[str, set[str]]]:
+    """Same cache-by-last-change-timestamp pattern as _get_autocompleter,
+    just sourced from db.get_catalog_tag_values (bounded by how many
+    distinct tags exist, not how many catalog works reference them) instead
+    of scanning every WorkEntry -- rebuilt once per catalog import, not
+    once per request, however large catalog_works itself grows.
+    """
+    cache_key = db.get_meta(DB_PATH, CATALOG_LAST_IMPORTED_KEY)
+    cached_key, cached_ac, cached_index = _catalog_autocomplete_cache.get(category, (None, None, None))
+    if cached_ac is not None and cached_key == cache_key:
+        return cached_ac, cached_index
+
+    values = db.get_catalog_tag_values(DB_PATH, category)
+    autocompleter, word_to_tags = _build_autocomplete_index(values)
+    _catalog_autocomplete_cache[category] = (cache_key, autocompleter, word_to_tags)
+    return autocompleter, word_to_tags
+
+
+def _search_catalog_tags(category: str, q: str, limit: int = 20) -> list[str]:
+    q = q.strip()
+    if category not in catalog_import.CATALOG_TAG_KINDS or len(q) < 2:
+        return []
+    autocompleter, word_to_tags = _get_catalog_autocompleter(category)
+    results = autocompleter.search(word=q, max_cost=2, size=limit * 2)
+    matched: set[str] = set()
+    for result in results:
+        key = " ".join(result) if isinstance(result, list) else result
+        matched.update(word_to_tags.get(key, ()))
     return sorted(matched, key=str.lower)[:limit]
 
 
@@ -3294,3 +3335,51 @@ async def admin_catalog_import(source_db_path: str = Form(...), table_name: str 
         _catalog_import_worker(source_db_path, table_name.strip() or None)
     )
     return RedirectResponse(url="/admin/catalog", status_code=303)
+
+
+CATALOG_BROWSE_CATEGORY_LABELS = {
+    "fandom": "Fandom",
+    "relationship": "Relationship",
+    "freeform": "Additional Tag",
+    "warning": "Warning",
+    "category": "Category",
+}
+
+
+@app.get("/catalog/browse", response_class=HTMLResponse)
+def catalog_browse_page(request: Request, category: str = "fandom", tag: str = "", page: int = 1):
+    """Browse db.catalog_works by a single fandom/relationship/tag at a
+    time -- open to every logged-in user, not just Admin (see
+    ADMIN_PATH_PREFIXES; this path isn't in it), same as Fandoms/Tags
+    browsing. Deliberately not a Downloads-style multi-facet filter panel:
+    this is a plain indexed lookup (db.search_catalog_works) against
+    however many millions of rows catalog_works holds, so it only ever
+    supports "show me works with this one tag," paginated in SQL -- never
+    a full-library scan/materialization the way Downloads' own filter
+    panel works for the (much smaller) on-disk library.
+    """
+    category = category if category in catalog_import.CATALOG_TAG_KINDS else "fandom"
+    works, page, total_pages = (
+        db.search_catalog_works(DB_PATH, category, tag, page, CATALOG_BROWSE_PAGE_SIZE) if tag else ([], 1, 1)
+    )
+    return templates.TemplateResponse(
+        "catalog_browse.html",
+        {
+            **_base_context(request),
+            "category": category,
+            "category_labels": CATALOG_BROWSE_CATEGORY_LABELS,
+            "tag": tag,
+            "works": works,
+            "page": page,
+            "total_pages": total_pages,
+            "catalog_count": db.count_catalog_works(DB_PATH),
+        },
+    )
+
+
+@app.get("/catalog/browse/search")
+def catalog_browse_search(category: str = "fandom", q: str = ""):
+    """Typeahead endpoint backing the Catalog Browse page's tag search box
+    -- see _search_catalog_tags.
+    """
+    return JSONResponse(_search_catalog_tags(category, q))
