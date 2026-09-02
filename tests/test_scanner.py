@@ -10,6 +10,8 @@ from app.scanner import (
     _resolve_associated_fandoms,
     _resolve_tag_categories,
     child_parent_map,
+    _catalog_row_to_entry,
+    _merge_catalog_entries,
     find_files_for_work_id,
     load_cached,
     rebuild_work_tags,
@@ -192,6 +194,101 @@ def test_scan_with_no_extra_dirs_behaves_as_before():
         result = scan(downloads, None)
 
     assert result.entries[0].work_id == "1"
+
+
+def _catalog_row(work_id="1", **overrides):
+    row = {
+        "work_id": work_id,
+        "title": "Catalog Title",
+        "author": "Catalog Author",
+        "rating": "Teen And Up Audiences",
+        "warnings": ["No Archive Warnings Apply"],
+        "categories": ["Gen"],
+        "fandoms": ["Doctor Who"],
+        "relationships": [],
+        "freeform": ["Angst", "Fluff"],
+        "language": "English",
+        "summary": "a summary",
+        "word_count": 1000,
+        "chapters_have": 1,
+        "chapters_total": 1,
+        "published_date": "2021-01-01",
+        "series": None,
+        "story_url": "https://archiveofourown.org/works/1",
+        "source_path": None,
+        "imported_at": "2026-01-01T00:00:00",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_catalog_row_to_entry_seeds_fandoms_and_candidates():
+    entry = _catalog_row_to_entry(_catalog_row())
+    assert entry.on_disk is False
+    assert entry.title == "Catalog Title"
+    assert entry.fandoms == ["Doctor Who"]
+    assert set(entry.fandom_candidates) == {"Doctor Who", "Angst", "Fluff"}
+
+
+def test_merge_catalog_entries_adds_a_work_not_already_present():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+        db.save_catalog_works(db_path, [_catalog_row("1")])
+
+        merged = _merge_catalog_entries([], db_path)
+
+    assert [e.work_id for e in merged] == ["1"]
+
+
+def test_merge_catalog_entries_does_not_override_a_real_entry():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+        db.save_catalog_works(db_path, [_catalog_row("1", title="Catalog Title")])
+        real_entry = WorkEntry(work_id="1", title="Real Title", on_disk=True)
+
+        merged = _merge_catalog_entries([real_entry], db_path)
+
+    assert len(merged) == 1
+    assert merged[0].title == "Real Title"
+
+
+def test_merge_catalog_entries_is_a_no_op_without_a_db_path():
+    real_entry = WorkEntry(work_id="1", title="Real Title", on_disk=True)
+    assert _merge_catalog_entries([real_entry], None) == [real_entry]
+
+
+def test_refresh_cache_and_load_cached_include_catalog_works():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        db.save_catalog_works(db_path, [_catalog_row("1")])
+
+        live_result = refresh_cache(downloads, None, db_path)
+        cached_result = load_cached(db_path)
+
+    for result in (live_result, cached_result):
+        entry = next(e for e in result.entries if e.work_id == "1")
+        assert entry.on_disk is False
+        assert entry.title == "Catalog Title"
+        assert "Doctor Who" in entry.fandoms
+
+
+def test_a_real_download_supersedes_its_catalog_stub_after_refresh():
+    # The same work_id exists as both a catalog entry and (once downloaded)
+    # a real file -- the real scanned entry should win once it shows up.
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        db.save_catalog_works(db_path, [_catalog_row("1", title="Catalog Title")])
+        _build_epub(os.path.join(downloads, "1_Real.epub"), ["Fanworks"])
+
+        result = refresh_cache(downloads, None, db_path)
+
+    entry = next(e for e in result.entries if e.work_id == "1")
+    assert entry.on_disk is True
+    assert entry.title != "Catalog Title"
 
 
 def test_logged_success_with_no_file_is_flagged_missing():

@@ -47,6 +47,12 @@ Users/sessions/bookmarks are the one place this file departs from "global,
 shared data": bookmarks are scoped per user_id, everything else in this
 module stays shared across every account, same as before login existed.
 
+catalog_works holds metadata for works this app has never scanned a file
+for -- imported in bulk from an external export (see app/catalog_import.py)
+rather than produced by this app's own scanning. scanner.py folds these in
+as synthetic on_disk=False entries alongside real scanned/logged works, so
+they flow through the exact same classification/filtering pipeline.
+
 Everything else is computed live from the filesystem/log/feed on each
 request -- this is deliberately the minimum needed to make those pages useful.
 """
@@ -128,6 +134,31 @@ def init_db(path: str) -> None:
                 tag TEXT PRIMARY KEY,
                 relation TEXT NOT NULL CHECK (relation IN ('synonym', 'child')),
                 target TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS catalog_works (
+                work_id TEXT PRIMARY KEY,
+                title TEXT,
+                author TEXT,
+                rating TEXT,
+                warnings TEXT,
+                categories TEXT,
+                fandoms TEXT,
+                relationships TEXT,
+                freeform TEXT,
+                language TEXT,
+                summary TEXT,
+                word_count INTEGER,
+                chapters_have INTEGER,
+                chapters_total INTEGER,
+                published_date TEXT,
+                series TEXT,
+                story_url TEXT,
+                source_path TEXT,
+                imported_at TEXT
             )
             """
         )
@@ -969,6 +1000,65 @@ def load_work_tags(path: str) -> dict[str, dict[str, list[str]]]:
     for work_id, category, tag in rows:
         result[work_id][category].append(tag)
     return {work_id: dict(categories) for work_id, categories in result.items()}
+
+
+_CATALOG_LIST_COLUMNS = ("warnings", "categories", "fandoms", "relationships", "freeform")
+_CATALOG_COLUMNS = [
+    "work_id", "title", "author", "rating", *_CATALOG_LIST_COLUMNS, "language", "summary",
+    "word_count", "chapters_have", "chapters_total", "published_date", "series", "story_url",
+    "source_path", "imported_at",
+]
+
+
+def save_catalog_works(path: str, rows: list[dict]) -> int:
+    """Upserts `rows` (each a dict keyed like _CATALOG_COLUMNS, list-valued
+    fields as real Python lists) into catalog_works, replacing any existing
+    row for the same work_id -- so re-running an import with a fresher
+    export just updates in place. See app/catalog_import.py, which builds
+    these rows from an external SQLite export; this function only knows
+    the storage shape, not where the data came from. Returns len(rows) for
+    the caller's own progress bookkeeping.
+    """
+    if not rows:
+        return 0
+    encoded = []
+    for row in rows:
+        encoded.append(tuple(
+            "\x1f".join(row[c]) if c in _CATALOG_LIST_COLUMNS else row.get(c)
+            for c in _CATALOG_COLUMNS
+        ))
+    placeholders = ", ".join("?" for _ in _CATALOG_COLUMNS)
+    updates = ", ".join(f"{c} = excluded.{c}" for c in _CATALOG_COLUMNS if c != "work_id")
+    with _connect(path) as conn:
+        conn.executemany(
+            f"""
+            INSERT INTO catalog_works ({', '.join(_CATALOG_COLUMNS)}) VALUES ({placeholders})
+            ON CONFLICT(work_id) DO UPDATE SET {updates}
+            """,
+            encoded,
+        )
+    return len(rows)
+
+
+def get_all_catalog_works(path: str) -> dict[str, dict]:
+    """work_id -> a dict shaped like a save_catalog_works row, list-valued
+    fields decoded back into real lists -- see scanner._catalog_row_to_entry,
+    which turns each of these into a synthetic on_disk=False WorkEntry.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute(f"SELECT {', '.join(_CATALOG_COLUMNS)} FROM catalog_works").fetchall()
+    result = {}
+    for row in rows:
+        record = dict(zip(_CATALOG_COLUMNS, row))
+        for c in _CATALOG_LIST_COLUMNS:
+            record[c] = [v for v in (record[c] or "").split("\x1f") if v]
+        result[record["work_id"]] = record
+    return result
+
+
+def count_catalog_works(path: str) -> int:
+    with _connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM catalog_works").fetchone()[0]
 
 
 def save_abs_matches(path: str, matches: dict[str, str]) -> None:

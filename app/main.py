@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import ao3_client, audiobookshelf, auth, db, epub_reader, rss, scanner
+from . import ao3_client, audiobookshelf, auth, catalog_import, db, epub_reader, rss, scanner
 from .epub_meta import looks_like_relationship
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/downloads")
@@ -168,6 +168,44 @@ def _ensure_download_worker_running():
     if not _download_worker_running():
         _download_worker_stop.clear()
         _download_worker_task = asyncio.create_task(_download_worker_loop())
+
+
+CATALOG_IMPORT_STATUS_KEY = "catalog_import_status"  # "" | "running" | "done" | "error"
+CATALOG_IMPORT_PROGRESS_KEY = "catalog_import_progress"
+CATALOG_IMPORT_ERROR_KEY = "catalog_import_error"
+
+_catalog_import_task: asyncio.Task | None = None
+
+
+def _catalog_import_running() -> bool:
+    return _catalog_import_task is not None and not _catalog_import_task.done()
+
+
+def _run_catalog_import(source_db_path: str, table_name: str | None) -> None:
+    """Runs synchronously on a worker thread (see _catalog_import_worker) --
+    import_from_sqlite streams the source in batches, so this can run
+    against a multi-million-row export without blocking the event loop or
+    holding the whole thing in memory at once. Status/progress/error are
+    all recorded via db.set_meta so /admin/catalog can poll them across
+    requests without holding any of this in Python state itself.
+    """
+    def progress(imported: int, skipped: int) -> None:
+        db.set_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY, f"{imported} imported, {skipped} skipped so far")
+
+    try:
+        imported, skipped = catalog_import.import_from_sqlite(
+            DB_PATH, source_db_path, table_name, progress_cb=progress
+        )
+        db.set_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY, f"{imported} imported, {skipped} skipped")
+        scanner.rebuild_work_tags(DB_PATH)
+        db.set_meta(DB_PATH, CATALOG_IMPORT_STATUS_KEY, "done")
+    except Exception as exc:
+        db.set_meta(DB_PATH, CATALOG_IMPORT_ERROR_KEY, str(exc))
+        db.set_meta(DB_PATH, CATALOG_IMPORT_STATUS_KEY, "error")
+
+
+async def _catalog_import_worker(source_db_path: str, table_name: str | None) -> None:
+    await asyncio.to_thread(_run_catalog_import, source_db_path, table_name)
 
 
 @app.on_event("startup")
@@ -3196,3 +3234,46 @@ def admin_create_user(username: str = Form(...), password: str = Form(...), role
 def admin_set_user_password(user_id: int, new_password: str = Form(...)):
     db.set_user_password(DB_PATH, user_id, auth.hash_password(new_password))
     return RedirectResponse(url="/admin/users", status_code=303)
+
+
+@app.get("/admin/catalog", response_class=HTMLResponse)
+def admin_catalog_page(request: Request, error: str = ""):
+    """Bulk-import work metadata from an external SQLite export (see
+    app/catalog_import.py) for works this app has never scanned a file
+    for -- they show up everywhere (Downloads, Tags, Fandoms) as
+    on_disk=False entries, same as a logged-but-missing work, until a real
+    file for that work_id turns up in DOWNLOAD_DIR/MANUAL_DOWNLOAD_DIR.
+    """
+    return templates.TemplateResponse(
+        "admin_catalog.html",
+        {
+            **_base_context(request),
+            "catalog_count": db.count_catalog_works(DB_PATH),
+            "running": _catalog_import_running(),
+            "status": db.get_meta(DB_PATH, CATALOG_IMPORT_STATUS_KEY) or "",
+            "progress": db.get_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY) or "",
+            "import_error": db.get_meta(DB_PATH, CATALOG_IMPORT_ERROR_KEY) or "",
+            "error": error,
+        },
+    )
+
+
+@app.post("/admin/catalog/import")
+async def admin_catalog_import(source_db_path: str = Form(...), table_name: str = Form("")):
+    global _catalog_import_task
+    source_db_path = source_db_path.strip()
+    if not source_db_path:
+        return RedirectResponse(
+            url="/admin/catalog?error=" + quote("Enter a path to the source SQLite file."), status_code=303
+        )
+    if _catalog_import_running():
+        return RedirectResponse(
+            url="/admin/catalog?error=" + quote("An import is already running."), status_code=303
+        )
+    db.set_meta(DB_PATH, CATALOG_IMPORT_STATUS_KEY, "running")
+    db.set_meta(DB_PATH, CATALOG_IMPORT_PROGRESS_KEY, "")
+    db.set_meta(DB_PATH, CATALOG_IMPORT_ERROR_KEY, "")
+    _catalog_import_task = asyncio.create_task(
+        _catalog_import_worker(source_db_path, table_name.strip() or None)
+    )
+    return RedirectResponse(url="/admin/catalog", status_code=303)

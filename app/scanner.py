@@ -18,6 +18,14 @@ Reconciliation is keyed by AO3 work id, extracted both from the
 `<id>_...epub` / `<id> ...epub` filename convention and from log.jsonl's
 work URLs. ao3downloader's settings.ini can customize the filename pattern,
 so the separator after the leading id may be an underscore or a space.
+
+A third source, alongside disk and log: db.catalog_works, works imported in
+bulk from an external export (see app/catalog_import.py) that this app has
+never scanned a file for. _merge_catalog_entries folds these in as synthetic
+on_disk=False entries wherever disk+log entries are gathered, so a catalog
+work goes through the exact same classification/precompute pipeline as
+everything else -- and a real scanned/logged entry for the same work_id
+always wins over its catalog stub.
 """
 
 import os
@@ -180,6 +188,59 @@ def _scan_disk(download_dirs: list[str], abs_matches: dict[str, AbsBookMatch] | 
                 entries[work_id] = entry
 
     return entries
+
+
+def _catalog_row_to_entry(row: dict) -> WorkEntry:
+    """One db.get_all_catalog_works row -> a synthetic on_disk=False
+    WorkEntry. Fixed metadata (title/rating/warnings/summary/word_count/
+    etc.) is trusted directly from the imported source -- same as an
+    Audiobookshelf match's metadata is trusted over re-parsing an epub --
+    since there's no file here to parse in the first place.
+
+    `fandom_candidates` is the union of the row's own fandoms/
+    relationships/freeform tags, and `fandoms` is pre-seeded with just the
+    row's own fandom tags -- feeding _resolve_tag_categories the exact
+    same shape a real epub's own guessed fandoms would, so those specific
+    tags default to "fandom" and everything else still runs through the
+    normal explicit-override-then-heuristic resolution (a relationship tag
+    still needs to look like one via looks_like_relationship to default
+    correctly -- same accepted limitation real epub parsing already has,
+    always correctable via the Tags page).
+    """
+    return WorkEntry(
+        work_id=row["work_id"],
+        title=row["title"],
+        author=row["author"],
+        rating=row["rating"],
+        warnings=row["warnings"],
+        categories=row["categories"],
+        fandoms=row["fandoms"],
+        fandom_candidates=[*row["fandoms"], *row["relationships"], *row["freeform"]],
+        series=row["series"],
+        published_date=row["published_date"],
+        language=row["language"],
+        summary=row["summary"],
+        word_count=row["word_count"],
+        chapters_have=row["chapters_have"],
+        chapters_total=row["chapters_total"],
+        on_disk=False,
+    )
+
+
+def _merge_catalog_entries(entries: list[WorkEntry], db_path: str | None) -> list[WorkEntry]:
+    """Appends a synthetic entry for every db.catalog_works row whose
+    work_id isn't already covered by a real disk/log entry -- a real
+    entry always wins over its catalog stub. No-op without a db_path
+    (the live, uncached scan() path can be used with none at all).
+    """
+    if not db_path:
+        return entries
+    existing_ids = {e.work_id for e in entries}
+    catalog_rows = db.get_all_catalog_works(db_path)
+    catalog_entries = [
+        _catalog_row_to_entry(row) for work_id, row in catalog_rows.items() if work_id not in existing_ids
+    ]
+    return entries + catalog_entries
 
 
 def scan_raw(
@@ -505,9 +566,9 @@ def scan(
     tag_synonyms = db.get_tag_synonyms(db_path) if db_path else {}
     same_category_parent_of = child_parent_map(db.get_tag_children(db_path)) if db_path else {}
     tag_fandoms = db.get_all_tag_fandoms(db_path) if db_path else {}
+    entries = _merge_catalog_entries(scan_raw(download_dir, log_path, abs_matches, extra_dirs), db_path)
     return _finalize(
-        scan_raw(download_dir, log_path, abs_matches, extra_dirs), overrides, tag_categories, tag_synonyms,
-        same_category_parent_of, tag_fandoms,
+        entries, overrides, tag_categories, tag_synonyms, same_category_parent_of, tag_fandoms,
     )
 
 
@@ -520,6 +581,7 @@ def refresh_cache(
 ) -> ScanResult:
     entries = scan_raw(download_dir, log_path, abs_matches, extra_dirs)
     db.save_works_cache(db_path, [_entry_to_row(e) for e in entries])
+    entries = _merge_catalog_entries(entries, db_path)
     result = _finalize(
         entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
         child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
@@ -531,13 +593,14 @@ def refresh_cache(
 def rebuild_work_tags(db_path: str) -> None:
     """Recomputes every work's resolved tag categories/associations from
     the already-cached works_cache rows (no filesystem/epub work, unlike
-    refresh_cache) and persists the result via db.save_work_tags. Call this
-    after any write that could change that resolution -- tag
-    classification, wrangling, or Fandom association -- so load_cached's
-    precomputed_tags stay in sync with the tables it's derived from.
+    refresh_cache) plus any catalog_works entries, and persists the result
+    via db.save_work_tags. Call this after any write that could change
+    that resolution -- tag classification, wrangling, Fandom association,
+    or a catalog import -- so load_cached's precomputed_tags stay in sync
+    with the tables it's derived from.
     """
     rows = db.load_works_cache(db_path)
-    entries = [_row_to_entry(row) for row in rows]
+    entries = _merge_catalog_entries([_row_to_entry(row) for row in rows], db_path)
     result = _finalize(
         entries, db.get_all_overrides(db_path), db.get_all_tag_categories(db_path), db.get_tag_synonyms(db_path),
         child_parent_map(db.get_tag_children(db_path)), db.get_all_tag_fandoms(db_path),
@@ -547,7 +610,7 @@ def rebuild_work_tags(db_path: str) -> None:
 
 def load_cached(db_path: str) -> ScanResult:
     rows = db.load_works_cache(db_path)
-    entries = [_row_to_entry(row) for row in rows]
+    entries = _merge_catalog_entries([_row_to_entry(row) for row in rows], db_path)
     return _finalize(entries, db.get_all_overrides(db_path), precomputed_tags=db.load_work_tags(db_path))
 
 

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Catalog Import - Archive Of My Own{% endblock %}
+{% block content %}
+  <header>
+    <h1>Catalog Import</h1>
+  </header>
+
+  <p class="hint">
+    Bulk-import work metadata from an external SQLite database for works you haven't downloaded a
+    file for -- they'll show up everywhere (Downloads, Tags, Fandoms) as not-yet-downloaded, same
+    as a logged-but-missing work, until a real file for that work turns up in your downloads folder.
+  </p>
+
+  {% if error %}<p class="badge badge-warn">{{ error }}</p>{% endif %}
+  {% if import_error %}<p class="badge badge-warn">Last import failed: {{ import_error }}</p>{% endif %}
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-value">{{ catalog_count }}</div>
+      <div class="stat-label">catalog works imported</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ "Running" if running else "Idle" }}</div>
+      <div class="stat-label">import status</div>
+    </div>
+  </section>
+
+  {% if progress %}
+  <p class="paths">{{ progress }}</p>
+  {% endif %}
+
+  <form method="post" action="/admin/catalog/import" class="stacked-form">
+    <label>Path to the source SQLite file (inside this container)
+      <input type="text" name="source_db_path" placeholder="/data/my-library.db" required {% if running %}disabled{% endif %}>
+    </label>
+    <label>Table name (leave blank to auto-detect, if the file has exactly one table)
+      <input type="text" name="table_name" placeholder="works" {% if running %}disabled{% endif %}>
+    </label>
+    <button type="submit" {% if running %}disabled{% endif %}>Import</button>
+  </form>
+
+  <p class="hint">
+    Runs in the background and streams the source in batches, so it's safe to point at an export
+    with millions of rows -- refresh this page to check on progress. Re-running an import updates
+    existing catalog entries in place (matched by AO3 work id), so a fresher export just overwrites
+    the old data.
+  </p>
+{% endblock %}

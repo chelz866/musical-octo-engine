@@ -493,6 +493,77 @@ def test_load_work_tags_omits_a_work_with_no_rows():
         assert db.load_work_tags(path) == {}
 
 
+def _sample_catalog_row(work_id="35282845", **overrides):
+    row = {
+        "work_id": work_id,
+        "title": "glass in the park",
+        "author": "itadorihoney",
+        "rating": "Explicit",
+        "warnings": ["No Archive Warnings Apply"],
+        "categories": ["F/M"],
+        "fandoms": ["Tokyo Revengers (Anime)"],
+        "relationships": ["Takemichi/Reader"],
+        "freeform": ["Smut", "Unprotected Sex"],
+        "language": "English",
+        "summary": "friends to lovers",
+        "word_count": 8983,
+        "chapters_have": 1,
+        "chapters_total": 1,
+        "published_date": "2021-11-23",
+        "series": None,
+        "story_url": "https://archiveofourown.org/works/35282845",
+        "source_path": "dec2021jan2022update/Completed/glass in the park.epub",
+        "imported_at": "2026-01-01T00:00:00",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_save_and_get_all_catalog_works_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_catalog_works(path, [_sample_catalog_row()])
+
+        rows = db.get_all_catalog_works(path)
+        assert set(rows) == {"35282845"}
+        row = rows["35282845"]
+        assert row["title"] == "glass in the park"
+        assert row["fandoms"] == ["Tokyo Revengers (Anime)"]
+        assert row["warnings"] == ["No Archive Warnings Apply"]
+        assert row["word_count"] == 8983
+        assert row["chapters_have"] == 1 and row["chapters_total"] == 1
+
+
+def test_save_catalog_works_upserts_by_work_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_catalog_works(path, [_sample_catalog_row(title="Old Title")])
+        db.save_catalog_works(path, [_sample_catalog_row(title="New Title")])
+
+        rows = db.get_all_catalog_works(path)
+        assert len(rows) == 1
+        assert rows["35282845"]["title"] == "New Title"
+
+
+def test_save_catalog_works_empty_list_is_a_no_op():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.save_catalog_works(path, []) == 0
+        assert db.get_all_catalog_works(path) == {}
+
+
+def test_count_catalog_works():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        assert db.count_catalog_works(path) == 0
+        db.save_catalog_works(path, [_sample_catalog_row("1"), _sample_catalog_row("2")])
+        assert db.count_catalog_works(path) == 2
+
+
 def test_pop_legacy_tracked_feeds_returns_empty_when_no_legacy_table(tmp_path):
     path = str(tmp_path / "app.db")
     db.init_db(path)
