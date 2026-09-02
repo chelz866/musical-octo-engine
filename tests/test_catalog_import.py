@@ -176,7 +176,12 @@ def test_import_from_sqlite_batches_across_multiple_rows():
         assert db.count_catalog_works(db_path) == 5
 
 
-def test_imported_catalog_work_shows_up_in_load_cached_with_resolved_tags():
+def test_imported_catalog_work_lands_in_catalog_works_not_load_cached():
+    # catalog_works is deliberately never merged into scanner.py's
+    # per-request WorkEntry pipeline (see scanner.py's own module
+    # docstring) -- db.get_all_catalog_works is an unbounded fetchall over
+    # the whole table, fine for this one-off import but not for something
+    # re-run on every page load at real (multi-million-row) scale.
     with tempfile.TemporaryDirectory() as tmp:
         source_path = _make_source_db(tmp, [_SAMPLE_ROW])
         db_path = os.path.join(tmp, "app.db")
@@ -185,9 +190,6 @@ def test_imported_catalog_work_shows_up_in_load_cached_with_resolved_tags():
         catalog_import.import_from_sqlite(db_path, source_path)
         scanner.rebuild_work_tags(db_path)
 
+        assert db.get_all_catalog_works(db_path)["35282845"]["title"] == "glass in the park"
         result = scanner.load_cached(db_path)
-        entry = next(e for e in result.entries if e.work_id == "35282845")
-        assert entry.on_disk is False
-        assert entry.title == "glass in the park"
-        assert "Tokyo Revengers (Anime)" in entry.fandoms
-        assert "Takemichi/Reader" in entry.relationships
+        assert result.entries == []

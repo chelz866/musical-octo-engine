@@ -550,14 +550,17 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   paths inside the container -- once mounted, enter `/catalog/source.db` (docker-compose.yml's own
   fixed in-container path for it) on the Catalog Import page, plus the table name if that file has
   more than one table.
-  Imported works show up everywhere (Downloads, Tags, Fandoms) as not-yet-downloaded, going through
-  the exact same tag classification as a real scanned work (see `app/scanner.py`'s
-  `_merge_catalog_entries`) -- and once a real file for that work id shows up in `DOWNLOAD_DIR` or
-  `MANUAL_DOWNLOAD_DIR`, the real scanned entry automatically takes over from its catalog stub. Runs
-  in the background and streams the source in batches (see `app/catalog_import.py`), so it's safe to
-  point at an export with millions of rows; re-running an import against a fresher export just
-  updates existing catalog entries in place, matched by AO3 work id (parsed from a `Story URL`-style
-  column -- there's no dedicated id column expected).
+  Imported rows land in their own `catalog_works` table, matched by AO3 work id (parsed from a
+  `Story URL`-style column -- there's no dedicated id column expected). They deliberately do **not**
+  show up on Downloads/Tags/Fandoms yet -- those pages run a full-library scan on every request, and
+  at this feature's real scale (multi-million-row exports) rebuilding every catalog row into a Python
+  object on every page load is a multi-GB-per-request cost, not a "few extra library entries" one (an
+  earlier version tried it; it's why this note exists). The Catalog Import page itself just shows a
+  count for now -- an actual browse/search view needs its own SQL-native, paginated path instead of
+  participating in that per-request pipeline, which isn't built yet. Runs in the background and
+  streams the source in batches (see `app/catalog_import.py`), so importing itself is safe against an
+  export with millions of rows; re-running an import against a fresher export just updates existing
+  catalog entries in place.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

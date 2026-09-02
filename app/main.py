@@ -3253,10 +3253,13 @@ def admin_set_user_password(user_id: int, new_password: str = Form(...)):
 @app.get("/admin/catalog", response_class=HTMLResponse)
 def admin_catalog_page(request: Request, error: str = ""):
     """Bulk-import work metadata from an external SQLite export (see
-    app/catalog_import.py) for works this app has never scanned a file
-    for -- they show up everywhere (Downloads, Tags, Fandoms) as
-    on_disk=False entries, same as a logged-but-missing work, until a real
-    file for that work_id turns up in DOWNLOAD_DIR/MANUAL_DOWNLOAD_DIR.
+    app/catalog_import.py) into db.catalog_works, for works this app has
+    never scanned a file for. Deliberately NOT merged into Downloads/Tags/
+    Fandoms or any other page yet -- those all run scanner.load_cached on
+    every request, which would mean rebuilding a Python object for every
+    catalog row on every page load; fine at a few thousand rows, not at
+    the multi-million-row scale this is actually built for. This page is
+    the only place catalog_works is currently visible (just a count).
     """
     return templates.TemplateResponse(
         "admin_catalog.html",

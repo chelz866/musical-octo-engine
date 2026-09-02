@@ -1049,8 +1049,11 @@ def save_catalog_works(path: str, rows: list[dict]) -> int:
 
 def get_all_catalog_works(path: str) -> dict[str, dict]:
     """work_id -> a dict shaped like a save_catalog_works row, list-valued
-    fields decoded back into real lists -- see scanner._catalog_row_to_entry,
-    which turns each of these into a synthetic on_disk=False WorkEntry.
+    fields decoded back into real lists. One unbounded fetchall() over the
+    whole table -- fine for the admin import path's own bookkeeping, but
+    NOT safe to call on every page load once this table has millions of
+    rows (see scanner.py's own module docstring for the incident that
+    taught this the hard way). Nothing in scanner.py calls this.
     """
     with _connect(path) as conn:
         rows = conn.execute(f"SELECT {', '.join(_CATALOG_COLUMNS)} FROM catalog_works").fetchall()
