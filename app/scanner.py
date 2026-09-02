@@ -596,6 +596,67 @@ def load_cached(db_path: str) -> ScanResult:
     return _finalize(entries, db.get_all_overrides(db_path), precomputed_tags=db.load_work_tags(db_path))
 
 
+def load_cached_by_ids(db_path: str, work_ids: list[str]) -> list[WorkEntry]:
+    """load_cached, scoped to exactly `work_ids` -- same precomputed
+    work_tags substitution and override application, just against
+    db.load_works_cache_by_ids/db.load_work_tags_by_ids instead of the
+    whole works_cache table. For main.py's unified work search: once an
+    indexed lookup (db.get_work_ids_for_tag) has already found which
+    on-disk work_ids match a filter, this hydrates only that page's worth
+    of them into real WorkEntry objects (so they render through the exact
+    same blurb template real Downloads results do), never the whole
+    on-disk library.
+    """
+    if not work_ids:
+        return []
+    rows = db.load_works_cache_by_ids(db_path, work_ids)
+    entries = [_row_to_entry(row) for row in rows]
+    precomputed = db.load_work_tags_by_ids(db_path, work_ids)
+    return _finalize(entries, db.get_all_overrides(db_path), precomputed_tags=precomputed).entries
+
+
+def catalog_row_to_entry(row: dict) -> WorkEntry:
+    """One db.catalog_works row (see db.fetch_catalog_works_slice) -> a
+    synthetic on_disk=False WorkEntry, so a catalog work renders through
+    the exact same blurb template a real on-disk/logged work does --
+    same summary/tags/rating/warnings/word-count display, just a Download
+    button (see main.py) where a file-based action would otherwise go.
+
+    Only ever call this on rows a caller has already paginated (a page's
+    worth from fetch_catalog_works_slice) -- converting catalog_works'
+    full table this way is exactly the per-request memory blowup this
+    module's own docstring describes; nothing here enforces that, the
+    caller has to.
+
+    Fixed metadata (title/rating/warnings/summary/word_count/etc.) is
+    trusted directly from the imported source, same as an Audiobookshelf
+    match's metadata is trusted over re-parsing an epub -- there's no file
+    here to parse in the first place. `characters` has no catalog
+    equivalent (the source export this was built against has no character
+    column), so it's always empty for these.
+    """
+    return WorkEntry(
+        work_id=row["work_id"],
+        title=row["title"],
+        author=row["author"],
+        rating=row["rating"],
+        warnings=row["warnings"],
+        categories=row["categories"],
+        fandoms=row["fandoms"],
+        fandom_candidates=[*row["fandoms"], *row["relationships"], *row["freeform"]],
+        relationships=row["relationships"],
+        freeform_tags=row["freeform"],
+        series=row["series"],
+        published_date=row["published_date"],
+        language=row["language"],
+        summary=row["summary"],
+        word_count=row["word_count"],
+        chapters_have=row["chapters_have"],
+        chapters_total=row["chapters_total"],
+        on_disk=False,
+    )
+
+
 def _join(values: list[str]) -> str | None:
     return "\x1f".join(values) if values else None
 

@@ -1,32 +1,95 @@
 {% extends "base.html" %}
 {% import "_blurb.html" as blurb %}
 {% import "_pager.html" as pagination %}
-{% import "_filters.html" as filters %}
 {% block title %}Archive Of My Own{% endblock %}
 {% block content %}
-  {{ filters.panel(filter_panel, active_chips | length > 0) }}
+  <form method="get" action="/" class="stacked-form work-search-form">
+    <label>Browse by
+      <select name="category" onchange="document.getElementById('work-tag-input').value = ''; document.getElementById('work-tag-hidden').value = '';">
+        {% for value, label in category_labels.items() %}
+        <option value="{{ value }}" {% if value == category %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="facet-autocomplete" data-category="{{ category }}">
+      <input type="text" id="work-tag-input" placeholder="Type a {{ category_labels.get(category, 'tag') | lower }}&hellip;"
+             value="{{ tag }}" autocomplete="off" oninput="onWorkTagSearch(this)" onkeydown="onWorkTagKeydown(event, this)">
+      <input type="hidden" name="tag" id="work-tag-hidden" value="{{ tag }}">
+      <div class="facet-suggestions" hidden></div>
+    </div>
+    <button type="submit">Search</button>
+  </form>
 
-  {% if active_chips %}
-  <p class="filter-banner">
-    Filtered by:
-    {% for chip in active_chips %}<span class="badge">{{ chip.text }} <a href="{{ chip.remove_href }}" title="Remove this filter">&times;</a></span>{% endfor %}
-    <a href="/">clear all</a>
-    &middot; {{ total_filtered | format_number }} match{{ "es" if total_filtered != 1 else "" }}
+  {% if tag %}
+  <p class="hint">
+    {{ total_filtered | format_number }} work{{ "s" if total_filtered != 1 else "" }} tagged
+    "{{ tag }}" ({{ category_labels.get(category, category) | lower }}) &middot; <a href="/">clear</a>
   </p>
-  {% endif %}
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
 
   <ul class="blurb-list work index group">
     {% for e in entries %}
-      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, home_edit_source) }}
+      {{ blurb.blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, home_edit_source, show_download_button=show_download_button) }}
     {% else %}
-    <li class="empty">
-      {% if last_refreshed %}No works found. Check the mounted downloads/log paths on the <a href="/admin">Admin Dashboard</a>.
-      {% else %}No data yet &mdash; click Refresh above to scan your downloads folder.{% endif %}
-    </li>
+    <li class="empty">No works found for this {{ category_labels.get(category, category) | lower }}.</li>
     {% endfor %}
   </ul>
 
   {{ pagination.pager(page, total_pages, pager_qs) }}
+  {% else %}
+  <p class="hint">Pick a fandom, relationship, or tag above to see matching works -- on disk, logged, or
+    imported via Catalog Import alike.</p>
+  {% endif %}
+
+  <script>
+    function onWorkTagSearch(input) {
+      clearTimeout(input._debounce);
+      var q = input.value.trim();
+      var container = input.parentElement;
+      document.getElementById("work-tag-hidden").value = input.value;
+      if (q.length < 2) { hideWorkTagSuggestions(container); return; }
+      input._debounce = setTimeout(function () {
+        fetch("/works/search?category=" + encodeURIComponent(container.dataset.category) + "&q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (matches) { renderWorkTagSuggestions(container, matches); });
+      }, 200);
+    }
+
+    function renderWorkTagSuggestions(container, matches) {
+      var list = container.querySelector(".facet-suggestions");
+      list.textContent = "";
+      if (!matches.length) { list.hidden = true; return; }
+      matches.forEach(function (value) {
+        var item = document.createElement("div");
+        item.className = "facet-suggestion-item";
+        item.textContent = value;
+        item.addEventListener("mousedown", function (e) { e.preventDefault(); chooseWorkTag(container, value); });
+        list.appendChild(item);
+      });
+      list.hidden = false;
+    }
+
+    function onWorkTagKeydown(event, input) {
+      if (event.key !== "Enter") return;
+      var items = input.parentElement.querySelectorAll(".facet-suggestion-item");
+      if (items.length === 1) {
+        event.preventDefault();
+        chooseWorkTag(input.parentElement, items[0].textContent);
+      }
+    }
+
+    function chooseWorkTag(container, value) {
+      document.getElementById("work-tag-input").value = value;
+      document.getElementById("work-tag-hidden").value = value;
+      hideWorkTagSuggestions(container);
+      container.closest("form").submit();
+    }
+
+    function hideWorkTagSuggestions(container) {
+      var list = container.querySelector(".facet-suggestions");
+      list.hidden = true;
+      list.textContent = "";
+    }
+  </script>
 {% endblock %}

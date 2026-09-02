@@ -190,6 +190,12 @@ def init_db(path: str) -> None:
         )
         conn.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_work_tags_by_tag
+            ON work_tags (category, tag)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS tag_descendants (
                 ancestor TEXT NOT NULL,
                 descendant TEXT NOT NULL,
@@ -1133,7 +1139,7 @@ def save_catalog_work_tags(path: str, work_ids: list[str], rows: list[tuple[str,
     "find every catalog work tagged X" is an indexed lookup
     (idx_catalog_work_tags_by_tag) instead of a substring search over
     catalog_works' own \\x1f-joined columns, which couldn't use an index
-    at all -- see search_catalog_works.
+    at all -- see fetch_catalog_works_slice.
     """
     if not work_ids:
         return
@@ -1167,22 +1173,27 @@ def get_catalog_tag_values(path: str, category: str) -> set[str]:
     return {row[0] for row in rows}
 
 
-def search_catalog_works(path: str, category: str, tag: str, page: int, page_size: int) -> tuple[list[dict], int, int]:
-    """(page_of_catalog_work_rows, clamped_page, total_pages) for catalog
-    works tagged `tag` in `category` -- an indexed lookup joined against
-    catalog_works, with SQL doing the counting and LIMIT/OFFSET pagination
-    itself. Never loads more than one page's worth of catalog_works rows
-    into Python, however many works match or how large the catalog is
-    overall -- see catalog_work_tags' own docstring for why this couldn't
-    be done as a plain substring search over catalog_works directly.
-    """
+def count_catalog_works_for_tag(path: str, category: str, tag: str) -> int:
     with _connect(path) as conn:
-        total = conn.execute(
+        return conn.execute(
             "SELECT COUNT(*) FROM catalog_work_tags WHERE category = ? AND tag = ?", (category, tag)
         ).fetchone()[0]
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        page = max(1, min(page, total_pages))
-        offset = (page - 1) * page_size
+
+
+def fetch_catalog_works_slice(path: str, category: str, tag: str, offset: int, limit: int) -> list[dict]:
+    """A raw LIMIT/OFFSET slice of catalog works tagged `tag` in `category`
+    -- an indexed lookup joined against catalog_works, no clamping of its
+    own. Used by main.py's unified work search, which computes where the
+    catalog's own contribution to a page should start once however many
+    on-disk matches (see get_work_ids_for_tag) have already filled part of
+    it -- that offset generally won't land on one of *this* table's own
+    page boundaries, so clamping to page/page_size here wouldn't make
+    sense. Never loads more than `limit` catalog_works rows into
+    Python, however many works match or how large the catalog is overall
+    -- see catalog_work_tags' own docstring for why this couldn't be done
+    as a plain substring search over catalog_works directly.
+    """
+    with _connect(path) as conn:
         cols = ", ".join(f"c.{c}" for c in _CATALOG_COLUMNS)
         rows = conn.execute(
             f"""
@@ -1192,7 +1203,7 @@ def search_catalog_works(path: str, category: str, tag: str, page: int, page_siz
             ORDER BY c.title COLLATE NOCASE
             LIMIT ? OFFSET ?
             """,
-            (category, tag, page_size, offset),
+            (category, tag, limit, offset),
         ).fetchall()
     results = []
     for row in rows:
@@ -1200,7 +1211,67 @@ def search_catalog_works(path: str, category: str, tag: str, page: int, page_siz
         for c in _CATALOG_LIST_COLUMNS:
             record[c] = [v for v in (record[c] or "").split("\x1f") if v]
         results.append(record)
-    return results, page, total_pages
+    return results
+
+
+def get_work_ids_for_tag(path: str, category: str, tag: str) -> list[str]:
+    """Every on-disk work_id tagged `tag` in `category`, via the same
+    (category, tag) index catalog_work_tags uses -- see
+    idx_work_tags_by_tag. Returns every match rather than a page of them:
+    the on-disk library is comparatively small (this app's own working
+    set, not an imported catalog that can run into the millions), so
+    there's no need for SQL-side pagination here the way
+    fetch_catalog_works_slice needs it -- main.py's unified search does
+    its own in-Python slicing of this list once combined with however
+    many catalog matches there are.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT work_id FROM work_tags WHERE category = ? AND tag = ?", (category, tag)
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def get_work_tag_values(path: str, category: str) -> set[str]:
+    """On-disk equivalent of get_catalog_tag_values -- every distinct tag
+    value work_tags has for `category`.
+    """
+    with _connect(path) as conn:
+        rows = conn.execute("SELECT DISTINCT tag FROM work_tags WHERE category = ?", (category,)).fetchall()
+    return {row[0] for row in rows}
+
+
+def load_works_cache_by_ids(path: str, work_ids: list[str]) -> list[dict]:
+    """load_works_cache, scoped to exactly `work_ids` -- for hydrating one
+    page's worth of on-disk matches (see main.py's unified work search)
+    instead of loading the whole works_cache table.
+    """
+    if not work_ids:
+        return []
+    cols = WORKS_CACHE_COLUMNS
+    placeholders = ", ".join("?" for _ in work_ids)
+    with _connect(path) as conn:
+        rows = conn.execute(
+            f"SELECT {', '.join(cols)} FROM works_cache WHERE work_id IN ({placeholders})", work_ids
+        ).fetchall()
+    return [dict(zip(cols, row)) for row in rows]
+
+
+def load_work_tags_by_ids(path: str, work_ids: list[str]) -> dict[str, dict[str, list[str]]]:
+    """load_work_tags, scoped to exactly `work_ids` -- see
+    load_works_cache_by_ids for why.
+    """
+    if not work_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in work_ids)
+    result: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    with _connect(path) as conn:
+        rows = conn.execute(
+            f"SELECT work_id, category, tag FROM work_tags WHERE work_id IN ({placeholders})", work_ids
+        ).fetchall()
+    for work_id, category, tag in rows:
+        result[work_id][category].append(tag)
+    return {work_id: dict(categories) for work_id, categories in result.items()}
 
 
 def save_abs_matches(path: str, matches: dict[str, str]) -> None:

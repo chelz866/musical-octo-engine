@@ -9,9 +9,11 @@ from app.scanner import (
     WorkEntry,
     _resolve_associated_fandoms,
     _resolve_tag_categories,
+    catalog_row_to_entry,
     child_parent_map,
     find_files_for_work_id,
     load_cached,
+    load_cached_by_ids,
     rebuild_work_tags,
     refresh_cache,
     resolve_tag_fandom,
@@ -268,6 +270,54 @@ def test_catalog_works_are_not_merged_into_scan_or_load_cached():
 
     assert live_result.entries == []
     assert cached_result.entries == []
+
+
+def test_catalog_row_to_entry_builds_a_displayable_work_entry():
+    entry = catalog_row_to_entry(_catalog_row())
+    assert entry.on_disk is False
+    assert entry.title == "Catalog Title"
+    assert entry.fandoms == ["Doctor Who"]
+    assert entry.freeform_tags == ["Angst", "Fluff"]
+    assert entry.characters == []
+    assert set(entry.fandom_candidates) == {"Doctor Who", "Angst", "Fluff"}
+
+
+def test_load_cached_by_ids_hydrates_only_the_requested_works():
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "Doctor Who"])
+        _build_epub(os.path.join(downloads, "2_B.epub"), ["Fanworks", "Torchwood"])
+        refresh_cache(downloads, None, db_path)
+
+        entries = load_cached_by_ids(db_path, ["1"])
+
+    assert [e.work_id for e in entries] == ["1"]
+    assert "Doctor Who" in entries[0].fandoms
+
+
+def test_load_cached_by_ids_reflects_classification_after_a_rebuild():
+    # Same precomputed-tags substitution load_cached itself uses -- a
+    # classification change is visible here too, once rebuild_work_tags runs.
+    with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as other:
+        db_path = os.path.join(other, "app.db")
+        db.init_db(db_path)
+        _build_epub(os.path.join(downloads, "1_A.epub"), ["Fanworks", "Ianto Jones"])
+        refresh_cache(downloads, None, db_path)
+
+        db.set_tag_categories(db_path, {"Ianto Jones": "character"})
+        rebuild_work_tags(db_path)
+
+        entries = load_cached_by_ids(db_path, ["1"])
+
+    assert "Ianto Jones" in entries[0].characters
+
+
+def test_load_cached_by_ids_empty_list_returns_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = os.path.join(tmp, "app.db")
+        db.init_db(db_path)
+        assert load_cached_by_ids(db_path, []) == []
 
 
 def test_logged_success_with_no_file_is_flagged_missing():

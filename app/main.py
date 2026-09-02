@@ -709,39 +709,83 @@ def _search_facet_tags(facet: str, q: str, limit: int = 20, active_fandoms: set[
     return sorted(matched, key=str.lower)[:limit]
 
 
-CATALOG_BROWSE_PAGE_SIZE = 25
-_catalog_autocomplete_cache: dict[str, tuple[str | None, AutoComplete, dict[str, set[str]]]] = {}
+WORK_SEARCH_PAGE_SIZE = 25
+# The categories the unified Home search can browse by -- the intersection
+# of what both sources actually carry (see scanner.WORK_TAG_KINDS and
+# catalog_import.CATALOG_TAG_KINDS): on-disk has no "warning"/"category"
+# tag rows of its own (those live as plain WorkEntry fields, not something
+# wrangled/classified), and the catalog source has no character data at
+# all. Character/Warning/Category filtering stays on the (currently
+# unwired, see dashboard()'s own docstring) rich filter panel for now.
+WORK_SEARCH_CATEGORIES = ("fandom", "relationship", "freeform")
+WORK_SEARCH_CATEGORY_LABELS = {"fandom": "Fandom", "relationship": "Relationship", "freeform": "Additional Tag"}
+_unified_autocomplete_cache: dict[str, tuple[tuple, AutoComplete, dict[str, set[str]]]] = {}
 
 
-def _get_catalog_autocompleter(category: str) -> tuple[AutoComplete, dict[str, set[str]]]:
+def _get_unified_autocompleter(category: str) -> tuple[AutoComplete, dict[str, set[str]]]:
     """Same cache-by-last-change-timestamp pattern as _get_autocompleter,
-    just sourced from db.get_catalog_tag_values (bounded by how many
-    distinct tags exist, not how many catalog works reference them) instead
-    of scanning every WorkEntry -- rebuilt once per catalog import, not
-    once per request, however large catalog_works itself grows.
+    combining both sources' distinct tag values (each bounded by how many
+    unique tags exist, not by how many works reference them) instead of
+    scanning every WorkEntry. Cache key is a pair so either an on-disk
+    refresh or a fresh catalog import invalidates it independently.
     """
-    cache_key = db.get_meta(DB_PATH, CATALOG_LAST_IMPORTED_KEY)
-    cached_key, cached_ac, cached_index = _catalog_autocomplete_cache.get(category, (None, None, None))
+    cache_key = (db.get_meta(DB_PATH, LAST_REFRESHED_KEY), db.get_meta(DB_PATH, CATALOG_LAST_IMPORTED_KEY))
+    cached_key, cached_ac, cached_index = _unified_autocomplete_cache.get(category, (None, None, None))
     if cached_ac is not None and cached_key == cache_key:
         return cached_ac, cached_index
 
-    values = db.get_catalog_tag_values(DB_PATH, category)
+    values = db.get_work_tag_values(DB_PATH, category) | db.get_catalog_tag_values(DB_PATH, category)
     autocompleter, word_to_tags = _build_autocomplete_index(values)
-    _catalog_autocomplete_cache[category] = (cache_key, autocompleter, word_to_tags)
+    _unified_autocomplete_cache[category] = (cache_key, autocompleter, word_to_tags)
     return autocompleter, word_to_tags
 
 
-def _search_catalog_tags(category: str, q: str, limit: int = 20) -> list[str]:
+def _search_unified_tags(category: str, q: str, limit: int = 20) -> list[str]:
     q = q.strip()
-    if category not in catalog_import.CATALOG_TAG_KINDS or len(q) < 2:
+    if category not in WORK_SEARCH_CATEGORIES or len(q) < 2:
         return []
-    autocompleter, word_to_tags = _get_catalog_autocompleter(category)
+    autocompleter, word_to_tags = _get_unified_autocompleter(category)
     results = autocompleter.search(word=q, max_cost=2, size=limit * 2)
     matched: set[str] = set()
     for result in results:
         key = " ".join(result) if isinstance(result, list) else result
         matched.update(word_to_tags.get(key, ()))
     return sorted(matched, key=str.lower)[:limit]
+
+
+def _search_unified_works(category: str, tag: str, page: int, page_size: int) -> tuple[list, int, int, int]:
+    """(entries, clamped_page, total_pages, total) for every work -- on
+    disk, logged, or catalog-imported alike -- tagged `tag` in `category`.
+
+    On-disk matches always fill a page first, sorted by title; the catalog
+    (see db.fetch_catalog_works_slice) fills whatever's left, picking up
+    exactly where the on-disk contribution left off. On-disk matches are
+    hydrated in full up front (scanner.load_cached_by_ids) -- bounded by
+    how many of *this app's own* works carry the tag, not by catalog_works'
+    real size, so this stays cheap even as your own library grows well
+    past "small." Only the catalog side ever needs SQL-side LIMIT/OFFSET,
+    since only it can plausibly run into the millions.
+    """
+    on_disk_ids = db.get_work_ids_for_tag(DB_PATH, category, tag) if tag else []
+    on_disk_entries = scanner.load_cached_by_ids(DB_PATH, on_disk_ids)
+    on_disk_entries.sort(key=lambda e: (e.title or "").lower())
+    total_on_disk = len(on_disk_entries)
+    total_catalog = db.count_catalog_works_for_tag(DB_PATH, category, tag) if tag else 0
+    total = total_on_disk + total_catalog
+
+    total_pages = max(1, math.ceil(total / page_size))
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = start + page_size
+
+    page_entries = on_disk_entries[start:end]
+    remaining = page_size - len(page_entries)
+    if remaining > 0 and tag:
+        catalog_offset = max(0, start - total_on_disk)
+        catalog_rows = db.fetch_catalog_works_slice(DB_PATH, category, tag, catalog_offset, remaining)
+        page_entries = page_entries + [scanner.catalog_row_to_entry(r) for r in catalog_rows]
+
+    return page_entries, page, total_pages, total
 
 
 def _all_descendants(value: str, children: dict[str, set[str]]) -> set[str]:
@@ -1057,57 +1101,78 @@ def _build_filter_panel(entries: list, filters: dict) -> dict:
     }
 
 
+SHOW_DOWNLOAD_BUTTON_KEY = "show_download_button"
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, page: int = 1):
-    result = scanner.load_cached(DB_PATH)
-    filters = _parse_filters(request)
-    raw_children = db.get_tag_children(DB_PATH)
-    filters["children"] = db.get_all_tag_descendants(DB_PATH)
-    filters["fandom_scope"] = _build_fandom_scope(raw_children, db.get_all_tag_fandoms(DB_PATH))
-    # Facet suggestion/count computation needs the *whole* library, not the
-    # already-filtered list below -- each facet's own counts are computed
-    # by re-filtering result.entries excluding just that one facet (see
-    # _build_filter_panel), which only works against the unfiltered set.
-    filter_panel = _build_filter_panel(result.entries, filters)
-    active_chips = _active_chips(filters)
+def dashboard(request: Request, category: str = "fandom", tag: str = "", page: int = 1):
+    """Every work this app knows about -- on disk, logged, or catalog-
+    imported alike -- is reachable from here, since on_disk is just a
+    property of a work, not a different kind of thing (see
+    scanner.catalog_row_to_entry). Nothing renders until a fandom/
+    relationship/tag is actually picked, the same rule for the whole page
+    regardless of where a match happens to live: the combined set can run
+    into the millions once catalog_works is involved, so there's no "just
+    show me everything" view to fall back to, the way there used to be for
+    the (much smaller) on-disk-only library.
+
+    Rating/Warning/Category/Completion/crossover/date-range/word-count
+    filtering, AND/OR/Exclude semantics, and free-text search -- the rich
+    panel _build_filter_panel/_entry_matches/FACETS built for -- aren't
+    wired to this route right now. That system only ever ran against the
+    on-disk library in Python, which doesn't extend to catalog_works
+    without the same per-request-memory problem this file's own history
+    already tells the story of (see scanner.py's module docstring); porting
+    it to run against both sources via SQL is future work, not dropped.
+    """
+    show_download_button = db.get_meta(DB_PATH, SHOW_DOWNLOAD_BUTTON_KEY) != "false"
+    category = category if category in WORK_SEARCH_CATEGORIES else "fandom"
+    entries, page, total_pages, total = _search_unified_works(category, tag.strip(), page, WORK_SEARCH_PAGE_SIZE)
 
     bookmarked_ids = db.get_bookmarked_work_ids(DB_PATH, request.state.user.id)
     bookmark_notes = db.get_bookmark_notes(DB_PATH, request.state.user.id)
     abs_read_ids, read_marked_ids = _read_ids(request.state.user.id)
 
-    entries = [e for e in result.entries if _entry_matches(e, filters)]
-    if filters["bookmarked"]:
-        entries = [e for e in entries if e.work_id in bookmarked_ids]
-    if filters["unread"]:
-        entries = [e for e in entries if e.work_id not in abs_read_ids and e.work_id not in read_marked_ids]
-    entries.sort(
-        key=SORT_OPTIONS.get(filters["sort"], SORT_OPTIONS[DEFAULT_SORT]),
-        reverse=filters["sort"] in DESCENDING_SORTS,
-    )
-
-    page_entries, page, total_pages = paginate(entries, page, DOWNLOADS_PAGE_SIZE)
-
-    pager_qs = _filter_query_string(filters)
-
     return templates.TemplateResponse(
         "dashboard.html",
         {
             **_base_context(request),
-            "entries": page_entries,
+            "entries": entries,
             "bookmarked_ids": bookmarked_ids,
             "bookmark_notes": bookmark_notes,
             "abs_read_ids": abs_read_ids,
             "read_marked_ids": read_marked_ids,
-            "filter_panel": filter_panel,
-            "active_chips": active_chips,
             "abs_links": _abs_links(),
             "page": page,
             "total_pages": total_pages,
-            "total_filtered": len(entries),
-            "pager_qs": pager_qs,
+            "total_filtered": total,
+            "pager_qs": f"&category={quote(category)}&tag={quote(tag)}",
+            "category": category,
+            "category_labels": WORK_SEARCH_CATEGORY_LABELS,
+            "tag": tag,
+            "show_download_button": show_download_button,
             "home_edit_source": request.state.user.is_admin and db.get_user_home_edit_source(DB_PATH, request.state.user.id),
         },
     )
+
+
+@app.get("/works/search")
+def unified_work_tag_search(category: str = "fandom", q: str = ""):
+    """Typeahead endpoint backing the Home page's fandom/relationship/tag
+    picker -- see _search_unified_tags.
+    """
+    return JSONResponse(_search_unified_tags(category, q))
+
+
+@app.post("/works/{work_id}/download")
+async def download_one_work(work_id: str, title: str = Form(""), next: str = Form("/")):
+    """The Home page's per-blurb Download button, for any not-on-disk work
+    -- catalog-imported or logged-missing alike. Queues exactly this one
+    work through the same download_queue/background worker every other
+    "Download Selected" action already uses (see _enqueue_selected_downloads).
+    """
+    _enqueue_selected_downloads([(work_id, f"https://archiveofourown.org/works/{work_id}", title or None)])
+    return RedirectResponse(url=next or "/", status_code=303)
 
 
 @app.get("/series/{series_name}", response_class=HTMLResponse)
@@ -1305,6 +1370,7 @@ def admin(request: Request):
             "log_path": LOG_PATH,
             "log_exists": os.path.isfile(LOG_PATH),
             "home_edit_source": db.get_user_home_edit_source(DB_PATH, request.state.user.id),
+            "show_download_button": db.get_meta(DB_PATH, SHOW_DOWNLOAD_BUTTON_KEY) != "false",
             "db_optimize_running": _db_optimize_running(),
             "db_optimize_status": db.get_meta(DB_PATH, DB_OPTIMIZE_STATUS_KEY) or "",
             "db_optimize_error": db.get_meta(DB_PATH, DB_OPTIMIZE_ERROR_KEY) or "",
@@ -1335,6 +1401,16 @@ def set_home_edit_source(request: Request, enabled: bool = Form(False)):
     as the per-user Theme/Audiobookshelf-username settings on Account.
     """
     db.set_user_home_edit_source(DB_PATH, request.state.user.id, enabled)
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@app.post("/admin/show_download_button")
+def set_show_download_button(enabled: bool = Form(False)):
+    """Global, not per-user (unlike Use Home as edit source above) -- one
+    app-wide choice for whether the Home page's Download button (see
+    _blurb.html) shows up at all on not-yet-downloaded works.
+    """
+    db.set_meta(DB_PATH, SHOW_DOWNLOAD_BUTTON_KEY, "true" if enabled else "false")
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -3341,12 +3417,10 @@ def admin_set_user_password(user_id: int, new_password: str = Form(...)):
 def admin_catalog_page(request: Request, error: str = ""):
     """Bulk-import work metadata from an external SQLite export (see
     app/catalog_import.py) into db.catalog_works, for works this app has
-    never scanned a file for. Deliberately NOT merged into Downloads/Tags/
-    Fandoms or any other page yet -- those all run scanner.load_cached on
-    every request, which would mean rebuilding a Python object for every
-    catalog row on every page load; fine at a few thousand rows, not at
-    the multi-million-row scale this is actually built for. This page is
-    the only place catalog_works is currently visible (just a count).
+    never scanned a file for. Imported works are browsable on the Home
+    page (see dashboard()) alongside on-disk/logged ones as soon as an
+    import finishes -- this page is just the import trigger + status,
+    not a second place to browse the results.
     """
     return templates.TemplateResponse(
         "admin_catalog.html",
@@ -3383,49 +3457,3 @@ async def admin_catalog_import(source_db_path: str = Form(...), table_name: str 
     return RedirectResponse(url="/admin/catalog", status_code=303)
 
 
-CATALOG_BROWSE_CATEGORY_LABELS = {
-    "fandom": "Fandom",
-    "relationship": "Relationship",
-    "freeform": "Additional Tag",
-    "warning": "Warning",
-    "category": "Category",
-}
-
-
-@app.get("/catalog/browse", response_class=HTMLResponse)
-def catalog_browse_page(request: Request, category: str = "fandom", tag: str = "", page: int = 1):
-    """Browse db.catalog_works by a single fandom/relationship/tag at a
-    time -- open to every logged-in user, not just Admin (see
-    ADMIN_PATH_PREFIXES; this path isn't in it), same as Fandoms/Tags
-    browsing. Deliberately not a Downloads-style multi-facet filter panel:
-    this is a plain indexed lookup (db.search_catalog_works) against
-    however many millions of rows catalog_works holds, so it only ever
-    supports "show me works with this one tag," paginated in SQL -- never
-    a full-library scan/materialization the way Downloads' own filter
-    panel works for the (much smaller) on-disk library.
-    """
-    category = category if category in catalog_import.CATALOG_TAG_KINDS else "fandom"
-    works, page, total_pages = (
-        db.search_catalog_works(DB_PATH, category, tag, page, CATALOG_BROWSE_PAGE_SIZE) if tag else ([], 1, 1)
-    )
-    return templates.TemplateResponse(
-        "catalog_browse.html",
-        {
-            **_base_context(request),
-            "category": category,
-            "category_labels": CATALOG_BROWSE_CATEGORY_LABELS,
-            "tag": tag,
-            "works": works,
-            "page": page,
-            "total_pages": total_pages,
-            "catalog_count": db.count_catalog_works(DB_PATH),
-        },
-    )
-
-
-@app.get("/catalog/browse/search")
-def catalog_browse_search(category: str = "fandom", q: str = ""):
-    """Typeahead endpoint backing the Catalog Browse page's tag search box
-    -- see _search_catalog_tags.
-    """
-    return JSONResponse(_search_catalog_tags(category, q))

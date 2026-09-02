@@ -14,7 +14,7 @@
       <a class="site-brand" href="/">Archive Of My Own</a>
     </h1>
     <nav class="topnav" aria-label="Site">
-      {% set browse_paths = ['/fandoms', '/tags', '/catalog/browse'] %}
+      {% set browse_paths = ['/fandoms', '/tags'] %}
       {% set is_admin_section = request.url.path.startswith('/admin') or request.url.path in ['/issues', '/tracked', '/queue', '/incomplete'] %}
       <div class="topnav-links primary navigation actions">
         <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Home</a>
@@ -23,7 +23,6 @@
           <div class="nav-dropdown-menu menu">
             <a href="/fandoms" class="{% if request.url.path == '/fandoms' %}active{% endif %}">Fandoms</a>
             <a href="/tags" class="{% if request.url.path == '/tags' %}active{% endif %}">Tags</a>
-            <a href="/catalog/browse" class="{% if request.url.path == '/catalog/browse' %}active{% endif %}">Catalog</a>
           </div>
         </details>
         {% if user.is_admin %}

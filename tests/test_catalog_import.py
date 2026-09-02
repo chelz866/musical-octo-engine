@@ -224,7 +224,7 @@ def test_import_from_sqlite_populates_catalog_work_tags():
 
         assert db.get_catalog_tag_values(db_path, "fandom") == {"Tokyo Revengers (Anime)", "Tokyo Revengers (Manga)"}
         assert db.get_catalog_tag_values(db_path, "relationship") == {"Takemichi/Reader"}
-        works, _, _ = db.search_catalog_works(db_path, "fandom", "Tokyo Revengers (Anime)", 1, 25)
+        works = db.fetch_catalog_works_slice(db_path, "fandom", "Tokyo Revengers (Anime)", offset=0, limit=25)
         assert works[0]["work_id"] == "35282845"
 
 

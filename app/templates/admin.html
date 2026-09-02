@@ -49,6 +49,12 @@
       Use Home as edit source
     </label>
   </form>
+  <form method="post" action="/admin/show_download_button">
+    <label class="hint">
+      <input type="checkbox" name="enabled" value="true" onchange="this.form.submit()" {% if show_download_button %}checked{% endif %}>
+      Show Download button on not-yet-downloaded works
+    </label>
+  </form>
 
   <h2>Database</h2>
   {% if db_optimize_error %}<p class="badge badge-warn">Last optimize failed: {{ db_optimize_error }}</p>{% endif %}

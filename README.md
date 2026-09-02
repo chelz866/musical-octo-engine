@@ -215,13 +215,37 @@ Nav is grouped into three: **Home** (Downloads -- the actual browsing/search sur
 accounts (Dashboard/Issues/Tracked Feeds/Queue/Classify Tags/Users -- maintenance and setup, not
 day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
 
-- **Home** (`/`) -- the full list rendered as AO3-style work blurbs (rating/category/warning/
-  completion icons, tags, summary, language/words/chapters), a bookmark star per work (see
-  Accounts above), paginated 25 per page. Chapter progress and completion status are real here,
-  not guessed -- read straight from the epub's own preface page (see `epub_meta.parse_epub_stats`),
-  the same page AO3 embeds a "Stats:" line into on every export. Word count comes from the same
-  place; Audiobookshelf doesn't track it (confirmed
-  against a real schema export), so this only ever comes from the file itself, matched or not.
+- **Home** (`/`) -- every work this app knows about, on-disk, logged, or imported via Catalog
+  Import alike, rendered as AO3-style work blurbs (rating/category/warning/completion icons, tags,
+  summary, language/words/chapters), a bookmark star per work (see Accounts above). `on_disk` is
+  just a property of a work here, not a different kind of page or a different table -- a
+  catalog-imported work you haven't downloaded shows up exactly the same way a logged-but-missing
+  work always has, just with its own **Download** button (queues it through the same background
+  worker/`download_queue` every other "Download Selected" action already uses; hideable app-wide via
+  a checkbox on the Admin Dashboard).
+
+  Nothing shows by default: pick a Fandom, Relationship, or Additional Tag (autocomplete searches
+  both your own library and the catalog's tag vocabulary together, via `/works/search`) to see
+  matching works, paginated 25 per page. This is a deliberate rule for the whole page, not a special
+  case for the catalog side of it -- once catalog_works is in the mix the combined set can run into
+  the millions, so there's no "just show me everything" default the way there used to be for the
+  (much smaller) on-disk-only library. On-disk/logged matches always fill a page first (an indexed
+  lookup against `work_tags`, this app's own tag index -- see below), the catalog fills whatever's
+  left over (an indexed lookup against `catalog_work_tags`), so one search and one page of results
+  genuinely spans both sources without ever loading more than a page's worth of catalog rows into
+  memory, however large `catalog_works` gets. Character/Warning/Category facets, AND/OR/Exclude
+  semantics, crossover/date-range/word-count filtering, and richer sort options aren't wired to this
+  simpler picker yet (see `app/main.py`'s `dashboard()` docstring) -- the code from the previous,
+  on-disk-only rich filter panel (`_build_filter_panel`/`_entry_matches`/`FACETS`) is still in the
+  file, just not currently reachable from a route, pending a pass to run it against both sources via
+  SQL instead of only the on-disk library in Python.
+
+  Chapter progress and completion status, for an on-disk work, are real, not guessed -- read
+  straight from the epub's own preface page (see `epub_meta.parse_epub_stats`), the same page AO3
+  embeds a "Stats:" line into on every export; word count comes from the same place (Audiobookshelf
+  doesn't track it, confirmed against a real schema export). A catalog-imported work's stats/summary/
+  tags instead come directly from whatever the imported source recorded for it (see Catalog Import
+  below) -- there's no file to parse in the first place.
 
   A work's title (Home and Issues both) opens straight into an in-browser reader
   (`/reader/{work_id}`) whenever the file is actually on disk -- a one-page-per-chapter view with
@@ -238,50 +262,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   so it still lands in History -- see below); AO3 itself stays one click away either way through the
   🔗 link next to the title.
 
-  A collapsible **Search & Filter** panel above the list mirrors AO3's own sidebar, including its
-  Include/Exclude split: every facet (Rating/Warning/Category/Fandom/Character/Relationship/
-  Additional Tags, plus Completion and Language for Include only -- AO3 has no Exclude equivalent
-  for those two) starts collapsed to just its label, same as AO3, expand whichever ones you want.
-  **Include** checkboxes are AND'd -- checking both "Angst" and "Fluff" means a work needs *both*,
-  not either, matching real AO3 exactly (including the quirk that checking two values of a
-  single-valued facet like Rating always matches nothing, since a work only ever has one).
-  **Exclude** is the opposite: OR'd, so checking any box there drops a work that has *any* of them.
-  Rating/Warning/Category (fixed AO3 vocabularies) always list every option with a live count.
-  Fandom/Character/Relationship/Additional Tags/Language can run into the thousands, so each shows
-  only what you've already selected (so you can unselect it) plus its top 10 next-most-common
-  values *given every other filter you've already applied* -- the list keeps shifting toward what's
-  relevant as you narrow down, for both Include and Exclude independently.
-
-  To reach a tag that never shows up in the top 10, Fandom/Character/Relationship/Additional Tags
-  (Include and Exclude both) have their own "Find another..." typeahead box -- a self-rendered
-  dropdown (not the native `<input list>`/`<datalist>` combo, which turned out to be unreliable on
-  mobile Chrome/Safari and simply wouldn't show suggestions there) backed by `/tags/search`, a small
-  [`fast-autocomplete`](https://github.com/seperman/fast-autocomplete)-powered index built lazily
-  per facet and rebuilt only when you refresh. It matches by prefix, and for a relationship tag
-  specifically also matches by either party's name (typing "Jack" finds "Ianto Jones/Jack Harkness"
-  even though the tag doesn't start with "Jack"), since the two are joined by `/` or `&` and indexed
-  separately from the full tag. Tapping/clicking a suggestion (or typing the exact name and hitting
-  Enter) checks it, same as any other checkbox. The free-text search box above also matches tag
-  text, as a further fallback.
-
-  Once one or more Fandoms are checked (Include), the Character/Relationship/Additional Tags
-  suggestions and "Find another..." search both narrow to only tags that make sense for that
-  fandom: a tag with no fandom link at all (an unwrangled, universal trope like "Coffee Shops")
-  always stays available, and one wrangled to the selected fandom(s) -- directly, or several
-  wrangling hops down a chain (e.g. a Character wrangled under a Relationship wrangled under the
-  Fandom) -- stays available too, but a tag wrangled under a *different* fandom (e.g. "The Doctor"
-  under "Doctor Who") disappears from both while browsing Harry Potter -- see Tag wrangling under
-  Classify Tags below for how that fandom link gets set.
-
-  **More Options**: Crossovers (include/exclude/only), a word-count range, and a downloaded-date
-  range (`From`/`To`, compared against the same timestamp the "newest" sort uses). Sort-by covers
-  title, author, word count, and date downloaded -- not hits/kudos/comments/bookmarks, since those
-  are AO3 server-side engagement numbers this file-based dashboard has no access to. Every active
-  filter (Include, Exclude, crossover, word count, date range, search) shows as a removable chip,
-  checking a box always jumps back to page 1, and the URL is fully shareable/bookmarkable
-  (`?rating=...&fandom=...&x_character=...` etc. -- Exclude params are `x_`-prefixed; the old
-  `?fandom=...` links from the Fandom column and the Fandoms page still work unchanged, they're just
-  one Include facet among several now).
+  An earlier version of this page had a full AO3-style Search & Filter sidebar (Include/Exclude,
+  Rating/Warning/Category/Fandom/Character/Relationship/Additional Tags, crossovers, date range, word
+  count, per-facet typeahead) -- that only ever ran against the on-disk library in Python, which
+  doesn't extend to a multi-million-row catalog without the same per-request-memory problem this
+  project's own history already tells the story of (see `app/scanner.py`'s module docstring). The
+  code (`_build_filter_panel`/`_entry_matches`/`FACETS` in `app/main.py`) is still there, just not
+  wired to this route right now, pending a pass to run it against both sources via SQL.
 - **Admin Dashboard** (`/admin`) -- the mounted downloads/log paths, and the at-a-glance stats
   (works on disk, total size, logged-success-but-missing, on-disk-no-log-entry, logged failures)
   that used to sit at the top of the Downloads page -- moved here since they're a health check, not
@@ -293,7 +280,9 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   every action taken while a work is loaded keeps it loaded afterward. An "Optimize Database" button
   runs a one-off `VACUUM` in the background -- worth clicking if pages start feeling slower than they
   used to, since SQLite never automatically reclaims space left behind by heavy write churn (a large
-  Catalog Import, especially one retried after a crash, is exactly this).
+  Catalog Import, especially one retried after a crash, is exactly this). A "Show Download button on
+  not-yet-downloaded works" checkbox (app-wide, on by default) controls whether Home's Download
+  button (see above) appears at all.
 - **Issues** (`/issues`) -- everything with a problem: a parse error, logged as downloaded but
   missing on disk, or a logged failure. A logged failure shows ao3downloader's own exception message
   (e.g. "Work is only available to registered users of the Archive.") both as a hover tooltip on the
@@ -552,24 +541,13 @@ day-to-day browsing). Both Browse and Admin are dropdowns in the top nav.
   own read-only volume mount (see `CATALOG_DB_HOST_PATH` in `.env.example`) since the app only reads
   paths inside the container -- once mounted, enter `/catalog/source.db` (docker-compose.yml's own
   fixed in-container path for it) on the Catalog Import page, plus the table name if that file has
-  more than one table.
-  Imported rows land in their own `catalog_works` table, matched by AO3 work id (parsed from a
-  `Story URL`-style column -- there's no dedicated id column expected). They deliberately do **not**
-  show up on Downloads/Tags/Fandoms -- those pages run a full-library scan on every request, and at
-  this feature's real scale (multi-million-row exports) rebuilding every catalog row into a Python
-  object on every page load is a multi-GB-per-request cost, not a "few extra library entries" one (an
-  earlier version tried it; it's why this note exists). See **Catalog** below for how catalog works
-  are actually browsed instead. Runs in the background and streams the source in batches (see
+  more than one table. Imported rows land in `catalog_works` (metadata) and `catalog_work_tags` (a
+  normalized `(work_id, category, tag)` index for fast lookup), matched by AO3 work id (parsed from a
+  `Story URL`-style column -- there's no dedicated id column expected). This page is just the import
+  trigger and status -- imported works are browsable on **Home** (see above) as soon as an import
+  finishes, not on a separate page. Runs in the background and streams the source in batches (see
   `app/catalog_import.py`), so importing itself is safe against an export with millions of rows;
   re-running an import against a fresher export just updates existing catalog entries in place.
-- **Catalog** (`/catalog/browse`, under Browse -- open to every logged-in user, not just Admin) --
-  browse catalog-imported works one fandom/relationship/tag at a time, the same way AO3's own site
-  never shows you "all works" unfiltered either, you always start from a specific tag's page. Type
-  into the search box (autocomplete against `catalog_work_tags`, a normalized index built alongside
-  `catalog_works` at import time -- see `app/catalog_import.py`) and pick a value; results come back
-  via one indexed SQL lookup and `LIMIT`/`OFFSET` pagination (`app/db.py`'s `search_catalog_works`),
-  never a scan of the whole table, so this stays fast whether `catalog_works` has a hundred rows or
-  several million.
 - **Tracked Feeds** (`/tracked`) -- add any AO3 Atom feed URL (tag, series, or user feed) and see,
   for each work in it: chapter progress, whether AO3 currently shows it as complete, whether you
   have it, and a best-effort "up to date" hint (compares the feed's last-updated time against when

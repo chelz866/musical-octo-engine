@@ -635,7 +635,7 @@ def test_save_catalog_work_tags_tolerates_a_duplicate_triple_in_one_call():
         assert db.get_catalog_tag_values(path, "fandom") == {"Doctor Who"}
 
 
-def test_search_catalog_works_finds_matches_and_paginates():
+def test_count_and_fetch_catalog_works_slice():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
@@ -645,37 +645,53 @@ def test_search_catalog_works_finds_matches_and_paginates():
             (str(i), "fandom", "Doctor Who") for i in range(3)
         ])
 
-        page1, page, total_pages = db.search_catalog_works(path, "fandom", "Doctor Who", 1, 2)
+        assert db.count_catalog_works_for_tag(path, "fandom", "Doctor Who") == 3
+
+        page1 = db.fetch_catalog_works_slice(path, "fandom", "Doctor Who", offset=0, limit=2)
         assert len(page1) == 2
-        assert page == 1
-        assert total_pages == 2
 
-        page2, page, total_pages = db.search_catalog_works(path, "fandom", "Doctor Who", 2, 2)
+        page2 = db.fetch_catalog_works_slice(path, "fandom", "Doctor Who", offset=2, limit=2)
         assert len(page2) == 1
-        assert page == 2
 
 
-def test_search_catalog_works_clamps_an_out_of_range_page():
+def test_fetch_catalog_works_slice_no_match_returns_empty():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        db.save_catalog_works(path, [_sample_catalog_row("1")])
-        db.save_catalog_work_tags(path, ["1"], [("1", "fandom", "Doctor Who")])
-
-        works, page, total_pages = db.search_catalog_works(path, "fandom", "Doctor Who", 99, 25)
-        assert page == 1
-        assert total_pages == 1
-        assert len(works) == 1
+        assert db.fetch_catalog_works_slice(path, "fandom", "Nonexistent", offset=0, limit=25) == []
+        assert db.count_catalog_works_for_tag(path, "fandom", "Nonexistent") == 0
 
 
-def test_search_catalog_works_no_match_returns_empty():
+def test_get_work_ids_for_tag_and_get_work_tag_values():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "app.db")
         db.init_db(path)
-        works, page, total_pages = db.search_catalog_works(path, "fandom", "Nonexistent", 1, 25)
-        assert works == []
-        assert page == 1
-        assert total_pages == 1
+        db.save_work_tags(path, [
+            ("1", "fandom", "Doctor Who"),
+            ("2", "fandom", "Doctor Who"),
+            ("2", "fandom", "Torchwood"),
+        ])
+
+        assert set(db.get_work_ids_for_tag(path, "fandom", "Doctor Who")) == {"1", "2"}
+        assert db.get_work_ids_for_tag(path, "fandom", "Nonexistent") == []
+        assert db.get_work_tag_values(path, "fandom") == {"Doctor Who", "Torchwood"}
+
+
+def test_load_works_cache_by_ids_and_load_work_tags_by_ids():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "app.db")
+        db.init_db(path)
+        db.save_works_cache(path, [_sample_work_row("1"), _sample_work_row("2", title="Other")])
+        db.save_work_tags(path, [("1", "fandom", "Doctor Who"), ("2", "fandom", "Torchwood")])
+
+        rows = db.load_works_cache_by_ids(path, ["1"])
+        assert [r["work_id"] for r in rows] == ["1"]
+
+        tags = db.load_work_tags_by_ids(path, ["1"])
+        assert tags == {"1": {"fandom": ["Doctor Who"]}}
+
+        assert db.load_works_cache_by_ids(path, []) == []
+        assert db.load_work_tags_by_ids(path, []) == {}
 
 
 def test_pop_legacy_tracked_feeds_returns_empty_when_no_legacy_table(tmp_path):

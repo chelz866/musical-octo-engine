@@ -1,5 +1,5 @@
 {% import "_fandom_picker.html" as picker %}
-{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, show_edit_button=false, viewed_at=none) %}
+{% macro blurb_item(e, user, request, bookmarked_ids, bookmark_notes, abs_links, abs_read_ids, read_marked_ids, show_edit_button=false, viewed_at=none, show_download_button=false) %}
 {% set icons = e | blurb_icons %}
 {% set tags = e | blurb_tag_line %}
 <li class="blurb work group">
@@ -82,10 +82,20 @@
         <span class="badge badge-warn" title="{{ e.parse_error }}">parse error</span>
       {% elif e.on_disk %}
         <span class="badge badge-ok">✓ on disk</span>
+      {% elif e.log_success is none %}
+        <span class="badge">not downloaded</span>
       {% elif e.log_success %}
         <span class="badge badge-missing">✗ missing</span>
       {% else %}
         <span class="badge badge-warn" title="{{ e.log_error }}">✗ failed</span>
+      {% endif %}
+      {% if show_download_button and not e.on_disk %}
+      &middot;
+      <form method="post" action="/works/{{ e.work_id }}/download" class="inline-form">
+        <input type="hidden" name="next" value="{{ request.url }}">
+        <input type="hidden" name="title" value="{{ e.title or '' }}">
+        <button type="submit" title="Queue this for download">Download</button>
+      </form>
       {% endif %}
       {% if viewed_at %}
       &middot;
